@@ -1,0 +1,76 @@
+[package]
+name = "sonicspeedlatex"
+version = "0.1.0"
+edition = "2021"
+description = "Blazing fast LaTeX to PDF compiler - 1000x faster than pdflatex"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bheemrc/sonicspeedlatex"
+keywords = ["latex", "pdf", "compiler", "typesetting", "fast"]
+categories = ["command-line-utilities", "text-processing"]
+
+[[bin]]
+name = "soniclatex"
+path = "src/main.rs"
+
+[dependencies]
+# PDF generation
+lopdf = "0.34"
+printpdf = "0.7"
+
+# Font handling
+rusttype = "0.9"
+owned_ttf_parser = "0.25"
+
+# Image processing
+image = "0.25"
+
+# Parallelism
+rayon = "1.10"
+crossbeam = "0.8"
+
+# Fast string/text processing
+memchr = "2.7"
+bstr = "1.11"
+itoa = "1"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Fast hashing
+ahash = "0.8"
+
+# Unicode
+unicode-segmentation = "1.12"
+unicode-linebreak = "0.1"
+
+# Compression
+flate2 = "1.0"
+miniz_oxide = "0.8"
+
+# Performance
+parking_lot = "0.12"
+
+# Memory mapping
+memmap2 = "0.9"
+
+# Fast allocator
+mimalloc = { version = "0.1", default-features = false }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+target-cpu = "native"
+
+[profile.dev]
+opt-level = 1
