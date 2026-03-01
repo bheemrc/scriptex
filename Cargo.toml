@@ -58,6 +58,18 @@ miniz_oxide = "0.8"
 # Performance
 parking_lot = "0.12"
 
+# Code highlighting (Phase 2)
+syntect = { version = "5", default-features = false, features = ["default-fancy"] }
+
+# Content hashing for TikZ cache (Phase 4)
+sha2 = "0.10"
+
+# Bibliography parsing (Phase 5)
+biblatex = "0.10"
+
+# Font subsetting (Phase 7)
+subsetter = "0.2"
+
 # Memory mapping
 memmap2 = "0.9"
 

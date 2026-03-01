@@ -717,6 +717,7 @@ impl<'a> Parser<'a> {
                 cmd_id::LABEL => { let l = self.read_braced_text()?; Ok(Some(Node::Label(l))) }
                 cmd_id::REF => { let l = self.read_braced_text()?; Ok(Some(Node::Ref(l))) }
                 cmd_id::CITE => { let _opt = self.try_read_optional_arg(); let k = self.read_braced_text()?; Ok(Some(Node::Citation(k))) }
+                cmd_id::BIBITEM => { let _opt = self.try_read_optional_arg(); let k = self.read_braced_text()?; Ok(Some(Node::BibItem(k))) }
                 cmd_id::FOOTNOTE => { let n = self.read_braced_nodes()?; Ok(Some(Node::Footnote(n))) }
                 cmd_id::VSPACE => { let dim = self.read_braced_text()?; let pts = self.parse_dimension(&dim).unwrap_or(10.0); Ok(Some(Node::VSpace(pts))) }
                 cmd_id::HSPACE => { let dim = self.read_braced_text()?; let pts = self.parse_dimension(&dim).unwrap_or(10.0); Ok(Some(Node::HSpace(pts))) }
@@ -924,6 +925,16 @@ impl<'a> Parser<'a> {
             "\\pagestyle" | "\\thispagestyle" => { let _style = self.read_braced_text()?; Ok(None) }
             "\\setlength" | "\\addtolength" => { self.skip_command_args(); Ok(None) }
             "\\newcommand" | "\\renewcommand" | "\\providecommand" | "\\def" => { self.skip_command_args(); Ok(None) }
+            "\\bibliography" | "\\addbibresource" => {
+                let _bib_file = self.read_braced_text()?;
+                // Bibliography loading happens outside the parser
+                Ok(None)
+            }
+            "\\printbibliography" | "\\nocite" => {
+                self.skip_command_args();
+                Ok(None)
+            }
+            "\\bibliographystyle" => { let _style = self.read_braced_text()?; Ok(None) }
 
             _ => {
                 log::debug!("Unknown command: {}", cmd);
@@ -965,12 +976,44 @@ impl<'a> Parser<'a> {
             | "gather" | "gather*" | "multline" | "multline*" => {
                 self.parse_display_math_environment(&env_name)
             }
-            "verbatim" | "lstlisting" | "minted" => self.parse_verbatim_environment(&env_name),
+            "verbatim" => self.parse_verbatim_environment(&env_name),
+            "lstlisting" => {
+                // Extract language from optional args: \begin{lstlisting}[language=Python]
+                let opt = self.try_read_optional_arg();
+                let lang = opt.as_ref().and_then(|o| {
+                    for part in o.split(',') {
+                        let parts: Vec<&str> = part.split('=').collect();
+                        if parts.len() == 2 && parts[0].trim().eq_ignore_ascii_case("language") {
+                            return Some(parts[1].trim().to_lowercase());
+                        }
+                    }
+                    None
+                });
+                let mut text = String::new();
+                self.read_verbatim_content(&env_name, &mut text)?;
+                // Store language in the verbatim text as a prefix marker
+                if let Some(l) = lang {
+                    Ok(Some(Node::Verbatim(format!("%%lang:{}%%\n{}", l, text))))
+                } else {
+                    Ok(Some(Node::Verbatim(text)))
+                }
+            }
+            "minted" => {
+                // \begin{minted}{python}
+                let lang = self.read_braced_text().ok();
+                let mut text = String::new();
+                self.read_verbatim_content(&env_name, &mut text)?;
+                if let Some(l) = lang {
+                    Ok(Some(Node::Verbatim(format!("%%lang:{}%%\n{}", l.to_lowercase(), text))))
+                } else {
+                    Ok(Some(Node::Verbatim(text)))
+                }
+            }
             "tikzpicture" | "pgfplots" | "pgfonlayer" | "scope"
             | "axis" | "semilogxaxis" | "semilogyaxis" | "loglogaxis" => {
-                // Skip TikZ/pgfplots environments entirely (can't render diagrams)
-                self.skip_environment_raw(&env_name)?;
-                Ok(None)
+                // Capture TikZ source for rendering via pdflatex shell-out
+                let raw_source = self.capture_environment_raw(&env_name)?;
+                Ok(Some(Node::Verbatim(format!("%%tikz:{}%%\n{}", env_name, raw_source))))
             }
             "quote" => {
                 let content = self.parse_environment_body(&env_name)?;
@@ -1142,7 +1185,9 @@ impl<'a> Parser<'a> {
         let mut rows: Vec<TableRow> = Vec::new();
         let mut current_cells: Vec<TableCell> = Vec::new();
         let mut current_cell_content: Vec<Node> = Vec::new();
+        let mut hline_before_next = false;
         let mut hline_after = false;
+        let mut extra_space_next: f32 = 0.0;
 
         loop {
             match self.current().kind {
@@ -1165,8 +1210,12 @@ impl<'a> Parser<'a> {
                                     });
                                     rows.push(TableRow {
                                         cells: std::mem::take(&mut current_cells),
+                                        hline_before: hline_before_next,
                                         hline_after,
+                                        extra_space_before: extra_space_next,
                                     });
+                                    hline_before_next = false;
+                                    extra_space_next = 0.0;
                                 }
                                 break;
                             }
@@ -1178,14 +1227,28 @@ impl<'a> Parser<'a> {
 
                     if cid == cmd_id::HLINE {
                         self.advance();
-                        hline_after = true;
+                        // hline between rows → draw before the next row
+                        if rows.is_empty() {
+                            hline_before_next = true;
+                        } else {
+                            // Also set on previous row as hline_after for compat
+                            rows.last_mut().unwrap().hline_after = true;
+                        }
                         continue;
                     }
                     {
                         let cmd = self.current_text();
                         if cmd == "\\toprule" || cmd == "\\midrule" || cmd == "\\bottomrule" {
                             self.advance();
-                            hline_after = true;
+                            if cmd == "\\bottomrule" {
+                                // bottomrule: set hline_after on the previous row
+                                if let Some(last_row) = rows.last_mut() {
+                                    last_row.hline_after = true;
+                                }
+                            } else {
+                                // toprule/midrule: draw line before the next row
+                                hline_before_next = true;
+                            }
                             continue;
                         }
                         if cmd == "\\cline" {
@@ -1206,11 +1269,20 @@ impl<'a> Parser<'a> {
                             });
                             continue;
                         }
-                        if cmd == "\\addlinespace" || cmd == "\\noalign" {
+                        if cmd == "\\addlinespace" {
                             self.advance();
-                            // Skip optional arg like [5pt]
+                            // Parse optional arg like [5pt], default 3pt for booktabs
+                            let space = if let Some(arg) = self.try_read_optional_arg() {
+                                self.parse_dimension(&arg).unwrap_or(3.0)
+                            } else {
+                                3.0
+                            };
+                            extra_space_next += space;
+                            continue;
+                        }
+                        if cmd == "\\noalign" {
+                            self.advance();
                             self.try_read_optional_arg();
-                            // Skip braced arg if present (for \noalign)
                             if self.current().kind == TokenKind::OpenBrace {
                                 let _ = self.read_braced_text();
                             }
@@ -1249,9 +1321,13 @@ impl<'a> Parser<'a> {
                     });
                     rows.push(TableRow {
                         cells: std::mem::take(&mut current_cells),
+                        hline_before: hline_before_next,
                         hline_after,
+                        extra_space_before: extra_space_next,
                     });
+                    hline_before_next = false;
                     hline_after = false;
+                    extra_space_next = 0.0;
                 }
                 _ => {
                     if let Some(node) = self.parse_node()? {
@@ -1372,10 +1448,11 @@ impl<'a> Parser<'a> {
                     tbl.label = label.clone();
                 }
             }
-            // Wrap in figure-like structure for layout
+            // Wrap in figure-like structure for layout but WITHOUT caption
+            // (the Table node already has its own caption — avoid double caption)
             Ok(Some(Node::Figure(Box::new(FigureData {
                 content,
-                caption,
+                caption: None,
                 label,
                 placement,
             }))))
@@ -1428,13 +1505,22 @@ impl<'a> Parser<'a> {
     /// Skip an environment entirely, consuming tokens until \end{env_name}
     /// Used for environments we can't render (TikZ, pgfplots, etc.)
     fn skip_environment_raw(&mut self, env_name: &str) -> Result<()> {
-        let mut depth = 1; // track nested \begin/\end
+        self.capture_environment_raw(env_name)?;
+        Ok(())
+    }
+
+    /// Capture the raw source text of an environment body, then skip past \end{env_name}
+    fn capture_environment_raw(&mut self, env_name: &str) -> Result<String> {
+        let start_pos = self.current().pos as usize;
+        let mut end_pos = start_pos;
+        let mut depth = 1;
         loop {
             match self.current().kind {
                 TokenKind::Eof => break,
                 TokenKind::Command => {
                     let cid = self.current().cmd;
                     if cid == cmd_id::END {
+                        end_pos = self.current().pos as usize;
                         let save = self.pos;
                         self.advance();
                         self.skip_whitespace_and_comments();
@@ -1442,7 +1528,10 @@ impl<'a> Parser<'a> {
                             let name = self.read_braced_text()?;
                             if name == env_name {
                                 depth -= 1;
-                                if depth == 0 { return Ok(()); }
+                                if depth == 0 {
+                                    let raw = self.source[start_pos..end_pos].trim().to_string();
+                                    return Ok(raw);
+                                }
                             }
                         } else {
                             self.pos = save;
@@ -1468,14 +1557,16 @@ impl<'a> Parser<'a> {
                 _ => { self.advance(); }
             }
         }
-        Ok(())
+        Ok(String::new())
     }
 
     fn parse_verbatim_environment(&mut self, env_name: &str) -> Result<Option<Node>> {
-        // For verbatim, we read raw text until \end{verbatim}
-        let end_marker = format!("\\end{{{}}}", env_name);
         let mut text = String::new();
+        self.read_verbatim_content(env_name, &mut text)?;
+        Ok(Some(Node::Verbatim(text)))
+    }
 
+    fn read_verbatim_content(&mut self, env_name: &str, text: &mut String) -> Result<()> {
         loop {
             match self.current().kind {
                 TokenKind::Eof => break,
@@ -1501,13 +1592,17 @@ impl<'a> Parser<'a> {
                     }
                 }
                 _ => {
-                    text.push_str(self.current().text(self.source));
+                    // Use raw source text to preserve newlines in verbatim content
+                    // (Token::text() returns " " for Space tokens, losing newlines)
+                    let tok = self.current();
+                    let start = tok.pos as usize;
+                    let end = (start + tok.len as usize).min(self.source.len());
+                    text.push_str(&self.source[start..end]);
                     self.advance();
                 }
             }
         }
-
-        Ok(Some(Node::Verbatim(text)))
+        Ok(())
     }
 
     fn parse_math_until_dollar(&mut self) -> Result<Vec<MathNode>> {
@@ -1806,6 +1901,8 @@ impl<'a> Parser<'a> {
             "\\prime" => Ok(Some(MathNode::Symbol("\u{2032}".to_string()))),
             "\\emptyset" | "\\varnothing" => Ok(Some(MathNode::Symbol("\u{2205}".to_string()))),
             "\\angle" => Ok(Some(MathNode::Symbol("\u{2220}".to_string()))),
+            "\\circ" => Ok(Some(MathNode::Symbol("\u{00B0}".to_string()))),  // degree symbol
+            "\\degree" => Ok(Some(MathNode::Symbol("\u{00B0}".to_string()))),
 
             // Math functions
             "\\sin" | "\\cos" | "\\tan" | "\\cot" | "\\sec" | "\\csc"

@@ -49,6 +49,7 @@ pub mod cmd_id {
     pub const URL: u8 = 35;
     pub const COLOR: u8 = 36;
     pub const TEXTCOLOR: u8 = 37;
+    pub const BIBITEM: u8 = 38;
 }
 
 /// Compact token representation: 8 bytes total
@@ -537,6 +538,9 @@ impl<'a> Lexer<'a> {
             (8, b'n') => {
                 if &src[start+1..start+8] == b"newpage" { return cmd_id::NEWPAGE; }
             }
+            (8, b'b') => {
+                if &src[start+1..start+8] == b"bibitem" { return cmd_id::BIBITEM; }
+            }
             (9, b's') => {
                 if &src[start+1..start+9] == b"section*" { return cmd_id::SECTION_STAR; }
             }
@@ -567,8 +571,8 @@ impl<'a> Lexer<'a> {
             (14, b'd') => {
                 if &src[start+1..start+14] == b"documentclass" { return cmd_id::DOCUMENTCLASS; }
             }
-            (15, b's') => {
-                if &src[start+1..start+15] == b"subsubsection" { return cmd_id::SUBSUBSECTION; }
+            (14, b's') => {
+                if &src[start+1..start+14] == b"subsubsection" { return cmd_id::SUBSUBSECTION; }
             }
             (16, b'i') => {
                 if &src[start+1..start+16] == b"includegraphics" { return cmd_id::INCLUDEGRAPHICS; }

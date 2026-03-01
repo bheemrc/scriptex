@@ -46,7 +46,7 @@ impl Default for Preamble {
             packages: Vec::new(),
             page_setup: PageSetup::default(),
             font_size: 10.0,
-            line_spacing: 1.2,
+            line_spacing: 1.0,
             commands: Vec::new(),
         }
     }
@@ -82,8 +82,8 @@ impl Default for PageSetup {
             margin_bottom: 72.0,
             margin_left: 72.0,
             margin_right: 72.0,
-            header_height: 20.0,
-            footer_height: 20.0,
+            header_height: 0.0,
+            footer_height: 20.0,  // space for page number
             columns: 1,
             column_sep: 18.0,
         }
@@ -207,6 +207,8 @@ pub enum Node {
     Label(String),
     Ref(String),
     Citation(String),
+    /// Bibliography item marker
+    BibItem(String),
 
     /// Horizontal rule
     HRule,
@@ -407,7 +409,9 @@ pub enum ColumnSpec {
 #[derive(Debug, Clone)]
 pub struct TableRow {
     pub cells: Vec<TableCell>,
+    pub hline_before: bool,
     pub hline_after: bool,
+    pub extra_space_before: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -443,7 +447,7 @@ pub enum MathNode {
     Under { content: Vec<MathNode>, under_type: UnderType },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum MatrixStyle {
     Plain,
     Parenthesized,

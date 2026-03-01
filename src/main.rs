@@ -14,6 +14,20 @@ mod typeset;
 mod pdf;
 mod color;
 mod error;
+mod font;
+mod highlight;
+mod math_layout;
+#[allow(dead_code)]
+mod tikz;
+mod tikz_render;
+#[allow(dead_code)]
+mod bibliography;
+#[allow(dead_code)]
+mod xref;
+#[allow(dead_code)]
+mod image_embed;
+#[allow(dead_code)]
+mod font_embed;
 
 use crate::parser::Parser;
 

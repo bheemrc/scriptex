@@ -1,0 +1,238 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{graphicx}
+
+\title{Comprehensive Feature Test}
+\author{SonicSpeedLaTeX Tester}
+\date{February 2026}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\section{Introduction}
+\label{sec:intro}
+
+This document tests all the features implemented in SonicSpeedLaTeX.
+We will cover math rendering, code highlighting, cross-references,
+citations, images, and more.
+
+See Section~\ref{sec:math} for mathematical formulas.
+
+\section{Mathematical Formulas}
+\label{sec:math}
+
+\subsection{Inline and Display Math}
+
+The quadratic formula is $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$.
+
+Einstein's famous equation is:
+\begin{equation}
+E = mc^2
+\end{equation}
+
+\subsection{Fractions and Radicals}
+
+A complex fraction:
+$$\frac{1 + \frac{a}{b}}{1 - \frac{c}{d}}$$
+
+A square root:
+$$\sqrt{x^2 + y^2}$$
+
+An nth root:
+$$\sqrt[3]{27} = 3$$
+
+\subsection{Summations and Integrals}
+
+The Gaussian integral:
+$$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$
+
+A summation:
+$$\sum_{n=1}^{N} n = \frac{N(N+1)}{2}$$
+
+A product:
+$$\prod_{k=1}^{n} k = n!$$
+
+\subsection{Matrices}
+
+A 2x2 matrix:
+$$\begin{pmatrix} a & b \\ c & d \end{pmatrix}$$
+
+\subsection{Greek Letters and Symbols}
+
+The Greek alphabet: $\alpha, \beta, \gamma, \delta, \epsilon, \zeta, \eta, \theta$.
+
+Operators: $\leq, \geq, \neq, \approx, \sim, \in, \notin, \subset, \supset$.
+
+\section{Code Highlighting}
+\label{sec:code}
+
+\subsection{Python Code}
+
+\begin{lstlisting}[language=Python]
+def fibonacci(n):
+    """Calculate the nth Fibonacci number."""
+    if n <= 1:
+        return n
+    a, b = 0, 1
+    for _ in range(2, n + 1):
+        a, b = b, a + b
+    return b
+
+# Test
+for i in range(10):
+    print(f"F({i}) = {fibonacci(i)}")
+\end{lstlisting}
+
+\subsection{Rust Code}
+
+\begin{minted}{rust}
+fn main() {
+    let numbers: Vec<i32> = (1..=10).collect();
+    let sum: i32 = numbers.iter().sum();
+    println!("Sum of 1..10 = {}", sum);
+}
+\end{minted}
+
+\subsection{Verbatim Text}
+
+\begin{verbatim}
+This is plain verbatim text.
+No syntax highlighting here.
+    Indentation is preserved.
+\end{verbatim}
+
+\section{Tables and Lists}
+\label{sec:tables}
+
+\subsection{A Simple Table}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|r|}
+\hline
+Left & Center & Right \\
+\hline
+Alpha & 1.234 & Yes \\
+Beta & 5.678 & No \\
+Gamma & 9.012 & Maybe \\
+\hline
+\end{tabular}
+\caption{A sample table}
+\label{tab:sample}
+\end{table}
+
+\subsection{Lists}
+
+\begin{itemize}
+\item First item with some longer text that might wrap to the next line
+\item Second item
+\item Third item with \textbf{bold} and \textit{italic} text
+\end{itemize}
+
+\begin{enumerate}
+\item Numbered item one
+\item Numbered item two
+\item Numbered item three
+\end{enumerate}
+
+\begin{description}
+\item[Term 1] Definition of the first term
+\item[Term 2] Definition of the second term
+\end{description}
+
+\section{Cross-References}
+
+As shown in Table~\ref{tab:sample}, the data is organized in rows.
+The code in Section~\ref{sec:code} demonstrates syntax highlighting.
+Refer back to the introduction in Section~\ref{sec:intro}.
+
+\section{Images}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{example_image}
+\caption{An example image placeholder}
+\label{fig:example}
+\end{figure}
+
+\section{Typography}
+
+\subsection{Font Styles}
+
+This is \textbf{bold text}, \textit{italic text}, \texttt{monospace text},
+\textsc{Small Caps}, and \underline{underlined text}.
+
+\subsection{Special Characters}
+
+En dash: 1--10. Em dash: something---else. Ellipsis: etc\ldots
+
+Quotes: ``double quotes'' and `single quotes'.
+
+Copyright \copyright, registered \textregistered, trademark \texttrademark.
+
+\subsection{Font Sizes}
+
+{\tiny Tiny text}
+{\small Small text}
+Normal text
+{\large Large text}
+{\Large Larger text}
+{\LARGE Even larger}
+{\huge Huge text}
+
+\section{Environments}
+
+\subsection{Quotation}
+
+\begin{quotation}
+This is a quotation environment. The text is indented on both sides
+to visually set it apart from the surrounding text. It can contain
+multiple paragraphs.
+
+Here is the second paragraph of the quotation.
+\end{quotation}
+
+\subsection{Abstract}
+
+This section is not in an abstract environment, but our document
+has one at the top.
+
+\subsection{Centered Content}
+
+\begin{center}
+This text is centered on the page.
+
+Multiple lines can be centered independently.
+\end{center}
+
+\section{Citations}
+
+According to Smith et al.~\cite{smith2024}, the results are significant.
+Further work by Johnson~\cite{johnson2023} confirms these findings.
+Multiple citations are supported~\cite{smith2024,johnson2023}.
+
+\section{Footnotes}
+
+This sentence has a footnote\footnote{This is the footnote text.} attached to it.
+Another footnote\footnote{Second footnote with more details.} appears here.
+
+\section{Conclusion}
+
+This document has tested all major features of SonicSpeedLaTeX including:
+\begin{itemize}
+\item Mathematical formulas (fractions, radicals, integrals, matrices)
+\item Syntax-highlighted code blocks (Python, Rust)
+\item Tables with alignment
+\item Numbered and bulleted lists
+\item Cross-references
+\item Citations
+\item Images (placeholders)
+\item Typography and special characters
+\item Various environments (quotation, center, verbatim)
+\end{itemize}
+
+\end{document}

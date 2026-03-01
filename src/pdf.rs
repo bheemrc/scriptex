@@ -264,6 +264,7 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
 
     let mut current_font: u8 = 0; // 0 = none set
     let mut current_size: u16 = 0; // size * 100 for comparison
+    let mut current_tw50: i16 = 0; // word spacing * 50 for justified text
     let mut cr: u8 = 0;
     let mut cg: u8 = 0;
     let mut cb: u8 = 0;
@@ -273,7 +274,7 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
 
     for elem in elements {
         match elem {
-            PageElement::Text { x, y, text_offset, text_len, font_size_100, font_style, color } => {
+            PageElement::Text { x, y, text_offset, text_len, font_size_100, font_style, color, word_spacing_50 } => {
                 if *text_len == 0 {
                     continue;
                 }
@@ -321,6 +322,18 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                     current_size = *font_size_100;
                 }
 
+                // Word spacing for justified text (Tw operator)
+                if *word_spacing_50 != current_tw50 {
+                    if *word_spacing_50 != 0 {
+                        let ws = *word_spacing_50 as f32 * 0.02;
+                        write_f32_fast(&mut c, ws);
+                        c.extend_from_slice(b" Tw\n");
+                    } else {
+                        c.extend_from_slice(b"0 Tw\n");
+                    }
+                    current_tw50 = *word_spacing_50;
+                }
+
                 // Position (Td is relative to current text position)
                 let dx = *x - cur_tx;
                 let dy = pdf_y - cur_ty;
@@ -332,34 +345,75 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                 cur_ty = pdf_y;
 
                 // Text escaping + UTF-8 to WinAnsiEncoding conversion
-                // Fast path: scan for runs of safe ASCII (no escaping or encoding needed)
+                // Also handles LaTeX quote ligatures: `` → left dquote, '' → right dquote
                 let text_bytes = text.as_bytes();
                 let tlen = text_bytes.len();
                 let mut tpos = 0;
                 while tpos < tlen {
                     // Fast ASCII scan: find next byte needing special handling
-                    // Special bytes: ( ) \ (need escaping) and >= 0x80 (non-ASCII)
+                    // Special bytes: ( ) \ ` ' - (need escaping/conversion) and >= 0x80 (non-ASCII)
                     let scan_start = tpos;
                     while tpos < tlen {
                         let b = text_bytes[tpos];
-                        if b == b'(' || b == b')' || b == b'\\' || b >= 0x80 {
+                        if b == b'(' || b == b')' || b == b'\\' || b == b'`' || b >= 0x80 {
                             break;
                         }
                         tpos += 1;
                     }
-                    // Emit safe ASCII run
+                    // Emit safe ASCII run, converting '' to right double quote and --/--- to en/em-dash
                     if tpos > scan_start {
-                        c.extend_from_slice(&text_bytes[scan_start..tpos]);
+                        let run = &text_bytes[scan_start..tpos];
+                        // Check if run contains ligature chars (' or -)
+                        let has_quote = memchr::memchr(b'\'', run).is_some();
+                        let has_dash = memchr::memchr(b'-', run).is_some();
+                        if has_quote || has_dash {
+                            let mut rpos = 0;
+                            while rpos < run.len() {
+                                if run[rpos] == b'\'' && rpos + 1 < run.len() && run[rpos + 1] == b'\'' {
+                                    c.push(0x94); // WinAnsi right double quote
+                                    rpos += 2;
+                                } else if run[rpos] == b'-' && rpos + 1 < run.len() && run[rpos + 1] == b'-' {
+                                    if rpos + 2 < run.len() && run[rpos + 2] == b'-' {
+                                        c.push(0x97); // WinAnsi em-dash (---)
+                                        rpos += 3;
+                                    } else {
+                                        c.push(0x96); // WinAnsi en-dash (--)
+                                        rpos += 2;
+                                    }
+                                } else {
+                                    c.push(run[rpos]);
+                                    rpos += 1;
+                                }
+                            }
+                        } else {
+                            c.extend_from_slice(run);
+                        }
                     }
                     if tpos >= tlen { break; }
 
                     let b = text_bytes[tpos];
                     if b < 0x80 {
-                        // ASCII special char
+                        // ASCII special char + LaTeX quote ligatures
                         match b {
                             b'(' => c.extend_from_slice(b"\\("),
                             b')' => c.extend_from_slice(b"\\)"),
                             b'\\' => c.extend_from_slice(b"\\\\"),
+                            b'`' => {
+                                if tpos + 1 < tlen && text_bytes[tpos + 1] == b'`' {
+                                    c.push(0x93); // WinAnsi left double quote
+                                    tpos += 1;
+                                } else {
+                                    c.push(0x91); // WinAnsi left single quote
+                                }
+                            }
+                            b'\'' => {
+                                if tpos + 1 < tlen && text_bytes[tpos + 1] == b'\'' {
+                                    c.push(0x94); // WinAnsi right double quote
+                                    tpos += 1;
+                                } else {
+                                    c.push(b);
+                                }
+                            }
                             _ => c.push(b),
                         }
                         tpos += 1;
@@ -439,14 +493,70 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                     c.extend_from_slice(b" w\n");
                 }
 
-                write_f32_fast(&mut c, rect.x);
-                c.push(b' ');
-                write_f32_fast(&mut c, pdf_y);
-                c.push(b' ');
-                write_f32_fast(&mut c, rect.width);
-                c.push(b' ');
-                write_f32_fast(&mut c, rect.height);
-                c.extend_from_slice(b" re\n");
+                if rect.corner_radius > 0.0 {
+                    // Rounded rect / circle via Bézier curves
+                    let r = rect.corner_radius.min(rect.width / 2.0).min(rect.height / 2.0);
+                    let x = rect.x;
+                    let y = pdf_y;
+                    let w = rect.width;
+                    let h = rect.height;
+                    // Kappa for quarter-circle Bézier approximation
+                    let k = r * 0.5523;
+
+                    // Move to start (top-left + r)
+                    write_f32_fast(&mut c, x + r); c.push(b' ');
+                    write_f32_fast(&mut c, y + h); c.extend_from_slice(b" m\n");
+                    // Top edge → top-right corner
+                    write_f32_fast(&mut c, x + w - r); c.push(b' ');
+                    write_f32_fast(&mut c, y + h); c.extend_from_slice(b" l\n");
+                    // Top-right arc
+                    write_f32_fast(&mut c, x + w - r + k); c.push(b' ');
+                    write_f32_fast(&mut c, y + h); c.push(b' ');
+                    write_f32_fast(&mut c, x + w); c.push(b' ');
+                    write_f32_fast(&mut c, y + h - r + k); c.push(b' ');
+                    write_f32_fast(&mut c, x + w); c.push(b' ');
+                    write_f32_fast(&mut c, y + h - r); c.extend_from_slice(b" c\n");
+                    // Right edge → bottom-right corner
+                    write_f32_fast(&mut c, x + w); c.push(b' ');
+                    write_f32_fast(&mut c, y + r); c.extend_from_slice(b" l\n");
+                    // Bottom-right arc
+                    write_f32_fast(&mut c, x + w); c.push(b' ');
+                    write_f32_fast(&mut c, y + r - k); c.push(b' ');
+                    write_f32_fast(&mut c, x + w - r + k); c.push(b' ');
+                    write_f32_fast(&mut c, y); c.push(b' ');
+                    write_f32_fast(&mut c, x + w - r); c.push(b' ');
+                    write_f32_fast(&mut c, y); c.extend_from_slice(b" c\n");
+                    // Bottom edge → bottom-left corner
+                    write_f32_fast(&mut c, x + r); c.push(b' ');
+                    write_f32_fast(&mut c, y); c.extend_from_slice(b" l\n");
+                    // Bottom-left arc
+                    write_f32_fast(&mut c, x + r - k); c.push(b' ');
+                    write_f32_fast(&mut c, y); c.push(b' ');
+                    write_f32_fast(&mut c, x); c.push(b' ');
+                    write_f32_fast(&mut c, y + r - k); c.push(b' ');
+                    write_f32_fast(&mut c, x); c.push(b' ');
+                    write_f32_fast(&mut c, y + r); c.extend_from_slice(b" c\n");
+                    // Left edge → top-left corner
+                    write_f32_fast(&mut c, x); c.push(b' ');
+                    write_f32_fast(&mut c, y + h - r); c.extend_from_slice(b" l\n");
+                    // Top-left arc
+                    write_f32_fast(&mut c, x); c.push(b' ');
+                    write_f32_fast(&mut c, y + h - r + k); c.push(b' ');
+                    write_f32_fast(&mut c, x + r - k); c.push(b' ');
+                    write_f32_fast(&mut c, y + h); c.push(b' ');
+                    write_f32_fast(&mut c, x + r); c.push(b' ');
+                    write_f32_fast(&mut c, y + h); c.extend_from_slice(b" c\n");
+                    c.extend_from_slice(b"h\n"); // close path
+                } else {
+                    write_f32_fast(&mut c, rect.x);
+                    c.push(b' ');
+                    write_f32_fast(&mut c, pdf_y);
+                    c.push(b' ');
+                    write_f32_fast(&mut c, rect.width);
+                    c.push(b' ');
+                    write_f32_fast(&mut c, rect.height);
+                    c.extend_from_slice(b" re\n");
+                }
 
                 match (rect.fill.is_some(), rect.stroke.is_some()) {
                     (true, true) => c.extend_from_slice(b"B\n"),
