@@ -82,7 +82,7 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = true
-target-cpu = "native"
+target-cpu = "x86-64"
 
 [profile.dev]
 opt-level = 1

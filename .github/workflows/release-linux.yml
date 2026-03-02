@@ -1,0 +1,36 @@
+name: Release Linux Binary
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build release binary
+        run: cross build --target x86_64-unknown-linux-gnu --release
+
+      - name: Rename binary
+        run: |
+          cp target/x86_64-unknown-linux-gnu/release/soniclatex soniclatex-linux-x86_64
+          chmod +x soniclatex-linux-x86_64
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: soniclatex-linux-x86_64
