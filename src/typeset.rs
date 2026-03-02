@@ -11,6 +11,7 @@ pub enum FontStyle {
     BoldItalic,
     Monospace,
     SmallCaps,
+    Symbol,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -30,6 +31,7 @@ impl FontMetrics {
             FontStyle::Monospace => 0.6,
             FontStyle::SmallCaps => 0.55,
             FontStyle::Bold | FontStyle::BoldItalic => 0.56,
+            FontStyle::Symbol => 0.5,
             _ => 0.5,
         };
         self.size * base

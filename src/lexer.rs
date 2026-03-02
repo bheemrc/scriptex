@@ -577,8 +577,8 @@ impl<'a> Lexer<'a> {
             (16, b'i') => {
                 if &src[start+1..start+16] == b"includegraphics" { return cmd_id::INCLUDEGRAPHICS; }
             }
-            (17, b't') => {
-                if &src[start+1..start+17] == b"tableofcontents" { return cmd_id::TABLEOFCONTENTS; }
+            (16, b't') => {
+                if &src[start+1..start+16] == b"tableofcontents" { return cmd_id::TABLEOFCONTENTS; }
             }
             _ => {}
         }

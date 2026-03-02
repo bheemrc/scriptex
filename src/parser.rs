@@ -9,6 +9,13 @@ pub struct Parser<'a> {
     source: &'a str,
     pos: usize,
     section_counters: [u32; 7],
+    // Body-time title/author (for amsart where these appear after \begin{document})
+    body_title: Option<String>,
+    body_authors: Vec<String>,
+    body_addresses: Vec<(String, Option<String>)>, // (address, email)
+    body_date: Option<String>,
+    body_keywords: Option<String>,
+    body_subjclass: Option<(String, String)>, // (year, text)
 }
 
 impl<'a> Parser<'a> {
@@ -20,14 +27,46 @@ impl<'a> Parser<'a> {
             source,
             pos: 0,
             section_counters: [0; 7],
+            body_title: None,
+            body_authors: Vec::new(),
+            body_addresses: Vec::new(),
+            body_date: None,
+            body_keywords: None,
+            body_subjclass: None,
         }
     }
 
     pub fn parse(&mut self) -> Result<Document> {
         self.skip_whitespace_and_comments();
         let class = self.parse_document_class()?;
-        let preamble = self.parse_preamble()?;
+        let mut preamble = self.parse_preamble()?;
         let body = self.parse_body()?;
+        // Apply body-time title/author (amsart places these after \begin{document})
+        if preamble.title.is_none() {
+            if let Some(t) = self.body_title.take() {
+                preamble.title = Some(t);
+            }
+        }
+        if preamble.author.is_none() && !self.body_authors.is_empty() {
+            preamble.author = Some(self.body_authors.join(" and "));
+        }
+        // Transfer addresses
+        for (addr, email) in std::mem::take(&mut self.body_addresses) {
+            preamble.addresses.push(crate::document::AuthorAddress { address: addr, email });
+        }
+        // Transfer body-time date (amsart places \date after \begin{document})
+        if preamble.date.is_none() {
+            if let Some(d) = self.body_date.take() {
+                preamble.date = Some(d);
+            }
+        }
+        // Transfer keywords/subjclass
+        if let Some(kw) = self.body_keywords.take() {
+            preamble.keywords = Some(kw);
+        }
+        if let Some(sc) = self.body_subjclass.take() {
+            preamble.subjclass = Some(sc);
+        }
         Ok(Document { class, preamble, body })
     }
 
@@ -97,6 +136,34 @@ impl<'a> Parser<'a> {
         match self.current().kind {
             TokenKind::CloseBrace => { self.advance(); Ok(()) }
             _ => bail!("Expected '}}', got {:?}", self.current()),
+        }
+    }
+
+    /// Read accent target: braced group or single unbraced letter, or empty
+    fn read_accent_char(&mut self) -> String {
+        self.skip_whitespace_and_comments();
+        if self.current().kind == TokenKind::OpenBrace {
+            self.read_braced_text().unwrap_or_default()
+        } else if self.current().kind == TokenKind::Text {
+            let text = self.current_text();
+            let first_char = text.chars().next().unwrap();
+            let char_len = first_char.len_utf8();
+            if text.len() as u16 <= char_len as u16 {
+                // Single char token: consume entirely
+                self.advance();
+            } else {
+                // Multi-char text: split off first char, leave rest
+                let tok = self.current();
+                self.tokens[self.pos] = Token {
+                    kind: TokenKind::Text,
+                    cmd: 0,
+                    pos: tok.pos + char_len as u32,
+                    len: tok.len - char_len as u16,
+                };
+            }
+            first_char.to_string()
+        } else {
+            String::new()
         }
     }
 
@@ -275,6 +342,7 @@ impl<'a> Parser<'a> {
 
     fn parse_preamble(&mut self) -> Result<Preamble> {
         let mut preamble = Preamble::default();
+        let mut current_theorem_style = TheoremStyle::Plain;
 
         loop {
             self.skip_whitespace_and_comments();
@@ -343,10 +411,57 @@ impl<'a> Parser<'a> {
                                 preamble.line_spacing = v;
                             }
                         }
-                        "\\pagestyle" | "\\thispagestyle" | "\\setlength"
+                        "\\newtheorem" => {
+                            self.advance();
+                            // \newtheorem{name}{Title} or \newtheorem{name}[counter]{Title}
+                            // or \newtheorem*{name}{Title}
+                            let starred = if self.current().kind == TokenKind::Text && self.current_text() == "*" {
+                                self.advance();
+                                true
+                            } else {
+                                false
+                            };
+                            if let Ok(env_name) = self.read_braced_text() {
+                                let counter = if self.current().kind == TokenKind::OpenBracket {
+                                    self.try_read_optional_arg()
+                                } else {
+                                    None
+                                };
+                                if let Ok(title) = self.read_braced_text() {
+                                    // Skip optional [within] argument
+                                    if self.current().kind == TokenKind::OpenBracket {
+                                        let _ = self.try_read_optional_arg();
+                                    }
+                                    preamble.theorem_defs.push(TheoremDef {
+                                        env_name,
+                                        display_title: title,
+                                        numbered: !starred,
+                                        counter,
+                                        style: current_theorem_style,
+                                    });
+                                }
+                            }
+                        }
+                        "\\theoremstyle" => {
+                            self.advance();
+                            if let Ok(style_name) = self.read_braced_text() {
+                                current_theorem_style = match style_name.as_str() {
+                                    "definition" => TheoremStyle::Definition,
+                                    "remark" => TheoremStyle::Remark,
+                                    _ => TheoremStyle::Plain,
+                                };
+                            }
+                        }
+                        "\\pagestyle" => {
+                            self.advance();
+                            if let Ok(style) = self.read_braced_text() {
+                                preamble.page_style = style;
+                            }
+                        }
+                        "\\thispagestyle" | "\\setlength"
                         | "\\newcommand" | "\\renewcommand" | "\\def"
-                        | "\\DeclareMathOperator" | "\\theoremstyle"
-                        | "\\newtheorem" | "\\bibliographystyle"
+                        | "\\DeclareMathOperator"
+                        | "\\bibliographystyle"
                         | "\\hypersetup" | "\\lstset" | "\\graphicspath"
                         | "\\setcounter" | "\\numberwithin" => {
                             // Skip these preamble commands - consume their arguments
@@ -611,7 +726,7 @@ impl<'a> Parser<'a> {
             | Node::DisplayMath(_) | Node::MakeTitle | Node::TableOfContents
             | Node::Quote(_) | Node::Quotation(_) | Node::Verbatim(_)
             | Node::Abstract(_) | Node::Center(_) | Node::FlushLeft(_)
-            | Node::FlushRight(_) | Node::Environment(_)
+            | Node::FlushRight(_) | Node::Environment(_) | Node::Appendix
         )
     }
 
@@ -672,7 +787,11 @@ impl<'a> Parser<'a> {
             TokenKind::DoubleDollar => {
                 self.advance();
                 let math = self.parse_math_until_double_dollar()?;
-                Ok(Some(Node::DisplayMath(math)))
+                Ok(Some(Node::DisplayMath(Box::new(DisplayMathData {
+                    nodes: math,
+                    numbered: false,
+                    env_type: MathEnvType::DollarDollar,
+                }))))
             }
             TokenKind::OpenBrace => {
                 self.advance();
@@ -710,21 +829,21 @@ impl<'a> Parser<'a> {
                 cmd_id::EMPH => { let n = self.read_braced_nodes()?; Ok(Some(Node::Emph(n))) }
                 cmd_id::MAKETITLE => Ok(Some(Node::MakeTitle)),
                 cmd_id::TABLEOFCONTENTS => Ok(Some(Node::TableOfContents)),
-                cmd_id::NOINDENT => Ok(None),
+                cmd_id::NOINDENT => Ok(Some(Node::NoIndent)),
                 cmd_id::NEWPAGE => Ok(Some(Node::PageBreak)),
                 cmd_id::CENTERING => Ok(None),
                 cmd_id::HLINE => { self.skip_command_args(); Ok(Some(Node::HRule)) }
                 cmd_id::LABEL => { let l = self.read_braced_text()?; Ok(Some(Node::Label(l))) }
                 cmd_id::REF => { let l = self.read_braced_text()?; Ok(Some(Node::Ref(l))) }
-                cmd_id::CITE => { let _opt = self.try_read_optional_arg(); let k = self.read_braced_text()?; Ok(Some(Node::Citation(k))) }
+                cmd_id::CITE => { let opt = self.try_read_optional_arg(); let k = self.read_braced_text()?; Ok(Some(Node::Citation(k, opt))) }
                 cmd_id::BIBITEM => { let _opt = self.try_read_optional_arg(); let k = self.read_braced_text()?; Ok(Some(Node::BibItem(k))) }
                 cmd_id::FOOTNOTE => { let n = self.read_braced_nodes()?; Ok(Some(Node::Footnote(n))) }
                 cmd_id::VSPACE => { let dim = self.read_braced_text()?; let pts = self.parse_dimension(&dim).unwrap_or(10.0); Ok(Some(Node::VSpace(pts))) }
                 cmd_id::HSPACE => { let dim = self.read_braced_text()?; let pts = self.parse_dimension(&dim).unwrap_or(10.0); Ok(Some(Node::HSpace(pts))) }
-                cmd_id::HREF => { let _url = self.read_braced_text()?; let content = self.read_braced_nodes()?; Ok(Some(Node::Group(content))) }
-                cmd_id::URL => { let url = self.read_braced_text()?; Ok(Some(Node::Text(url))) }
+                cmd_id::HREF => { let url = self.read_braced_text()?; let content = self.read_braced_nodes()?; Ok(Some(Node::Href { url, content })) }
+                cmd_id::URL => { let url = self.read_braced_text()?; Ok(Some(Node::Href { url: url.clone(), content: vec![Node::Monospace(vec![Node::Text(url)])] })) }
                 cmd_id::TEXTCOLOR => { let cn = self.read_braced_text()?; let c = self.read_braced_nodes()?; let color = Color::from_name(&cn).unwrap_or(Color::BLACK); Ok(Some(Node::Colored { color, content: c })) }
-                cmd_id::COLOR => { let _cn = self.read_braced_text()?; Ok(Some(Node::Text(String::new()))) }
+                cmd_id::COLOR => { let cn = self.read_braced_text()?; let color = Color::from_name(&cn).unwrap_or(Color::BLACK); Ok(Some(Node::ColorDecl(color))) }
                 cmd_id::CAPTION => { let _n = self.read_braced_nodes()?; Ok(None) }
                 cmd_id::INCLUDEGRAPHICS => {
                     let opts = self.try_read_optional_arg();
@@ -772,7 +891,22 @@ impl<'a> Parser<'a> {
                     self.skip_command_args();
                     Ok(None)
                 }
-                _ => Ok(None),
+                cmd_id::TITLE => {
+                    let t = self.read_braced_text()?;
+                    self.body_title = Some(t);
+                    Ok(None)
+                }
+                cmd_id::AUTHOR => {
+                    let a = self.read_braced_text()?;
+                    self.body_authors.push(a);
+                    Ok(None)
+                }
+                cmd_id::DATE => {
+                    let d = self.read_braced_text()?;
+                    self.body_date = Some(d);
+                    Ok(None)
+                }
+                _ => { self.skip_command_args(); Ok(None) },
             };
         }
 
@@ -792,15 +926,17 @@ impl<'a> Parser<'a> {
             // Font styles (rare variants)
             "\\textsc" => { let n = self.read_braced_nodes()?; Ok(Some(Node::SmallCaps(n))) }
             "\\underline" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Underline(n))) }
+            "\\sout" | "\\st" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Strikethrough(n))) }
             "\\textrm" | "\\textnormal" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Group(n))) }
             "\\textsf" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Group(n))) }
             "\\textsl" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Italic(n))) }
 
-            // Style switches
-            "\\bf" | "\\bfseries" | "\\it" | "\\itshape"
-            | "\\tt" | "\\ttfamily" | "\\rm" | "\\rmfamily"
-            | "\\sf" | "\\sffamily" | "\\sc" | "\\scshape"
-            | "\\sl" | "\\slshape" | "\\normalfont" => Ok(None),
+            // Style switches — change font for subsequent text in scope
+            "\\bf" | "\\bfseries" => Ok(Some(Node::FontStyleDecl(FontDeclType::Bold))),
+            "\\it" | "\\itshape" | "\\sl" | "\\slshape" => Ok(Some(Node::FontStyleDecl(FontDeclType::Italic))),
+            "\\tt" | "\\ttfamily" => Ok(Some(Node::FontStyleDecl(FontDeclType::Monospace))),
+            "\\rm" | "\\rmfamily" | "\\sf" | "\\sffamily" | "\\normalfont" => Ok(Some(Node::FontStyleDecl(FontDeclType::Regular))),
+            "\\sc" | "\\scshape" => Ok(Some(Node::FontStyleDecl(FontDeclType::SmallCaps))),
 
             // Font sizes
             "\\tiny" => Ok(Some(Node::FontSize { size: FontSizeSpec::Tiny, content: vec![] })),
@@ -824,14 +960,16 @@ impl<'a> Parser<'a> {
             "\\;" => Ok(Some(Node::HSpace(5.0))),
             "\\:" => Ok(Some(Node::HSpace(4.0))),
             "\\!" => Ok(Some(Node::HSpace(-3.0))),
+            "\\ " => Ok(Some(Node::Text(" ".to_string()))), // explicit inter-word space
             "\\hfill" => Ok(Some(Node::HSpace(0.0))),
-            "\\smallskip" => Ok(Some(Node::VSpace(3.0))),
-            "\\medskip" => Ok(Some(Node::VSpace(6.0))),
-            "\\bigskip" => Ok(Some(Node::VSpace(12.0))),
+            "\\smallskip" | "\\smallbreak" => Ok(Some(Node::VSpace(3.0))),
+            "\\medskip" | "\\medbreak" => Ok(Some(Node::VSpace(6.0))),
+            "\\bigskip" | "\\bigbreak" => Ok(Some(Node::VSpace(12.0))),
 
             // Breaks
             "\\newline" | "\\linebreak" => Ok(Some(Node::LineBreak)),
             "\\clearpage" | "\\cleardoublepage" | "\\pagebreak" => Ok(Some(Node::PageBreak)),
+            "\\appendix" => Ok(Some(Node::Appendix)),
             "\\indent" => Ok(Some(Node::HSpace(20.0))),
 
             // Rules
@@ -856,18 +994,59 @@ impl<'a> Parser<'a> {
             "\\_" => Ok(Some(Node::Underscore)),
             "\\{" => Ok(Some(Node::LeftBrace)),
             "\\}" => Ok(Some(Node::RightBrace)),
-            "\\~" => Ok(Some(Node::Tilde)),
-            "\\^" => Ok(Some(Node::Caret)),
+            "\\~" => {
+                let c = self.read_accent_char();
+                match c.as_str() {
+                    "a" => Ok(Some(Node::Text("\u{00E3}".to_string()))), // ã
+                    "o" => Ok(Some(Node::Text("\u{00F5}".to_string()))), // õ
+                    "n" => Ok(Some(Node::Text("\u{00F1}".to_string()))), // ñ
+                    "A" => Ok(Some(Node::Text("\u{00C3}".to_string()))), // Ã
+                    "O" => Ok(Some(Node::Text("\u{00D5}".to_string()))), // Õ
+                    "N" => Ok(Some(Node::Text("\u{00D1}".to_string()))), // Ñ
+                    "" => Ok(Some(Node::Tilde)),
+                    _ => Ok(Some(Node::Text(c))),
+                }
+            }
+            "\\^" => {
+                let c = self.read_accent_char();
+                match c.as_str() {
+                    "a" => Ok(Some(Node::Text("\u{00E2}".to_string()))), // â
+                    "e" => Ok(Some(Node::Text("\u{00EA}".to_string()))), // ê
+                    "i" => Ok(Some(Node::Text("\u{00EE}".to_string()))), // î
+                    "o" => Ok(Some(Node::Text("\u{00F4}".to_string()))), // ô
+                    "u" => Ok(Some(Node::Text("\u{00FB}".to_string()))), // û
+                    "A" => Ok(Some(Node::Text("\u{00C2}".to_string()))), // Â
+                    "E" => Ok(Some(Node::Text("\u{00CA}".to_string()))), // Ê
+                    "I" => Ok(Some(Node::Text("\u{00CE}".to_string()))), // Î
+                    "O" => Ok(Some(Node::Text("\u{00D4}".to_string()))), // Ô
+                    "U" => Ok(Some(Node::Text("\u{00DB}".to_string()))), // Û
+                    "" => Ok(Some(Node::Caret)),
+                    _ => Ok(Some(Node::Text(c))),
+                }
+            }
             "\\\\" => Ok(Some(Node::Backslash)),
             "\\textbackslash" => Ok(Some(Node::Backslash)),
             "\\S" => Ok(Some(Node::Text("\u{00A7}".to_string()))),
             "\\P" => Ok(Some(Node::Text("\u{00B6}".to_string()))),
             "\\dag" => Ok(Some(Node::Text("\u{2020}".to_string()))),
             "\\ddag" => Ok(Some(Node::Text("\u{2021}".to_string()))),
+            "\\o" => Ok(Some(Node::Text("\u{00F8}".to_string()))),  // ø
+            "\\O" => Ok(Some(Node::Text("\u{00D8}".to_string()))),  // Ø
+            "\\i" => Ok(Some(Node::Text("\u{0131}".to_string()))),  // ı (dotless i)
+            "\\j" => Ok(Some(Node::Text("\u{0237}".to_string()))),  // ȷ (dotless j)
+            "\\aa" => Ok(Some(Node::Text("\u{00E5}".to_string()))), // å
+            "\\AA" => Ok(Some(Node::Text("\u{00C5}".to_string()))), // Å
+            "\\ae" => Ok(Some(Node::Text("\u{00E6}".to_string()))), // æ
+            "\\AE" => Ok(Some(Node::Text("\u{00C6}".to_string()))), // Æ
+            "\\oe" => Ok(Some(Node::Text("\u{0153}".to_string()))), // œ
+            "\\OE" => Ok(Some(Node::Text("\u{0152}".to_string()))), // Œ
+            "\\ss" => Ok(Some(Node::Text("\u{00DF}".to_string()))), // ß
+            "\\l" => Ok(Some(Node::Text("\u{0142}".to_string()))),  // ł
+            "\\L" => Ok(Some(Node::Text("\u{0141}".to_string()))),  // Ł
 
             // Accented characters
             "\\\'" => {
-                let c = self.read_braced_text().unwrap_or_default();
+                let c = self.read_accent_char();
                 let accented = match c.as_str() {
                     "a" => "\u{00E1}", "e" => "\u{00E9}", "i" => "\u{00ED}",
                     "o" => "\u{00F3}", "u" => "\u{00FA}",
@@ -878,7 +1057,7 @@ impl<'a> Parser<'a> {
                 Ok(Some(Node::Text(accented.to_string())))
             }
             "\\`" => {
-                let c = self.read_braced_text().unwrap_or_default();
+                let c = self.read_accent_char();
                 let accented = match c.as_str() {
                     "a" => "\u{00E0}", "e" => "\u{00E8}", "i" => "\u{00EC}",
                     "o" => "\u{00F2}", "u" => "\u{00F9}",
@@ -887,7 +1066,7 @@ impl<'a> Parser<'a> {
                 Ok(Some(Node::Text(accented.to_string())))
             }
             "\\\"" => {
-                let c = self.read_braced_text().unwrap_or_default();
+                let c = self.read_accent_char();
                 let accented = match c.as_str() {
                     "a" => "\u{00E4}", "e" => "\u{00EB}", "i" => "\u{00EF}",
                     "o" => "\u{00F6}", "u" => "\u{00FC}",
@@ -905,25 +1084,33 @@ impl<'a> Parser<'a> {
             }
 
             // Cross-references (variants not in cmd_id)
-            "\\eqref" | "\\pageref" | "\\autoref" | "\\cref" => {
+            "\\eqref" => {
+                let label = self.read_braced_text()?;
+                Ok(Some(Node::EqRef(label)))
+            }
+            "\\pageref" | "\\autoref" | "\\cref" => {
                 let label = self.read_braced_text()?;
                 Ok(Some(Node::Ref(label)))
             }
             "\\citep" | "\\citet" | "\\citealp" => {
-                let _opt = self.try_read_optional_arg();
+                let opt = self.try_read_optional_arg();
                 let key = self.read_braced_text()?;
-                Ok(Some(Node::Citation(key)))
+                Ok(Some(Node::Citation(key, opt)))
             }
 
             // No-ops
             "\\nobreak" | "\\allowbreak" | "\\relax" | "\\protect"
             | "\\sloppy" | "\\fussy" | "\\raggedright" | "\\raggedleft"
             | "\\selectfont" | "\\frenchspacing"
-            | "\\nonfrenchspacing" => Ok(None),
+            | "\\nonfrenchspacing" | "\\newblock" => Ok(None),
 
+            // \input and \include are resolved during pre-processing (main.rs)
+            // If they reach the parser, just consume the argument
             "\\input" | "\\include" => { let _file = self.read_braced_text()?; Ok(None) }
             "\\pagestyle" | "\\thispagestyle" => { let _style = self.read_braced_text()?; Ok(None) }
-            "\\setlength" | "\\addtolength" => { self.skip_command_args(); Ok(None) }
+            "\\setlength" | "\\addtolength" | "\\setcounter" | "\\addtocounter" => { self.skip_command_args(); Ok(None) }
+            "\\definecolor" => { self.skip_command_args(); Ok(None) }
+            "\\allowdisplaybreaks" | "\\mathsurround" | "\\hfuzz" => { self.skip_command_args(); Ok(None) }
             "\\newcommand" | "\\renewcommand" | "\\providecommand" | "\\def" => { self.skip_command_args(); Ok(None) }
             "\\bibliography" | "\\addbibresource" => {
                 let _bib_file = self.read_braced_text()?;
@@ -935,6 +1122,71 @@ impl<'a> Parser<'a> {
                 Ok(None)
             }
             "\\bibliographystyle" => { let _style = self.read_braced_text()?; Ok(None) }
+
+            // AMS article class commands — store address/email for end-of-document rendering
+            "\\address" => {
+                let text = self.read_braced_text()?;
+                self.body_addresses.push((expand_latex_accents(&text), None));
+                Ok(None)
+            }
+            "\\email" => {
+                let text = self.read_braced_text()?;
+                // Attach email to the most recent address
+                if let Some(last) = self.body_addresses.last_mut() {
+                    last.1 = Some(text);
+                }
+                Ok(None)
+            }
+            "\\dedicatory" | "\\thanks" | "\\urladdr" | "\\curraddr" => {
+                self.skip_command_args(); Ok(None)
+            }
+
+            "\\keywords" => {
+                let text = self.read_braced_text()?;
+                self.body_keywords = Some(text);
+                Ok(None)
+            }
+            "\\subjclass" => {
+                let year = self.try_read_optional_arg().unwrap_or_else(|| "2020".to_string());
+                let text = self.read_braced_text()?;
+                self.body_subjclass = Some((year, text));
+                Ok(None)
+            }
+
+            // \texorpdfstring{TeX text}{PDF string} — use first arg for display
+            "\\texorpdfstring" => {
+                let tex_content = self.read_braced_nodes()?;
+                let _pdf_string = self.read_braced_text()?;
+                // Return the TeX content for display
+                if tex_content.len() == 1 {
+                    Ok(Some(tex_content.into_iter().next().unwrap()))
+                } else {
+                    Ok(Some(Node::Group(tex_content)))
+                }
+            }
+
+            // \ensuremath{...} — render as inline math
+            "\\ensuremath" => {
+                // Read the braced argument as math nodes
+                if self.current().kind == TokenKind::OpenBrace {
+                    self.advance(); // skip {
+                    let mut nodes = Vec::new();
+                    loop {
+                        if self.current().kind == TokenKind::CloseBrace || self.current().kind == TokenKind::Eof {
+                            break;
+                        }
+                        if let Some(node) = self.parse_math_node()? {
+                            nodes.push(node);
+                        }
+                    }
+                    if self.current().kind == TokenKind::CloseBrace {
+                        self.advance();
+                    }
+                    Ok(Some(Node::InlineMath(nodes)))
+                } else {
+                    Ok(None)
+                }
+            }
 
             _ => {
                 log::debug!("Unknown command: {}", cmd);
@@ -1057,14 +1309,27 @@ impl<'a> Parser<'a> {
                     content,
                 }))))
             }
-            _ => {
-                // Generic environment
-                let _opt = self.try_read_optional_arg();
+            "proof" => {
+                let _opt = self.try_read_optional_arg(); // optional [Proof of ...]
                 let content = self.parse_environment_body(&env_name)?;
-                Ok(Some(Node::Environment(Box::new(EnvironmentData {
-                    name: env_name,
-                    args: vec![],
-                    content,
+                Ok(Some(Node::Proof(content)))
+            }
+            _ => {
+                // Check if this is a theorem-like environment (defined via \newtheorem)
+                // We store the env_name and the body; the layout stage matches it
+                // against theorem definitions.
+                let opt_name = self.try_read_optional_arg();
+                let content = self.parse_environment_body(&env_name)?;
+
+                // Create a TheoremData node for possible theorem envs
+                // Layout will check against preamble defs
+                Ok(Some(Node::Theorem(Box::new(TheoremData {
+                    env_name: env_name.clone(),
+                    title: env_name.clone(), // will be overridden by layout if it matches a def
+                    number: None,
+                    optional_name: opt_name,
+                    body: content,
+                    italic_body: true,
                 }))))
             }
         }
@@ -1227,11 +1492,9 @@ impl<'a> Parser<'a> {
 
                     if cid == cmd_id::HLINE {
                         self.advance();
-                        // hline between rows → draw before the next row
-                        if rows.is_empty() {
-                            hline_before_next = true;
-                        } else {
-                            // Also set on previous row as hline_after for compat
+                        // hline between rows → draw before the next row AND after the previous
+                        hline_before_next = true;
+                        if !rows.is_empty() {
                             rows.last_mut().unwrap().hline_after = true;
                         }
                         continue;
@@ -1260,13 +1523,28 @@ impl<'a> Parser<'a> {
                         if cmd == "\\multicolumn" {
                             self.advance();
                             let colspan_str = self.read_braced_text()?;
-                            let _align = self.read_braced_text()?;
+                            let align_str = self.read_braced_text()?;
                             let content = self.read_braced_nodes()?;
+                            let alignment = match align_str.trim() {
+                                "c" => Some(ColumnSpec::Center),
+                                "r" => Some(ColumnSpec::Right),
+                                "l" => Some(ColumnSpec::Left),
+                                _ => None,
+                            };
+                            // Discard any content accumulated before \multicolumn
+                            current_cell_content.clear();
                             current_cells.push(TableCell {
                                 content,
                                 colspan: colspan_str.parse().unwrap_or(1),
-                                alignment: None,
+                                alignment,
                             });
+                            // Skip whitespace after multicolumn, then consume the
+                            // next & separator (it belongs to this cell boundary,
+                            // not the next cell)
+                            self.skip_whitespace_and_comments();
+                            if self.current().kind == TokenKind::Ampersand {
+                                self.advance();
+                            }
                             continue;
                         }
                         if cmd == "\\addlinespace" {
@@ -1499,7 +1777,19 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(Some(Node::DisplayMath(math_nodes)))
+        let numbered = matches!(env_name, "equation" | "align" | "gather" | "multline");
+        let env_type = match env_name {
+            "equation" | "equation*" => MathEnvType::Equation,
+            "align" | "align*" => MathEnvType::Align,
+            "gather" | "gather*" => MathEnvType::Gather,
+            "multline" | "multline*" => MathEnvType::Multline,
+            _ => MathEnvType::DollarDollar,
+        };
+        Ok(Some(Node::DisplayMath(Box::new(DisplayMathData {
+            nodes: math_nodes,
+            numbered,
+            env_type,
+        }))))
     }
 
     /// Skip an environment entirely, consuming tokens until \end{env_name}
@@ -1641,8 +1931,9 @@ impl<'a> Parser<'a> {
         match self.current().kind {
             TokenKind::Eof => Ok(None),
             TokenKind::Space | TokenKind::ParBreak => {
+                // In TeX math mode, whitespace is ignored — spacing comes from atom types
                 self.advance();
-                Ok(Some(MathNode::Space(3.0)))
+                Ok(None)
             }
             TokenKind::Comment => { self.advance(); Ok(None) }
             TokenKind::Text => {
@@ -1710,11 +2001,15 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Ampersand => {
                 self.advance();
-                Ok(Some(MathNode::Space(10.0)))
+                Ok(Some(MathNode::AlignmentMark))
             }
             TokenKind::DoubleBackslash => {
                 self.advance();
-                Ok(Some(MathNode::Space(0.0))) // line break in math
+                // Skip optional [spacing] after \\
+                if self.current().kind == TokenKind::OpenBracket {
+                    let _ = self.try_read_optional_arg();
+                }
+                Ok(Some(MathNode::NewLine))
             }
             TokenKind::Command => {
                 let cmd = self.current().text(self.source).to_string();
@@ -1803,7 +2098,15 @@ impl<'a> Parser<'a> {
             "\\text" | "\\textrm" | "\\mathrm" | "\\textit" | "\\mathit"
             | "\\textbf" | "\\mathbf" | "\\texttt" | "\\mathtt"
             | "\\textsf" | "\\mathsf" | "\\mbox" | "\\hbox" => {
-                let text = self.read_braced_text()?;
+                let mut text = self.read_braced_text()?;
+                // Strip TeX font declaration prefixes (e.g. \hbox{\rm text} → text)
+                for prefix in &["\\rm ", "\\bf ", "\\it ", "\\sf ", "\\tt ",
+                                "\\rm\n", "\\bf\n", "\\it\n", "\\sf\n", "\\tt\n"] {
+                    if text.starts_with(prefix) {
+                        text = text[prefix.len()..].to_string();
+                        break;
+                    }
+                }
                 Ok(Some(MathNode::Text(text)))
             }
             "\\hat" => {
@@ -1865,6 +2168,17 @@ impl<'a> Parser<'a> {
             "\\Phi" => Ok(Some(MathNode::Symbol("\u{03A6}".to_string()))),
             "\\Psi" => Ok(Some(MathNode::Symbol("\u{03A8}".to_string()))),
             "\\Omega" => Ok(Some(MathNode::Symbol("\u{03A9}".to_string()))),
+            // Capital Greek variants (same glyphs as standard capitals)
+            "\\varGamma" => Ok(Some(MathNode::Symbol("\u{0393}".to_string()))),
+            "\\varDelta" => Ok(Some(MathNode::Symbol("\u{0394}".to_string()))),
+            "\\varTheta" => Ok(Some(MathNode::Symbol("\u{0398}".to_string()))),
+            "\\varLambda" => Ok(Some(MathNode::Symbol("\u{039B}".to_string()))),
+            "\\varXi" => Ok(Some(MathNode::Symbol("\u{039E}".to_string()))),
+            "\\varPi" => Ok(Some(MathNode::Symbol("\u{03A0}".to_string()))),
+            "\\varSigma" => Ok(Some(MathNode::Symbol("\u{03A3}".to_string()))),
+            "\\varPhi" => Ok(Some(MathNode::Symbol("\u{03A6}".to_string()))),
+            "\\varPsi" => Ok(Some(MathNode::Symbol("\u{03A8}".to_string()))),
+            "\\varOmega" => Ok(Some(MathNode::Symbol("\u{03A9}".to_string()))),
 
             // Math operators/symbols
             "\\times" => Ok(Some(MathNode::Operator("\u{00D7}".to_string()))),
@@ -1884,6 +2198,10 @@ impl<'a> Parser<'a> {
             "\\supset" => Ok(Some(MathNode::Operator("\u{2283}".to_string()))),
             "\\subseteq" => Ok(Some(MathNode::Operator("\u{2286}".to_string()))),
             "\\supseteq" => Ok(Some(MathNode::Operator("\u{2287}".to_string()))),
+            "\\subsetneq" | "\\subsetneqq" => Ok(Some(MathNode::Operator("\u{2282}".to_string()))), // ⊂ (approx)
+            "\\supsetneq" | "\\supsetneqq" => Ok(Some(MathNode::Operator("\u{2283}".to_string()))), // ⊃ (approx)
+            "\\nsubseteq" => Ok(Some(MathNode::Operator("\u{2282}".to_string()))), // ⊂ (approx)
+            "\\nsupseteq" => Ok(Some(MathNode::Operator("\u{2283}".to_string()))), // ⊃ (approx)
             "\\cup" => Ok(Some(MathNode::Operator("\u{222A}".to_string()))),
             "\\cap" => Ok(Some(MathNode::Operator("\u{2229}".to_string()))),
             "\\forall" => Ok(Some(MathNode::Operator("\u{2200}".to_string()))),
@@ -1901,8 +2219,55 @@ impl<'a> Parser<'a> {
             "\\prime" => Ok(Some(MathNode::Symbol("\u{2032}".to_string()))),
             "\\emptyset" | "\\varnothing" => Ok(Some(MathNode::Symbol("\u{2205}".to_string()))),
             "\\angle" => Ok(Some(MathNode::Symbol("\u{2220}".to_string()))),
+            "\\ell" => Ok(Some(MathNode::Variable('l'))), // script l, approximated as italic l
+            "\\wp" => Ok(Some(MathNode::Symbol("\u{2118}".to_string()))),
+            "\\Re" => Ok(Some(MathNode::Symbol("\u{211C}".to_string()))),
+            "\\Im" => Ok(Some(MathNode::Symbol("\u{2111}".to_string()))),
+            "\\aleph" => Ok(Some(MathNode::Symbol("\u{2135}".to_string()))),
+            "\\hbar" => Ok(Some(MathNode::Symbol("\u{210F}".to_string()))),
+            "\\imath" => Ok(Some(MathNode::Variable('i'))),
+            "\\jmath" => Ok(Some(MathNode::Variable('j'))),
             "\\circ" => Ok(Some(MathNode::Symbol("\u{00B0}".to_string()))),  // degree symbol
             "\\degree" => Ok(Some(MathNode::Symbol("\u{00B0}".to_string()))),
+            "\\setminus" => Ok(Some(MathNode::Operator("\\".to_string()))),
+            "\\oplus" => Ok(Some(MathNode::Operator("\u{2295}".to_string()))),
+            "\\otimes" => Ok(Some(MathNode::Operator("\u{2297}".to_string()))),
+            "\\wedge" | "\\land" => Ok(Some(MathNode::Operator("\u{2227}".to_string()))),
+            "\\vee" | "\\lor" => Ok(Some(MathNode::Operator("\u{2228}".to_string()))),
+            "\\mapsto" => Ok(Some(MathNode::Operator("\u{21A6}".to_string()))),
+            "\\hookrightarrow" => Ok(Some(MathNode::Operator("\u{21AA}".to_string()))),
+            "\\twoheadrightarrow" => Ok(Some(MathNode::Operator("\u{2192}".to_string()))), // approx as →
+            "\\longrightarrow" => Ok(Some(MathNode::Operator("\u{2192}".to_string()))),
+            "\\longleftarrow" => Ok(Some(MathNode::Operator("\u{2190}".to_string()))),
+            "\\Longrightarrow" => Ok(Some(MathNode::Operator("\u{21D2}".to_string()))),
+            "\\Longleftarrow" => Ok(Some(MathNode::Operator("\u{21D0}".to_string()))),
+            "\\mid" => Ok(Some(MathNode::Operator("|".to_string()))),
+            "\\nmid" => Ok(Some(MathNode::Operator("|/".to_string()))),
+            "\\cong" => Ok(Some(MathNode::Operator("\u{2245}".to_string()))),
+            "\\simeq" => Ok(Some(MathNode::Operator("\u{2243}".to_string()))),
+            "\\propto" => Ok(Some(MathNode::Operator("\u{221D}".to_string()))),
+            "\\perp" => Ok(Some(MathNode::Operator("\u{22A5}".to_string()))),
+            "\\parallel" => Ok(Some(MathNode::Operator("\u{2225}".to_string()))),
+            "\\bigcup" => {
+                let (lower, upper) = self.parse_limits()?;
+                Ok(Some(MathNode::Sum { lower, upper })) // render like large op
+            }
+            "\\bigcap" => {
+                let (lower, upper) = self.parse_limits()?;
+                Ok(Some(MathNode::Sum { lower, upper }))
+            }
+            "\\bigoplus" => {
+                let (lower, upper) = self.parse_limits()?;
+                Ok(Some(MathNode::Sum { lower, upper }))
+            }
+            "\\bigotimes" => {
+                let (lower, upper) = self.parse_limits()?;
+                Ok(Some(MathNode::Sum { lower, upper }))
+            }
+            "\\coprod" => {
+                let (lower, upper) = self.parse_limits()?;
+                Ok(Some(MathNode::Product { lower, upper }))
+            }
 
             // Math functions
             "\\sin" | "\\cos" | "\\tan" | "\\cot" | "\\sec" | "\\csc"
@@ -1935,6 +2300,399 @@ impl<'a> Parser<'a> {
             "\\label" | "\\tag" | "\\notag" | "\\nonumber" => {
                 self.skip_command_args();
                 Ok(None)
+            }
+
+            // Binom
+            "\\binom" | "\\dbinom" | "\\tbinom" => {
+                let top = self.parse_math_arg()?;
+                let bottom = self.parse_math_arg()?;
+                Ok(Some(MathNode::Binom { top, bottom }))
+            }
+            "\\choose" => {
+                // {n \choose k} - already inside a group, treat remaining as bottom
+                Ok(Some(MathNode::Text("choose".to_string())))
+            }
+
+            // Overset/Underset/Stackrel
+            "\\overset" => {
+                let over = self.parse_math_arg()?;
+                let base = self.parse_math_arg()?;
+                Ok(Some(MathNode::Overset { over, base }))
+            }
+            "\\underset" => {
+                let under = self.parse_math_arg()?;
+                let base = self.parse_math_arg()?;
+                Ok(Some(MathNode::Underset { under, base }))
+            }
+            "\\stackrel" => {
+                let over = self.parse_math_arg()?;
+                let base = self.parse_math_arg()?;
+                Ok(Some(MathNode::Overset { over, base }))
+            }
+
+            // Extended arrows
+            "\\xrightarrow" => {
+                let above = self.parse_math_arg()?;
+                Ok(Some(MathNode::Overset { over: above, base: vec![MathNode::Symbol("\u{2192}".to_string())] }))
+            }
+            "\\xleftarrow" => {
+                let above = self.parse_math_arg()?;
+                Ok(Some(MathNode::Overset { over: above, base: vec![MathNode::Symbol("\u{2190}".to_string())] }))
+            }
+
+            // Math font commands
+            "\\mathbb" => {
+                let content = self.parse_math_arg()?;
+                Ok(Some(MathNode::MathFont { font: MathFontType::Blackboard, content }))
+            }
+            "\\mathcal" => {
+                let content = self.parse_math_arg()?;
+                Ok(Some(MathNode::MathFont { font: MathFontType::Calligraphic, content }))
+            }
+            "\\mathfrak" => {
+                let content = self.parse_math_arg()?;
+                Ok(Some(MathNode::MathFont { font: MathFontType::Fraktur, content }))
+            }
+            "\\mathscr" => {
+                let content = self.parse_math_arg()?;
+                Ok(Some(MathNode::MathFont { font: MathFontType::Script, content }))
+            }
+            "\\mathsf" => {
+                let content = self.parse_math_arg()?;
+                Ok(Some(MathNode::MathFont { font: MathFontType::SansSerif, content }))
+            }
+            "\\boldsymbol" | "\\bm" => {
+                let content = self.parse_math_arg()?;
+                Ok(Some(MathNode::MathFont { font: MathFontType::BoldMath, content }))
+            }
+
+            // Operator name
+            "\\operatorname" => {
+                let name = self.read_braced_text()?;
+                Ok(Some(MathNode::OperatorName(name)))
+            }
+
+            // Phantom
+            "\\phantom" | "\\vphantom" | "\\hphantom" => {
+                let content = self.parse_math_arg()?;
+                Ok(Some(MathNode::Phantom(content)))
+            }
+
+            // Style switches
+            "\\displaystyle" => Ok(Some(MathNode::StyleSwitch(MathStyleType::Display))),
+            "\\textstyle" => Ok(Some(MathNode::StyleSwitch(MathStyleType::Text))),
+            "\\scriptstyle" => Ok(Some(MathNode::StyleSwitch(MathStyleType::Script))),
+            "\\scriptscriptstyle" => Ok(Some(MathNode::StyleSwitch(MathStyleType::ScriptScript))),
+
+            // Big delimiters
+            "\\big" | "\\bigl" | "\\bigr" => {
+                let d = self.current().text(self.source).to_string();
+                self.advance();
+                Ok(Some(MathNode::BigDelim { delim: d, size: 1.2 }))
+            }
+            "\\Big" | "\\Bigl" | "\\Bigr" => {
+                let d = self.current().text(self.source).to_string();
+                self.advance();
+                Ok(Some(MathNode::BigDelim { delim: d, size: 1.5 }))
+            }
+            "\\bigg" | "\\biggl" | "\\biggr" => {
+                let d = self.current().text(self.source).to_string();
+                self.advance();
+                Ok(Some(MathNode::BigDelim { delim: d, size: 1.8 }))
+            }
+            "\\Bigg" | "\\Biggl" | "\\Biggr" => {
+                let d = self.current().text(self.source).to_string();
+                self.advance();
+                Ok(Some(MathNode::BigDelim { delim: d, size: 2.2 }))
+            }
+            "\\bigm" | "\\Bigm" | "\\biggm" | "\\Biggm" => {
+                let d = self.current().text(self.source).to_string();
+                self.advance();
+                Ok(Some(MathNode::BigDelim { delim: d, size: 1.5 }))
+            }
+
+            // Accents
+            "\\breve" => {
+                let base = self.parse_math_arg()?;
+                Ok(Some(MathNode::Accent { base, accent_type: AccentType::Breve }))
+            }
+            "\\check" => {
+                let base = self.parse_math_arg()?;
+                Ok(Some(MathNode::Accent { base, accent_type: AccentType::Check }))
+            }
+            "\\acute" => {
+                let base = self.parse_math_arg()?;
+                Ok(Some(MathNode::Accent { base, accent_type: AccentType::Hat })) // approx
+            }
+            "\\grave" => {
+                let base = self.parse_math_arg()?;
+                Ok(Some(MathNode::Accent { base, accent_type: AccentType::Hat })) // approx
+            }
+            "\\widehat" => {
+                let base = self.parse_math_arg()?;
+                Ok(Some(MathNode::Accent { base, accent_type: AccentType::Hat }))
+            }
+            "\\widetilde" => {
+                let base = self.parse_math_arg()?;
+                Ok(Some(MathNode::Accent { base, accent_type: AccentType::Tilde }))
+            }
+
+            // Overbrace/underbrace
+            "\\overbrace" => {
+                let content = self.parse_math_arg()?;
+                Ok(Some(MathNode::Over { content, over_type: OverType::Brace }))
+            }
+            "\\underbrace" => {
+                let content = self.parse_math_arg()?;
+                Ok(Some(MathNode::Under { content, under_type: UnderType::Brace }))
+            }
+            "\\overrightarrow" => {
+                let content = self.parse_math_arg()?;
+                Ok(Some(MathNode::Over { content, over_type: OverType::Arrow }))
+            }
+            "\\overleftarrow" => {
+                let content = self.parse_math_arg()?;
+                Ok(Some(MathNode::Over { content, over_type: OverType::Arrow }))
+            }
+            "\\underline" => {
+                let content = self.parse_math_arg()?;
+                Ok(Some(MathNode::Under { content, under_type: UnderType::Line }))
+            }
+
+            // \not — negation modifier
+            "\\not" => {
+                // Read next token and add a slash through it
+                if let Some(next) = self.parse_math_node()? {
+                    // Approximate: just render the next node (the slash overlay is hard)
+                    Ok(Some(next))
+                } else {
+                    Ok(None)
+                }
+            }
+
+            // \mathop — force operator spacing
+            "\\mathop" => {
+                let content = self.parse_math_arg()?;
+                // Consume optional \nolimits / \limits after \mathop
+                self.skip_whitespace_and_comments();
+                if self.current().kind == TokenKind::Command {
+                    let next_cmd = self.current().text(self.source);
+                    if next_cmd == "\\nolimits" || next_cmd == "\\limits" {
+                        self.advance();
+                    }
+                }
+                // Convert group to OperatorName if it's just text
+                let text = math_group_to_text(&content);
+                if !text.is_empty() {
+                    Ok(Some(MathNode::OperatorName(text)))
+                } else {
+                    Ok(Some(MathNode::Group(content)))
+                }
+            }
+
+            // TeX-style font switches (declarations without braces)
+            "\\rm" => {
+                // Read remaining text tokens as upright text
+                let mut text = String::new();
+                loop {
+                    match self.current().kind {
+                        TokenKind::Text => {
+                            text.push_str(self.current().text(self.source));
+                            self.advance();
+                        }
+                        TokenKind::Space => {
+                            if !text.is_empty() { text.push(' '); }
+                            self.advance();
+                        }
+                        _ => break,
+                    }
+                }
+                if text.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(MathNode::Text(text.trim_end().to_string())))
+                }
+            }
+            "\\bf" => {
+                let mut text = String::new();
+                loop {
+                    match self.current().kind {
+                        TokenKind::Text => {
+                            text.push_str(self.current().text(self.source));
+                            self.advance();
+                        }
+                        TokenKind::Space => {
+                            if !text.is_empty() { text.push(' '); }
+                            self.advance();
+                        }
+                        _ => break,
+                    }
+                }
+                if text.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(MathNode::Text(text.trim_end().to_string())))
+                }
+            }
+            "\\it" | "\\sl" => {
+                // Italic switch — math is already italic, just skip
+                Ok(None)
+            }
+            "\\cal" => {
+                // Calligraphic font — read as MathFont if braced arg, otherwise read text
+                if self.current().kind == TokenKind::OpenBrace {
+                    let content = self.parse_math_arg()?;
+                    Ok(Some(MathNode::MathFont { font: MathFontType::Calligraphic, content }))
+                } else {
+                    let mut text = String::new();
+                    loop {
+                        match self.current().kind {
+                            TokenKind::Text => {
+                                text.push_str(self.current().text(self.source));
+                                self.advance();
+                            }
+                            TokenKind::Space => {
+                                if !text.is_empty() { text.push(' '); }
+                                self.advance();
+                            }
+                            _ => break,
+                        }
+                    }
+                    if text.is_empty() {
+                        Ok(None)
+                    } else {
+                        let content = text.trim_end().chars().map(|c| MathNode::Variable(c)).collect();
+                        Ok(Some(MathNode::MathFont { font: MathFontType::Calligraphic, content }))
+                    }
+                }
+            }
+
+            // \nolimits / \limits as standalone (when not consumed by \sum, \mathop, etc.)
+            "\\nolimits" | "\\limits" => Ok(None),
+
+            // \cr — row separator (equivalent to \\ in matrices/arrays)
+            "\\cr" => Ok(Some(MathNode::NewLine)),
+
+            // \mathstrut — invisible strut for vertical spacing, skip
+            "\\mathstrut" | "\\strut" => Ok(Some(MathNode::Phantom(vec![MathNode::Variable('(')]))),
+
+            // \noindent, \centering — layout hints, skip in math mode
+            "\\noindent" | "\\centering" => Ok(None),
+
+            // \joinrel — negative space to join relation arrows (e.g. \lhook\joinrel\longrightarrow)
+            "\\joinrel" => Ok(Some(MathNode::Space(-3.0))),
+
+            // \mkern, \kern — horizontal kerning in math mode
+            "\\mkern" | "\\kern" => {
+                // Read dimension like -70mu or 5pt
+                let mut dim_str = String::new();
+                while self.pos < self.tokens.len() {
+                    let tk = &self.tokens[self.pos];
+                    let t = tk.text(self.source);
+                    if t.chars().all(|c| c.is_ascii_digit() || c == '-' || c == '.' || c == 'm' || c == 'u' || c == 'p' || c == 't' || c == 'e') {
+                        dim_str.push_str(t);
+                        self.advance();
+                        if t.ends_with("mu") || t.ends_with("pt") || t.ends_with("em") {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                // Parse the value (mu = math unit ≈ 1/18 em)
+                let val: f32 = dim_str.replace("mu", "").replace("pt", "").replace("em", "").trim().parse().unwrap_or(0.0);
+                let pts = if dim_str.contains("mu") { val * 0.5 } else if dim_str.contains("em") { val * 10.0 } else { val };
+                Ok(Some(MathNode::Space(pts)))
+            }
+
+            // \hfill, \hspace — spacing
+            "\\hfill" => Ok(Some(MathNode::Space(20.0))),
+            "\\hspace" | "\\hspace*" => {
+                self.skip_command_args();
+                Ok(Some(MathNode::Space(10.0)))
+            }
+
+            // \begin in math mode — matrix/cases environments
+            "\\begin" => {
+                let env_name = self.read_braced_text()?;
+                match env_name.as_str() {
+                    "pmatrix" | "pmatrix*" => {
+                        let rows = self.parse_math_matrix_body(&env_name)?;
+                        Ok(Some(MathNode::Matrix { rows, style: MatrixStyle::Parenthesized }))
+                    }
+                    "bmatrix" | "bmatrix*" => {
+                        let rows = self.parse_math_matrix_body(&env_name)?;
+                        Ok(Some(MathNode::Matrix { rows, style: MatrixStyle::Bracketed }))
+                    }
+                    "Bmatrix" | "Bmatrix*" => {
+                        let rows = self.parse_math_matrix_body(&env_name)?;
+                        Ok(Some(MathNode::Matrix { rows, style: MatrixStyle::Braced }))
+                    }
+                    "vmatrix" | "vmatrix*" => {
+                        let rows = self.parse_math_matrix_body(&env_name)?;
+                        Ok(Some(MathNode::Matrix { rows, style: MatrixStyle::VerticalBar }))
+                    }
+                    "Vmatrix" | "Vmatrix*" => {
+                        let rows = self.parse_math_matrix_body(&env_name)?;
+                        Ok(Some(MathNode::Matrix { rows, style: MatrixStyle::DoubleBar }))
+                    }
+                    "matrix" | "smallmatrix" => {
+                        let rows = self.parse_math_matrix_body(&env_name)?;
+                        Ok(Some(MathNode::Matrix { rows, style: MatrixStyle::Plain }))
+                    }
+                    "cases" | "dcases" | "rcases" => {
+                        let rows = self.parse_math_cases_body(&env_name)?;
+                        Ok(Some(MathNode::Cases { rows }))
+                    }
+                    "array" => {
+                        // Skip column spec
+                        if self.current().kind == TokenKind::OpenBrace {
+                            let _ = self.read_braced_text()?;
+                        }
+                        let rows = self.parse_math_matrix_body(&env_name)?;
+                        Ok(Some(MathNode::Matrix { rows, style: MatrixStyle::Plain }))
+                    }
+                    "aligned" | "gathered" | "split" => {
+                        // Parse as matrix-like alignment body
+                        let rows = self.parse_math_matrix_body(&env_name)?;
+                        // Flatten into sequence with alignment marks and newlines
+                        let mut nodes = Vec::new();
+                        for (i, row) in rows.iter().enumerate() {
+                            if i > 0 {
+                                nodes.push(MathNode::NewLine);
+                            }
+                            for (j, cell) in row.iter().enumerate() {
+                                if j > 0 {
+                                    nodes.push(MathNode::AlignmentMark);
+                                }
+                                nodes.extend(cell.iter().cloned());
+                            }
+                        }
+                        Ok(Some(MathNode::Group(nodes)))
+                    }
+                    "subarray" => {
+                        // Skip column spec and parse as matrix
+                        if self.current().kind == TokenKind::OpenBrace {
+                            let _ = self.read_braced_text()?;
+                        }
+                        let rows = self.parse_math_matrix_body(&env_name)?;
+                        let mut nodes = Vec::new();
+                        for (i, row) in rows.iter().enumerate() {
+                            if i > 0 {
+                                nodes.push(MathNode::NewLine);
+                            }
+                            for cell in row {
+                                nodes.extend(cell.iter().cloned());
+                            }
+                        }
+                        Ok(Some(MathNode::Group(nodes)))
+                    }
+                    _ => {
+                        // Unknown math environment — skip to \end
+                        self.skip_math_env_body(&env_name)?;
+                        Ok(Some(MathNode::Text(format!("[{}]", env_name))))
+                    }
+                }
             }
 
             _ => {
@@ -1974,4 +2732,201 @@ impl<'a> Parser<'a> {
 
         Ok((lower, upper))
     }
+
+    /// Parse matrix body: rows separated by \\, cells separated by &
+    /// Until \end{env_name}
+    fn parse_math_matrix_body(&mut self, env_name: &str) -> Result<Vec<Vec<Vec<MathNode>>>> {
+        let mut rows: Vec<Vec<Vec<MathNode>>> = Vec::new();
+        let mut current_row: Vec<Vec<MathNode>> = Vec::new();
+        let mut current_cell: Vec<MathNode> = Vec::new();
+
+        loop {
+            match self.current().kind {
+                TokenKind::Eof => bail!("Unexpected end in math matrix environment"),
+                TokenKind::Ampersand => {
+                    self.advance();
+                    current_row.push(std::mem::take(&mut current_cell));
+                }
+                TokenKind::DoubleBackslash => {
+                    self.advance();
+                    current_row.push(std::mem::take(&mut current_cell));
+                    rows.push(std::mem::take(&mut current_row));
+                    // Skip optional [spacing] after \\
+                    if self.current().kind == TokenKind::OpenBracket {
+                        let _ = self.try_read_optional_arg();
+                    }
+                }
+                TokenKind::Command => {
+                    let cmd_id = self.current().cmd;
+                    if cmd_id == cmd_id::END {
+                        let save = self.pos;
+                        self.advance();
+                        self.skip_whitespace_and_comments();
+                        if self.current().kind == TokenKind::OpenBrace {
+                            let name = self.read_braced_text()?;
+                            if name == env_name {
+                                // Push remaining cell/row
+                                if !current_cell.is_empty() || !current_row.is_empty() {
+                                    current_row.push(current_cell);
+                                    rows.push(current_row);
+                                }
+                                return Ok(rows);
+                            }
+                            self.pos = save;
+                        } else {
+                            self.pos = save;
+                        }
+                    }
+                    if let Some(mn) = self.parse_math_node()? {
+                        current_cell.push(mn);
+                    }
+                }
+                _ => {
+                    if let Some(mn) = self.parse_math_node()? {
+                        current_cell.push(mn);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Parse cases body: rows with value & condition
+    fn parse_math_cases_body(&mut self, env_name: &str) -> Result<Vec<(Vec<MathNode>, Option<Vec<MathNode>>)>> {
+        let rows_raw = self.parse_math_matrix_body(env_name)?;
+        let mut result = Vec::new();
+        for row in rows_raw {
+            let value = if !row.is_empty() { row[0].clone() } else { Vec::new() };
+            let condition = if row.len() > 1 { Some(row[1].clone()) } else { None };
+            result.push((value, condition));
+        }
+        Ok(result)
+    }
+
+    /// Skip until \end{env_name} in math mode
+    fn skip_math_env_body(&mut self, env_name: &str) -> Result<()> {
+        loop {
+            match self.current().kind {
+                TokenKind::Eof => bail!("Unexpected end in math environment {}", env_name),
+                TokenKind::Command => {
+                    if self.current().cmd == cmd_id::END {
+                        let save = self.pos;
+                        self.advance();
+                        self.skip_whitespace_and_comments();
+                        if self.current().kind == TokenKind::OpenBrace {
+                            let name = self.read_braced_text()?;
+                            if name == env_name {
+                                return Ok(());
+                            }
+                            self.pos = save;
+                        } else {
+                            self.pos = save;
+                        }
+                    }
+                    self.advance();
+                }
+                _ => { self.advance(); }
+            }
+        }
+    }
+}
+
+/// Extract text content from a group of MathNodes (for \mathop{\rm Text} pattern)
+fn math_group_to_text(nodes: &[MathNode]) -> String {
+    let mut text = String::new();
+    for node in nodes {
+        match node {
+            MathNode::Variable(c) => text.push(*c),
+            MathNode::Number(s) | MathNode::Text(s) | MathNode::OperatorName(s) => text.push_str(s),
+            MathNode::Space(_) => { if !text.is_empty() { text.push(' '); } }
+            MathNode::Group(inner) => text.push_str(&math_group_to_text(inner)),
+            MathNode::Function(name) => text.push_str(name),
+            _ => {}
+        }
+    }
+    text.trim().to_string()
+}
+
+/// Expand LaTeX accent commands in raw text (e.g. `\"a` → `ä`, `\'e` → `é`).
+fn expand_latex_accents(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+    let mut out = String::with_capacity(len);
+    let mut i = 0;
+    while i < len {
+        if bytes[i] == b'\\' && i + 1 < len {
+            let cmd = bytes[i + 1];
+            // Two-char accent commands: \"x, \'x, \`x, \~x, \^x, \=x, \.x
+            let accent_map: Option<&[(char, char)]> = match cmd {
+                b'"' => Some(&[
+                    ('a', 'ä'), ('e', 'ë'), ('i', 'ï'), ('o', 'ö'), ('u', 'ü'),
+                    ('A', 'Ä'), ('E', 'Ë'), ('I', 'Ï'), ('O', 'Ö'), ('U', 'Ü'), ('y', 'ÿ'),
+                ]),
+                b'\'' => Some(&[
+                    ('a', 'á'), ('e', 'é'), ('i', 'í'), ('o', 'ó'), ('u', 'ú'),
+                    ('A', 'Á'), ('E', 'É'), ('I', 'Í'), ('O', 'Ó'), ('U', 'Ú'),
+                    ('y', 'ý'), ('Y', 'Ý'),
+                ]),
+                b'`' => Some(&[
+                    ('a', 'à'), ('e', 'è'), ('i', 'ì'), ('o', 'ò'), ('u', 'ù'),
+                    ('A', 'À'), ('E', 'È'), ('I', 'Ì'), ('O', 'Ò'), ('U', 'Ù'),
+                ]),
+                b'~' => Some(&[
+                    ('a', 'ã'), ('n', 'ñ'), ('o', 'õ'),
+                    ('A', 'Ã'), ('N', 'Ñ'), ('O', 'Õ'),
+                ]),
+                b'^' => Some(&[
+                    ('a', 'â'), ('e', 'ê'), ('i', 'î'), ('o', 'ô'), ('u', 'û'),
+                    ('A', 'Â'), ('E', 'Ê'), ('I', 'Î'), ('O', 'Ô'), ('U', 'Û'),
+                ]),
+                b'=' => Some(&[
+                    ('a', 'ā'), ('e', 'ē'), ('i', 'ī'), ('o', 'ō'), ('u', 'ū'),
+                ]),
+                _ => None,
+            };
+            if let Some(map) = accent_map {
+                // Read the target character: either \"{x} or \"x
+                let mut j = i + 2;
+                let braced = j < len && bytes[j] == b'{';
+                if braced { j += 1; }
+                if j < len {
+                    let target = bytes[j] as char;
+                    if let Some(&(_, accented)) = map.iter().find(|&&(c, _)| c == target) {
+                        out.push(accented);
+                        j += 1;
+                        if braced && j < len && bytes[j] == b'}' { j += 1; }
+                        i = j;
+                        continue;
+                    }
+                }
+            }
+            // \ss → ß
+            if cmd == b's' && i + 2 < len && bytes[i + 2] == b's' {
+                let after = if i + 3 < len { bytes[i + 3] } else { b' ' };
+                if !after.is_ascii_alphabetic() {
+                    out.push('ß');
+                    i += 3;
+                    continue;
+                }
+            }
+            // \c{c} → ç
+            if cmd == b'c' && i + 2 < len && bytes[i + 2] == b'{' {
+                if let Some(end) = input[i+3..].find('}') {
+                    let ch = bytes[i + 3] as char;
+                    let cedilla = match ch {
+                        'c' => Some('ç'), 'C' => Some('Ç'),
+                        's' => Some('ş'), 'S' => Some('Ş'),
+                        _ => None,
+                    };
+                    if let Some(c) = cedilla {
+                        out.push(c);
+                        i = i + 4 + end;
+                        continue;
+                    }
+                }
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
 }

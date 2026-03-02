@@ -124,10 +124,7 @@ fn layout_math_node(node: &MathNode, font_size: f32) -> MathBox {
             let s = c.to_string();
             layout_text(&s, font_size, FontId::HelveticaOblique)
         }
-        MathNode::Operator(s) => {
-            let op_text = format!(" {} ", s);
-            layout_text(&op_text, font_size, FontId::Helvetica)
-        }
+        MathNode::Operator(s) => layout_operator(s, font_size),
         MathNode::Text(s) => layout_text(s, font_size, FontId::Helvetica),
         MathNode::Symbol(s) => layout_symbol(s, font_size),
         MathNode::Function(name) => layout_text(name, font_size, FontId::Helvetica),
@@ -168,9 +165,26 @@ fn layout_math_node(node: &MathNode, font_size: f32) -> MathBox {
 
         MathNode::Matrix { rows, style } => layout_matrix(rows, *style, font_size),
 
+        MathNode::Cases { rows } => layout_cases(rows, font_size),
         MathNode::Accent { base, accent_type } => layout_accent(base, accent_type, font_size),
         MathNode::Over { content, over_type } => layout_over(content, over_type, font_size),
         MathNode::Under { content, under_type } => layout_under(content, under_type, font_size),
+        MathNode::Binom { top, bottom } => layout_binom(top, bottom, font_size),
+        MathNode::Overset { over, base } => layout_overset(over, base, font_size),
+        MathNode::Underset { under, base } => layout_underset(under, base, font_size),
+        MathNode::OperatorName(name) => layout_text(name, font_size, FontId::Helvetica),
+        MathNode::MathFont { font, content } => layout_math_font(font, content, font_size),
+        MathNode::AlignmentMark => MathBox { width: 10.0, height: 0.0, depth: 0.0, elements: Vec::new() },
+        MathNode::NewLine => MathBox { width: 0.0, height: font_size * 1.2, depth: 0.0, elements: Vec::new() },
+        MathNode::Phantom(content) => {
+            let inner = layout_math(content, font_size);
+            MathBox { width: inner.width, height: inner.height, depth: inner.depth, elements: Vec::new() }
+        }
+        MathNode::StyleSwitch(_) => MathBox::empty(),
+        MathNode::BigDelim { delim, size } => {
+            let ds = font_size * size;
+            layout_delimiter(delim, ds / 1.2) // undo the 1.2 in layout_delimiter
+        }
     }
 }
 
@@ -195,12 +209,86 @@ fn layout_text(text: &str, font_size: f32, font_id: FontId) -> MathBox {
     }
 }
 
+fn layout_operator(op: &str, font_size: f32) -> MathBox {
+    let thin = font_size * 0.22;
+    // Check if the operator contains a Symbol-font character (non-ASCII)
+    if let Some(ch) = op.chars().next() {
+        if let Some(sym_byte) = font::unicode_to_symbol_byte(ch) {
+            let sym_width = font::char_width_pt(FontId::Symbol, sym_byte, font_size);
+            let total_width = thin + sym_width.max(font_size * 0.4) + thin;
+            let info = font::font_info(FontId::Symbol);
+            return MathBox {
+                width: total_width,
+                height: info.ascent as f32 * font_size * 0.001,
+                depth: (-info.descent as f32) * font_size * 0.001,
+                elements: vec![MathElement::Text {
+                    x: thin,
+                    y: 0.0,
+                    text: String::from(sym_byte as char),
+                    font_size,
+                    font_id: FontId::Symbol,
+                    color: Color::BLACK,
+                }],
+            };
+        }
+    }
+    // ASCII operators — different spacing rules per TeX math classes
+    match op {
+        // Opening delimiters: no extra space
+        "(" | "[" => layout_text(op, font_size, FontId::Helvetica),
+        // Closing delimiters: no extra space
+        ")" | "]" => layout_text(op, font_size, FontId::Helvetica),
+        // Punctuation: thin space after only
+        "," => {
+            let glyph = layout_text(op, font_size, FontId::Helvetica);
+            MathBox {
+                width: glyph.width + font_size * 0.17,
+                height: glyph.height,
+                depth: glyph.depth,
+                elements: glyph.elements,
+            }
+        }
+        ";" | ":" => {
+            let glyph = layout_text(op, font_size, FontId::Helvetica);
+            MathBox {
+                width: glyph.width + font_size * 0.22,
+                height: glyph.height,
+                depth: glyph.depth,
+                elements: glyph.elements,
+            }
+        }
+        // Binary/relation operators: thin space on both sides
+        _ => {
+            let op_text = format!(" {} ", op);
+            layout_text(&op_text, font_size, FontId::Helvetica)
+        }
+    }
+}
+
 fn layout_symbol(symbol: &str, font_size: f32) -> MathBox {
-    // Try to render symbols using the Symbol font or as text
-    // Many Greek/math symbols are in the WinAnsi range or Symbol font
+    // Try to map Unicode symbol to PDF Symbol font encoding
+    if let Some(ch) = symbol.chars().next() {
+        if let Some(sym_byte) = font::unicode_to_symbol_byte(ch) {
+            let width = font::char_width_pt(FontId::Symbol, sym_byte, font_size);
+            let info = font::font_info(FontId::Symbol);
+            return MathBox {
+                width: width.max(font_size * 0.4),
+                height: info.ascent as f32 * font_size * 0.001,
+                depth: (-info.descent as f32) * font_size * 0.001,
+                elements: vec![MathElement::Text {
+                    x: 0.0,
+                    y: 0.0,
+                    text: String::from(sym_byte as char),
+                    font_size,
+                    font_id: FontId::Symbol,
+                    color: Color::BLACK,
+                }],
+            };
+        }
+    }
+    // Fallback to Helvetica for unrecognized symbols
     let width = font::measure_text(symbol, FontId::Helvetica, font_size);
     let info = font::font_info(FontId::Helvetica);
-
     MathBox {
         width: width.max(font_size * 0.5),
         height: info.ascent as f32 * font_size * 0.001,
@@ -261,18 +349,17 @@ fn layout_sqrt(index: Option<&[MathNode]>, radicand: &[MathNode], font_size: f32
     let overline_gap = font_size * 0.1;
     let rule_thickness = font_size * 0.04;
 
-    // Radical symbol
-    let radical_text = "\u{221A}";
+    // Radical symbol — use Symbol font (byte 0xD6 = √)
     let radical_height = inner.height + overline_gap;
 
     let mut elements = Vec::new();
-    // Radical sign
+    // Radical sign using Symbol font encoding
     elements.push(MathElement::Text {
         x: 0.0,
         y: 0.0,
-        text: radical_text.to_string(),
+        text: String::from(0xD6 as char),
         font_size: font_size * 1.2,
-        font_id: FontId::Helvetica,
+        font_id: FontId::Symbol,
         color: Color::BLACK,
     });
 
@@ -343,14 +430,27 @@ fn layout_large_op(
     font_size: f32,
 ) -> MathBox {
     let op_size = font_size * 1.5;
-    let op_width = font::measure_text(symbol, FontId::Helvetica, op_size).max(font_size * 0.8);
+
+    // Use Symbol font for large operators
+    let (op_text, op_font, op_width) = if let Some(ch) = symbol.chars().next() {
+        if let Some(sym_byte) = font::unicode_to_symbol_byte(ch) {
+            let w = font::char_width_pt(FontId::Symbol, sym_byte, op_size).max(font_size * 0.8);
+            (String::from(sym_byte as char), FontId::Symbol, w)
+        } else {
+            let w = font::measure_text(symbol, FontId::Helvetica, op_size).max(font_size * 0.8);
+            (symbol.to_string(), FontId::Helvetica, w)
+        }
+    } else {
+        let w = font::measure_text(symbol, FontId::Helvetica, op_size).max(font_size * 0.8);
+        (symbol.to_string(), FontId::Helvetica, w)
+    };
 
     let mut elements = vec![MathElement::Text {
         x: 0.0,
         y: 0.0,
-        text: symbol.to_string(),
+        text: op_text,
         font_size: op_size,
-        font_id: FontId::Helvetica,
+        font_id: op_font,
         color: Color::BLACK,
     }];
 
@@ -387,23 +487,48 @@ fn layout_large_op(
 }
 
 fn layout_delimiter(delim: &str, font_size: f32) -> MathBox {
-    let text = match delim {
-        "(" | ")" | "[" | "]" | "|" | "." => delim.to_string(),
-        "\\{" => "{".to_string(),
-        "\\}" => "}".to_string(),
-        "\\langle" => "\u{27E8}".to_string(),
-        "\\rangle" => "\u{27E9}".to_string(),
-        "\\lfloor" => "\u{230A}".to_string(),
-        "\\rfloor" => "\u{230B}".to_string(),
-        "\\lceil" => "\u{2308}".to_string(),
-        "\\rceil" => "\u{2309}".to_string(),
-        _ => delim.to_string(),
-    };
-
-    if text == "." {
+    if delim == "." {
         // Invisible delimiter
         return MathBox { width: 0.0, height: font_size * 0.7, depth: font_size * 0.2, elements: Vec::new() };
     }
+
+    // Check if delimiter maps to Symbol font
+    let unicode_ch = match delim {
+        "\\langle" => Some('\u{27E8}'),
+        "\\rangle" => Some('\u{27E9}'),
+        "\\lfloor" => Some('\u{230A}'),
+        "\\rfloor" => Some('\u{230B}'),
+        "\\lceil" => Some('\u{2308}'),
+        "\\rceil" => Some('\u{2309}'),
+        _ => None,
+    };
+
+    if let Some(ch) = unicode_ch {
+        if let Some(sym_byte) = font::unicode_to_symbol_byte(ch) {
+            let ds = font_size * 1.2;
+            let width = font::char_width_pt(FontId::Symbol, sym_byte, ds);
+            let info = font::font_info(FontId::Symbol);
+            return MathBox {
+                width,
+                height: info.ascent as f32 * ds * 0.001,
+                depth: (-info.descent as f32) * ds * 0.001,
+                elements: vec![MathElement::Text {
+                    x: 0.0, y: 0.0,
+                    text: String::from(sym_byte as char),
+                    font_size: ds,
+                    font_id: FontId::Symbol,
+                    color: Color::BLACK,
+                }],
+            };
+        }
+    }
+
+    let text = match delim {
+        "(" | ")" | "[" | "]" | "|" => delim.to_string(),
+        "\\{" => "{".to_string(),
+        "\\}" => "}".to_string(),
+        _ => delim.to_string(),
+    };
 
     layout_text(&text, font_size * 1.2, FontId::Helvetica)
 }
@@ -459,43 +584,94 @@ fn layout_matrix(
     }
 
     // Add delimiters based on style
-    let delim_pad = font_size * 0.2;
-    let content_width = total_width + delim_pad * 2.0;
+    let delim_size = total_height * 0.8;
+    let delim_pad = font_size * 0.15; // gap between delimiter and content
+    let has_delimiters = !matches!(style, MatrixStyle::Plain);
+    // Approximate delimiter glyph width (parenthesis/bracket at large size)
+    let delim_width = if has_delimiters { delim_size * 0.35 } else { 0.0 };
+
+    // Shift all cell content right to make room for the left delimiter
+    if has_delimiters {
+        let shift = delim_width + delim_pad;
+        for elem in &mut elements {
+            match elem {
+                MathElement::Text { x, .. } => *x += shift,
+                MathElement::Line { x1, x2, .. } => { *x1 += shift; *x2 += shift; }
+            }
+        }
+    }
+
+    let content_start = if has_delimiters { delim_width + delim_pad } else { 0.0 };
+    let content_width = content_start + total_width + if has_delimiters { delim_pad + delim_width } else { 0.0 };
 
     match style {
         MatrixStyle::Parenthesized => {
             elements.push(MathElement::Text {
-                x: -delim_pad, y: 0.0, text: "(".to_string(),
-                font_size: total_height * 0.8, font_id: FontId::Helvetica, color: Color::BLACK,
+                x: 0.0, y: 0.0, text: "(".to_string(),
+                font_size: delim_size, font_id: FontId::Helvetica, color: Color::BLACK,
             });
             elements.push(MathElement::Text {
-                x: total_width + delim_pad * 0.5, y: 0.0, text: ")".to_string(),
-                font_size: total_height * 0.8, font_id: FontId::Helvetica, color: Color::BLACK,
+                x: content_start + total_width + delim_pad, y: 0.0, text: ")".to_string(),
+                font_size: delim_size, font_id: FontId::Helvetica, color: Color::BLACK,
             });
         }
         MatrixStyle::Bracketed => {
             elements.push(MathElement::Text {
-                x: -delim_pad, y: 0.0, text: "[".to_string(),
-                font_size: total_height * 0.8, font_id: FontId::Helvetica, color: Color::BLACK,
+                x: 0.0, y: 0.0, text: "[".to_string(),
+                font_size: delim_size, font_id: FontId::Helvetica, color: Color::BLACK,
             });
             elements.push(MathElement::Text {
-                x: total_width + delim_pad * 0.5, y: 0.0, text: "]".to_string(),
-                font_size: total_height * 0.8, font_id: FontId::Helvetica, color: Color::BLACK,
+                x: content_start + total_width + delim_pad, y: 0.0, text: "]".to_string(),
+                font_size: delim_size, font_id: FontId::Helvetica, color: Color::BLACK,
+            });
+        }
+        MatrixStyle::Braced => {
+            elements.push(MathElement::Text {
+                x: 0.0, y: 0.0, text: "{".to_string(),
+                font_size: delim_size, font_id: FontId::Helvetica, color: Color::BLACK,
+            });
+            elements.push(MathElement::Text {
+                x: content_start + total_width + delim_pad, y: 0.0, text: "}".to_string(),
+                font_size: delim_size, font_id: FontId::Helvetica, color: Color::BLACK,
             });
         }
         MatrixStyle::VerticalBar => {
             elements.push(MathElement::Line {
-                x1: -delim_pad, y1: -(total_height / 2.0),
-                x2: -delim_pad, y2: total_height / 2.0,
+                x1: delim_width * 0.5, y1: -(total_height / 2.0),
+                x2: delim_width * 0.5, y2: total_height / 2.0,
                 width: font_size * 0.04, color: Color::BLACK,
             });
             elements.push(MathElement::Line {
-                x1: total_width + delim_pad, y1: -(total_height / 2.0),
-                x2: total_width + delim_pad, y2: total_height / 2.0,
+                x1: content_start + total_width + delim_pad + delim_width * 0.5, y1: -(total_height / 2.0),
+                x2: content_start + total_width + delim_pad + delim_width * 0.5, y2: total_height / 2.0,
                 width: font_size * 0.04, color: Color::BLACK,
             });
         }
-        _ => {}
+        MatrixStyle::DoubleBar => {
+            let bar_gap = font_size * 0.08;
+            elements.push(MathElement::Line {
+                x1: delim_width * 0.4, y1: -(total_height / 2.0),
+                x2: delim_width * 0.4, y2: total_height / 2.0,
+                width: font_size * 0.04, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: delim_width * 0.4 + bar_gap, y1: -(total_height / 2.0),
+                x2: delim_width * 0.4 + bar_gap, y2: total_height / 2.0,
+                width: font_size * 0.04, color: Color::BLACK,
+            });
+            let rx = content_start + total_width + delim_pad;
+            elements.push(MathElement::Line {
+                x1: rx + delim_width * 0.4, y1: -(total_height / 2.0),
+                x2: rx + delim_width * 0.4, y2: total_height / 2.0,
+                width: font_size * 0.04, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: rx + delim_width * 0.4 + bar_gap, y1: -(total_height / 2.0),
+                x2: rx + delim_width * 0.4 + bar_gap, y2: total_height / 2.0,
+                width: font_size * 0.04, color: Color::BLACK,
+            });
+        }
+        MatrixStyle::Plain => {}
     }
 
     MathBox {
@@ -512,20 +688,24 @@ fn layout_accent(base: &[MathNode], accent_type: &AccentType, font_size: f32) ->
 
     let accent_elem = match accent_type {
         AccentType::Hat => MathElement::Text {
-            x: base_box.width * 0.3, y: accent_y, text: "\u{0302}".to_string(),
-            font_size, font_id: FontId::Helvetica, color: Color::BLACK,
+            x: base_box.width * 0.2, y: accent_y, text: "^".to_string(),
+            font_size: font_size * 0.8, font_id: FontId::Helvetica, color: Color::BLACK,
         },
         AccentType::Bar => MathElement::Line {
             x1: 0.0, y1: accent_y, x2: base_box.width, y2: accent_y,
             width: font_size * 0.04, color: Color::BLACK,
         },
         AccentType::Vec => MathElement::Text {
-            x: base_box.width * 0.2, y: accent_y, text: "\u{2192}".to_string(),
-            font_size: font_size * 0.6, font_id: FontId::Helvetica, color: Color::BLACK,
+            // Use Symbol font → (arrow right, 0xAE)
+            x: base_box.width * 0.1, y: accent_y,
+            text: String::from(0xAE as char),
+            font_size: font_size * 0.6, font_id: FontId::Symbol, color: Color::BLACK,
         },
         AccentType::Tilde => MathElement::Text {
-            x: base_box.width * 0.2, y: accent_y, text: "~".to_string(),
-            font_size: font_size * 0.8, font_id: FontId::Helvetica, color: Color::BLACK,
+            // Use Symbol font ~ (0x7E) for a proper tilde
+            x: base_box.width * 0.15, y: accent_y,
+            text: String::from(0x7E as char),
+            font_size: font_size * 0.8, font_id: FontId::Symbol, color: Color::BLACK,
         },
         AccentType::Dot => MathElement::Text {
             x: base_box.width * 0.4, y: accent_y, text: "\u{00B7}".to_string(),
@@ -535,9 +715,15 @@ fn layout_accent(base: &[MathNode], accent_type: &AccentType, font_size: f32) ->
             x: base_box.width * 0.25, y: accent_y, text: "\u{00A8}".to_string(),
             font_size, font_id: FontId::Helvetica, color: Color::BLACK,
         },
-        _ => MathElement::Text {
-            x: 0.0, y: accent_y, text: String::new(),
-            font_size, font_id: FontId::Helvetica, color: Color::BLACK,
+        AccentType::Breve => MathElement::Text {
+            x: base_box.width * 0.15, y: accent_y, text: "\u{00A8}".to_string(),
+            font_size: font_size * 0.6, font_id: FontId::Helvetica, color: Color::BLACK,
+        },
+        AccentType::Check => MathElement::Text {
+            // Inverted hat / caron
+            x: base_box.width * 0.2, y: accent_y + font_size * 0.15,
+            text: "v".to_string(),
+            font_size: font_size * 0.5, font_id: FontId::Helvetica, color: Color::BLACK,
         },
     };
 
@@ -596,6 +782,200 @@ fn layout_under(content: &[MathNode], under_type: &UnderType, font_size: f32) ->
 
     content_box.depth += font_size * 0.15;
     content_box
+}
+
+fn layout_cases(rows: &[(Vec<MathNode>, Option<Vec<MathNode>>)], font_size: f32) -> MathBox {
+    if rows.is_empty() {
+        return MathBox::empty();
+    }
+
+    let row_height = font_size * 1.4;
+    let col_gap = font_size * 1.0;
+    let brace_width = font_size * 0.5;
+
+    // Layout all rows
+    let mut value_boxes: Vec<MathBox> = Vec::new();
+    let mut cond_boxes: Vec<Option<MathBox>> = Vec::new();
+    let mut max_val_w = 0.0f32;
+    let mut max_cond_w = 0.0f32;
+
+    for (value, cond) in rows {
+        let vb = layout_math(value, font_size);
+        max_val_w = max_val_w.max(vb.width);
+        value_boxes.push(vb);
+        if let Some(c) = cond {
+            let cb = layout_math(c, font_size);
+            max_cond_w = max_cond_w.max(cb.width);
+            cond_boxes.push(Some(cb));
+        } else {
+            cond_boxes.push(None);
+        }
+    }
+
+    let total_height = row_height * rows.len() as f32;
+    let content_width = max_val_w + col_gap + max_cond_w;
+    let total_width = brace_width + content_width;
+
+    let mut elements = Vec::new();
+
+    // Left brace using Symbol font
+    if let Some(sym_byte) = font::unicode_to_symbol_byte('{' as char) {
+        let _ = sym_byte; // '{' is not in Symbol; use Helvetica
+    }
+    elements.push(MathElement::Text {
+        x: 0.0, y: 0.0,
+        text: "{".to_string(),
+        font_size: total_height * 0.7,
+        font_id: FontId::Helvetica,
+        color: Color::BLACK,
+    });
+
+    // Layout rows
+    let start_y = -(total_height / 2.0 - font_size * 0.3);
+    for (i, (vb, cb)) in value_boxes.iter().zip(cond_boxes.iter()).enumerate() {
+        let y = start_y + i as f32 * row_height;
+
+        let mut shifted_v = vb.clone();
+        shifted_v.translate(brace_width, y);
+        elements.extend(shifted_v.elements);
+
+        if let Some(cond_box) = cb {
+            let mut shifted_c = cond_box.clone();
+            shifted_c.translate(brace_width + max_val_w + col_gap, y);
+            elements.extend(shifted_c.elements);
+        }
+    }
+
+    MathBox {
+        width: total_width,
+        height: total_height / 2.0 + font_size * 0.3,
+        depth: total_height / 2.0 - font_size * 0.3,
+        elements,
+    }
+}
+
+fn layout_binom(top: &[MathNode], bottom: &[MathNode], font_size: f32) -> MathBox {
+    let inner_size = font_size * 0.85;
+    let mut top_box = layout_math(top, inner_size);
+    let mut bot_box = layout_math(bottom, inner_size);
+
+    let inner_width = top_box.width.max(bot_box.width) + font_size * 0.2;
+    let gap = font_size * 0.15;
+    let center_y = font_size * 0.3;
+
+    // Center top above center
+    let top_x = (inner_width - top_box.width) / 2.0;
+    top_box.translate(top_x, -(center_y + gap + top_box.depth));
+
+    // Center bottom below center
+    let bot_x = (inner_width - bot_box.width) / 2.0;
+    bot_box.translate(bot_x, -(center_y - gap - bot_box.height) + bot_box.height);
+
+    let height = center_y + gap + top_box.total_height();
+    let depth = gap + bot_box.total_height() - center_y;
+    let paren_size = (height + depth) * 0.8;
+
+    let mut elements = Vec::with_capacity(top_box.elements.len() + bot_box.elements.len() + 2);
+
+    // Left paren
+    elements.push(MathElement::Text {
+        x: -font_size * 0.15, y: 0.0,
+        text: "(".to_string(),
+        font_size: paren_size,
+        font_id: FontId::Helvetica,
+        color: Color::BLACK,
+    });
+
+    elements.extend(top_box.elements);
+    elements.extend(bot_box.elements);
+
+    // Right paren
+    elements.push(MathElement::Text {
+        x: inner_width + font_size * 0.05, y: 0.0,
+        text: ")".to_string(),
+        font_size: paren_size,
+        font_id: FontId::Helvetica,
+        color: Color::BLACK,
+    });
+
+    let paren_w = font_size * 0.3;
+    MathBox { width: inner_width + paren_w * 2.0, height, depth, elements }
+}
+
+fn layout_overset(over: &[MathNode], base: &[MathNode], font_size: f32) -> MathBox {
+    let mut base_box = layout_math(base, font_size);
+    let mut over_box = layout_math(over, font_size * 0.6);
+
+    let total_width = base_box.width.max(over_box.width);
+    let gap = font_size * 0.1;
+
+    // Center over above base
+    let over_x = (total_width - over_box.width) / 2.0;
+    let over_y = -(base_box.height + gap + over_box.depth);
+    over_box.translate(over_x, over_y);
+
+    let base_x = (total_width - base_box.width) / 2.0;
+    base_box.translate(base_x, 0.0);
+
+    let height = base_box.height + gap + over_box.total_height();
+
+    let mut elements = Vec::new();
+    elements.extend(base_box.elements);
+    elements.extend(over_box.elements);
+
+    MathBox { width: total_width, height, depth: base_box.depth, elements }
+}
+
+fn layout_underset(under: &[MathNode], base: &[MathNode], font_size: f32) -> MathBox {
+    let mut base_box = layout_math(base, font_size);
+    let mut under_box = layout_math(under, font_size * 0.6);
+
+    let total_width = base_box.width.max(under_box.width);
+    let gap = font_size * 0.1;
+
+    let under_x = (total_width - under_box.width) / 2.0;
+    let under_y = base_box.depth + gap + under_box.height;
+    under_box.translate(under_x, under_y);
+
+    let base_x = (total_width - base_box.width) / 2.0;
+    base_box.translate(base_x, 0.0);
+
+    let depth = base_box.depth + gap + under_box.total_height();
+
+    let mut elements = Vec::new();
+    elements.extend(base_box.elements);
+    elements.extend(under_box.elements);
+
+    MathBox { width: total_width, height: base_box.height, depth, elements }
+}
+
+fn layout_math_font(font: &MathFontType, content: &[MathNode], font_size: f32) -> MathBox {
+    // Map math fonts to closest available Standard 14 font
+    let font_id = match font {
+        MathFontType::Blackboard => FontId::HelveticaBold,
+        MathFontType::Calligraphic | MathFontType::Script => FontId::HelveticaOblique,
+        MathFontType::Fraktur => FontId::HelveticaBoldOblique,
+        MathFontType::SansSerif => FontId::Helvetica,
+        MathFontType::BoldMath => FontId::HelveticaBold,
+    };
+
+    // Re-layout content with the target font
+    let mut result = MathBox::empty();
+    let mut x = 0.0f32;
+    for node in content {
+        let mut mb = match node {
+            MathNode::Variable(c) => layout_text(&c.to_string(), font_size, font_id),
+            MathNode::Text(s) => layout_text(s, font_size, font_id),
+            _ => layout_math_node(node, font_size),
+        };
+        mb.translate(x, 0.0);
+        x += mb.width;
+        result.height = result.height.max(mb.height);
+        result.depth = result.depth.max(mb.depth);
+        result.elements.extend(mb.elements);
+    }
+    result.width = x;
+    result
 }
 
 // MatrixStyle Clone/Copy already derived in document.rs

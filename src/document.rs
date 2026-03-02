@@ -35,6 +35,17 @@ pub struct Preamble {
     pub font_size: f32,
     pub line_spacing: f32,
     pub commands: Vec<(String, Vec<Node>)>,
+    pub theorem_defs: Vec<TheoremDef>,
+    pub page_style: String, // "plain", "headings", "empty"
+    pub addresses: Vec<AuthorAddress>,
+    pub keywords: Option<String>,
+    pub subjclass: Option<(String, String)>, // (year, classification text)
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthorAddress {
+    pub address: String,
+    pub email: Option<String>,
 }
 
 impl Default for Preamble {
@@ -48,6 +59,11 @@ impl Default for Preamble {
             font_size: 10.0,
             line_spacing: 1.0,
             commands: Vec::new(),
+            theorem_defs: Vec::new(),
+            page_style: String::new(), // empty = default (plain for article)
+            addresses: Vec::new(),
+            keywords: None,
+            subjclass: None,
         }
     }
 }
@@ -175,7 +191,7 @@ pub enum Node {
 
     /// Math mode
     InlineMath(Vec<MathNode>),
-    DisplayMath(Vec<MathNode>),
+    DisplayMath(Box<DisplayMathData>),
 
     /// Environments
     Environment(Box<EnvironmentData>),
@@ -200,13 +216,22 @@ pub enum Node {
     /// Table of contents
     TableOfContents,
 
+    /// Switch to appendix mode (sections numbered A, B, C...)
+    Appendix,
+
     /// Footnote
     Footnote(Vec<Node>),
+
+    /// Hyperlink
+    Href { url: String, content: Vec<Node> },
 
     /// Cross-reference
     Label(String),
     Ref(String),
-    Citation(String),
+    /// Equation reference — renders as (N)
+    EqRef(String),
+    /// Citation — key, optional argument text (e.g. "Prop.~1.6")
+    Citation(String, Option<String>),
     /// Bibliography item marker
     BibItem(String),
 
@@ -235,11 +260,25 @@ pub enum Node {
         content: Vec<Node>,
     },
 
+    /// Theorem-like environments
+    Theorem(Box<TheoremData>),
+    /// Proof environment
+    Proof(Vec<Node>),
+
+    /// Font style declaration (e.g. \bfseries, \itshape) — changes style for subsequent siblings
+    FontStyleDecl(FontDeclType),
+
+    /// Color declaration (e.g. \color{red}) — changes color for subsequent siblings
+    ColorDecl(Color),
+
     /// Raw content (pass-through)
     Raw(String),
 
     /// Group (braces)
     Group(Vec<Node>),
+
+    /// Suppress indent on next paragraph
+    NoIndent,
 
     /// Special characters
     NonBreakingSpace,
@@ -263,6 +302,48 @@ pub enum Node {
     Caret,
     LeftBrace,
     RightBrace,
+}
+
+#[derive(Debug, Clone)]
+pub struct TheoremData {
+    pub env_name: String,
+    pub title: String,          // e.g. "Theorem", "Lemma", "Definition"
+    pub number: Option<u32>,
+    pub optional_name: Option<String>, // e.g. [Zorn's Lemma]
+    pub body: Vec<Node>,
+    pub italic_body: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TheoremStyle {
+    Plain,      // bold label, italic body (default)
+    Definition, // bold label, upright body
+    Remark,     // italic label, upright body
+}
+
+#[derive(Debug, Clone)]
+pub struct TheoremDef {
+    pub env_name: String,
+    pub display_title: String,
+    pub numbered: bool,
+    pub counter: Option<String>, // shared counter name, or None for own counter
+    pub style: TheoremStyle,
+}
+
+#[derive(Debug, Clone)]
+pub struct DisplayMathData {
+    pub nodes: Vec<MathNode>,
+    pub numbered: bool,
+    pub env_type: MathEnvType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MathEnvType {
+    DollarDollar,
+    Equation,
+    Align,
+    Gather,
+    Multline,
 }
 
 #[derive(Debug, Clone)]
@@ -347,6 +428,15 @@ impl SectionLevel {
             SectionLevel::Subparagraph => 4.0,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FontDeclType {
+    Bold,
+    Italic,
+    Monospace,
+    Regular,
+    SmallCaps,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -442,9 +532,20 @@ pub enum MathNode {
     Integral { lower: Option<Vec<MathNode>>, upper: Option<Vec<MathNode>> },
     Product { lower: Option<Vec<MathNode>>, upper: Option<Vec<MathNode>> },
     Matrix { rows: Vec<Vec<Vec<MathNode>>>, style: MatrixStyle },
+    Cases { rows: Vec<(Vec<MathNode>, Option<Vec<MathNode>>)> },
     Accent { base: Vec<MathNode>, accent_type: AccentType },
     Over { content: Vec<MathNode>, over_type: OverType },
     Under { content: Vec<MathNode>, under_type: UnderType },
+    Binom { top: Vec<MathNode>, bottom: Vec<MathNode> },
+    Overset { over: Vec<MathNode>, base: Vec<MathNode> },
+    Underset { under: Vec<MathNode>, base: Vec<MathNode> },
+    OperatorName(String),
+    MathFont { font: MathFontType, content: Vec<MathNode> },
+    AlignmentMark,
+    NewLine,
+    Phantom(Vec<MathNode>),
+    StyleSwitch(MathStyleType),
+    BigDelim { delim: String, size: f32 },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -455,6 +556,24 @@ pub enum MatrixStyle {
     Braced,
     VerticalBar,
     DoubleBar,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MathFontType {
+    Blackboard,
+    Calligraphic,
+    Fraktur,
+    Script,
+    SansSerif,
+    BoldMath,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MathStyleType {
+    Display,
+    Text,
+    Script,
+    ScriptScript,
 }
 
 #[derive(Debug, Clone)]

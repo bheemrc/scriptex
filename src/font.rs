@@ -278,44 +278,69 @@ static COURIER_WIDTHS: [u16; 256] = {
 
 /// Symbol font widths (selected entries)
 static SYMBOL_WIDTHS: [u16; 256] = {
+    // Widths from the official Adobe Symbol font AFM file
     let mut w = [500u16; 256]; // default
     let mut i = 0;
     while i < 32 { w[i] = 0; i += 1; }
     w[32] = 250;  // space
-    w[40] = 333;  // (
-    w[41] = 333;  // )
-    w[43] = 549;  // +
-    w[44] = 250;  // ,
+    w[33] = 333;  // exclam
+    w[34] = 713;  // universal
+    w[35] = 500;  // numbersign
+    w[36] = 549;  // existential
+    w[37] = 833;  // percent
+    w[38] = 778;  // ampersand
+    w[39] = 439;  // suchthat
+    w[40] = 333;  // parenleft
+    w[41] = 333;  // parenright
+    w[42] = 500;  // asteriskmath
+    w[43] = 549;  // plus
+    w[44] = 250;  // comma
     w[45] = 549;  // minus
-    w[46] = 250;  // .
-    w[47] = 278;  // /
+    w[46] = 250;  // period
+    w[47] = 278;  // slash
     w[48] = 500; w[49] = 500; w[50] = 500; w[51] = 500; w[52] = 500; // 0-4
     w[53] = 500; w[54] = 500; w[55] = 500; w[56] = 500; w[57] = 500; // 5-9
-    w[61] = 549;  // =
-    w[65] = 631;  // Alpha
-    w[66] = 549;  // Beta
-    w[67] = 603;  // Chi
-    w[68] = 494;  // Delta
-    w[69] = 439;  // Epsilon
-    w[70] = 521;  // Phi
-    w[71] = 411;  // Gamma
-    w[72] = 603;  // Eta
-    w[73] = 329;  // Iota
-    w[75] = 549;  // Kappa
+    w[58] = 278;  // colon
+    w[59] = 278;  // semicolon
+    w[60] = 549;  // less
+    w[61] = 549;  // equal
+    w[62] = 549;  // greater
+    w[63] = 444;  // question
+    w[64] = 549;  // congruent
+    // Uppercase Greek (from Adobe Symbol AFM)
+    w[65] = 722;  // Alpha
+    w[66] = 667;  // Beta
+    w[67] = 722;  // Chi
+    w[68] = 612;  // Delta
+    w[69] = 611;  // Epsilon
+    w[70] = 763;  // Phi
+    w[71] = 603;  // Gamma
+    w[72] = 722;  // Eta
+    w[73] = 333;  // Iota
+    w[74] = 631;  // theta1
+    w[75] = 722;  // Kappa
     w[76] = 686;  // Lambda
-    w[77] = 713;  // Mu
-    w[78] = 494;  // Nu
-    w[79] = 768;  // Omicron
-    w[80] = 603;  // Pi
-    w[81] = 521;  // Theta
-    w[82] = 549;  // Rho
-    w[83] = 603;  // Sigma
-    w[84] = 439;  // Tau
-    w[85] = 576;  // Upsilon
+    w[77] = 889;  // Mu
+    w[78] = 722;  // Nu
+    w[79] = 722;  // Omicron
+    w[80] = 768;  // Pi
+    w[81] = 741;  // Theta
+    w[82] = 556;  // Rho
+    w[83] = 592;  // Sigma
+    w[84] = 611;  // Tau
+    w[85] = 690;  // Upsilon
+    w[86] = 439;  // sigma1
     w[87] = 768;  // Omega
-    w[88] = 603;  // Xi
-    w[89] = 549;  // Psi
-    w[90] = 494;  // Zeta
+    w[88] = 645;  // Xi
+    w[89] = 795;  // Psi
+    w[90] = 611;  // Zeta
+    w[91] = 333;  // bracketleft
+    w[92] = 863;  // therefore
+    w[93] = 333;  // bracketright
+    w[94] = 658;  // perpendicular
+    w[95] = 500;  // underscore
+    w[96] = 500;  // radicalex
+    // Lowercase Greek (from Adobe Symbol AFM)
     w[97] = 631;  // alpha
     w[98] = 549;  // beta
     w[99] = 549;  // chi
@@ -325,6 +350,7 @@ static SYMBOL_WIDTHS: [u16; 256] = {
     w[103] = 411; // gamma
     w[104] = 603; // eta
     w[105] = 329; // iota
+    w[106] = 603; // phi1
     w[107] = 549; // kappa
     w[108] = 549; // lambda
     w[109] = 576; // mu
@@ -336,14 +362,70 @@ static SYMBOL_WIDTHS: [u16; 256] = {
     w[115] = 603; // sigma
     w[116] = 439; // tau
     w[117] = 576; // upsilon
-    w[119] = 713; // omega
+    w[118] = 713; // omega1
+    w[119] = 686; // omega
     w[120] = 493; // xi
     w[121] = 686; // psi
     w[122] = 494; // zeta
-    // Large operators
-    w[229] = 713; // summation (Sigma)
-    w[242] = 713; // integral
-    w[213] = 713; // product
+    // Symbols and operators (from Adobe Symbol AFM)
+    w[163] = 549; // lessequal
+    w[164] = 167; // fraction
+    w[165] = 713; // infinity
+    w[166] = 500; // florin
+    w[167] = 753; // club
+    w[168] = 753; // diamond
+    w[169] = 753; // heart
+    w[170] = 753; // spade
+    w[171] = 1042; // arrowboth
+    w[172] = 987; // arrowleft
+    w[173] = 603; // arrowup
+    w[174] = 987; // arrowright
+    w[175] = 603; // arrowdown
+    w[176] = 400; // degree
+    w[177] = 549; // plusminus
+    w[178] = 411; // second
+    w[179] = 549; // greaterequal
+    w[180] = 549; // multiply
+    w[181] = 713; // proportional
+    w[182] = 494; // partialdiff
+    w[183] = 460; // bullet
+    w[184] = 549; // divide
+    w[185] = 549; // notequal
+    w[186] = 549; // equivalence
+    w[187] = 549; // approxequal
+    w[188] = 1000; // ellipsis
+    w[192] = 823; // aleph
+    w[193] = 686; // Ifraktur
+    w[194] = 795; // Rfraktur
+    w[195] = 987; // weierstrass
+    w[196] = 768; // circlemultiply
+    w[197] = 768; // circleplus
+    w[198] = 823; // emptyset
+    w[199] = 768; // intersection
+    w[200] = 768; // union
+    w[201] = 713; // propersuperset
+    w[202] = 713; // reflexsuperset
+    w[203] = 713; // notsubset
+    w[204] = 713; // propersubset
+    w[205] = 713; // reflexsubset
+    w[206] = 713; // element
+    w[207] = 713; // notelement
+    w[208] = 768; // angle
+    w[209] = 713; // gradient (nabla)
+    w[213] = 823; // product
+    w[214] = 549; // radical
+    w[215] = 250; // dotmath
+    w[216] = 713; // logicalnot
+    w[217] = 603; // logicaland
+    w[218] = 603; // logicalor
+    w[219] = 1042; // arrowdblboth
+    w[220] = 987; // arrowdblleft
+    w[222] = 987; // arrowdblright
+    w[224] = 494; // lozenge
+    w[225] = 329; // angleleft
+    w[229] = 713; // summation
+    w[241] = 329; // angleright
+    w[242] = 274; // integral
     w
 };
 
@@ -381,24 +463,73 @@ pub fn measure_text(text: &str, font: FontId, font_size: f32) -> f32 {
     let bytes = text.as_bytes();
     let mut total: u32 = 0;
 
-    // Process 4 bytes at a time for better throughput
-    let chunks = bytes.len() / 4;
-    let mut i = 0;
-    for _ in 0..chunks {
-        unsafe {
-            total += *widths.get_unchecked(*bytes.get_unchecked(i) as usize) as u32;
-            total += *widths.get_unchecked(*bytes.get_unchecked(i + 1) as usize) as u32;
-            total += *widths.get_unchecked(*bytes.get_unchecked(i + 2) as usize) as u32;
-            total += *widths.get_unchecked(*bytes.get_unchecked(i + 3) as usize) as u32;
+    // Check if text is pure ASCII (common fast path)
+    if bytes.iter().all(|&b| b < 0x80) {
+        // Process 4 bytes at a time for better throughput
+        let chunks = bytes.len() / 4;
+        let mut i = 0;
+        for _ in 0..chunks {
+            unsafe {
+                total += *widths.get_unchecked(*bytes.get_unchecked(i) as usize) as u32;
+                total += *widths.get_unchecked(*bytes.get_unchecked(i + 1) as usize) as u32;
+                total += *widths.get_unchecked(*bytes.get_unchecked(i + 2) as usize) as u32;
+                total += *widths.get_unchecked(*bytes.get_unchecked(i + 3) as usize) as u32;
+            }
+            i += 4;
         }
-        i += 4;
-    }
-    while i < bytes.len() {
-        total += widths[bytes[i] as usize] as u32;
-        i += 1;
+        while i < bytes.len() {
+            total += widths[bytes[i] as usize] as u32;
+            i += 1;
+        }
+    } else {
+        // Slow path: decode UTF-8 chars and map to WinAnsi byte positions
+        let mut i = 0;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if b < 0x80 {
+                total += widths[b as usize] as u32;
+                i += 1;
+            } else if b < 0xC0 {
+                i += 1; // stray continuation byte
+            } else {
+                // Decode UTF-8 to Unicode codepoint
+                let (cp, advance) = if b < 0xE0 && i + 1 < bytes.len() {
+                    (((b as u32 & 0x1F) << 6) | (bytes[i+1] as u32 & 0x3F), 2)
+                } else if b < 0xF0 && i + 2 < bytes.len() {
+                    (((b as u32 & 0x0F) << 12) | ((bytes[i+1] as u32 & 0x3F) << 6)
+                        | (bytes[i+2] as u32 & 0x3F), 3)
+                } else if i + 3 < bytes.len() {
+                    (((b as u32 & 0x07) << 18) | ((bytes[i+1] as u32 & 0x3F) << 12)
+                        | ((bytes[i+2] as u32 & 0x3F) << 6) | (bytes[i+3] as u32 & 0x3F), 4)
+                } else {
+                    (0xFFFD, 1)
+                };
+                // Map Unicode codepoint to WinAnsi byte (same as pdf.rs encoding)
+                let win_byte = unicode_to_winansi(cp);
+                total += widths[win_byte as usize] as u32;
+                i += advance;
+            }
+        }
     }
 
     total as f32 * scale
+}
+
+/// Map a Unicode codepoint to its WinAnsi byte equivalent.
+/// Returns '?' (0x3F) for unmappable characters.
+#[inline]
+fn unicode_to_winansi(cp: u32) -> u8 {
+    match cp {
+        0x00..=0x7F => cp as u8,
+        0x00A0..=0x00FF => cp as u8,
+        0x2022 => 0x95, 0x2013 => 0x96, 0x2014 => 0x97,
+        0x2018 => 0x91, 0x2019 => 0x92, 0x201C => 0x93, 0x201D => 0x94,
+        0x2026 => 0x85, 0x2020 => 0x86, 0x2021 => 0x87, 0x2030 => 0x89,
+        0x0152 => 0x8C, 0x0153 => 0x9C, 0x0160 => 0x8A, 0x0161 => 0x9A,
+        0x0178 => 0x9F, 0x017D => 0x8E, 0x017E => 0x9E, 0x0192 => 0x83,
+        0x02C6 => 0x88, 0x02DC => 0x98, 0x20AC => 0x80, 0x2122 => 0x99,
+        _ => b'?',
+    }
 }
 
 /// Measure text width returning total in 1/1000 em (for precise integer math)
@@ -407,8 +538,36 @@ pub fn measure_text_1000(text: &str, font: FontId) -> u32 {
     let widths = font_widths(font);
     let bytes = text.as_bytes();
     let mut total: u32 = 0;
-    for &b in bytes {
-        total += widths[b as usize] as u32;
+    if bytes.iter().all(|&b| b < 0x80) {
+        for &b in bytes {
+            total += widths[b as usize] as u32;
+        }
+    } else {
+        let mut i = 0;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if b < 0x80 {
+                total += widths[b as usize] as u32;
+                i += 1;
+            } else if b < 0xC0 {
+                i += 1;
+            } else {
+                let (cp, advance) = if b < 0xE0 && i + 1 < bytes.len() {
+                    (((b as u32 & 0x1F) << 6) | (bytes[i+1] as u32 & 0x3F), 2)
+                } else if b < 0xF0 && i + 2 < bytes.len() {
+                    (((b as u32 & 0x0F) << 12) | ((bytes[i+1] as u32 & 0x3F) << 6)
+                        | (bytes[i+2] as u32 & 0x3F), 3)
+                } else if i + 3 < bytes.len() {
+                    (((b as u32 & 0x07) << 18) | ((bytes[i+1] as u32 & 0x3F) << 12)
+                        | ((bytes[i+2] as u32 & 0x3F) << 6) | (bytes[i+3] as u32 & 0x3F), 4)
+                } else {
+                    (0xFFFD, 1)
+                };
+                let win_byte = unicode_to_winansi(cp);
+                total += widths[win_byte as usize] as u32;
+                i += advance;
+            }
+        }
     }
     total
 }
@@ -446,7 +605,137 @@ pub fn style_to_font_id(style: crate::typeset::FontStyle) -> FontId {
         FontStyle::Italic => FontId::HelveticaOblique,
         FontStyle::BoldItalic => FontId::HelveticaBoldOblique,
         FontStyle::Monospace => FontId::Courier,
+        FontStyle::Symbol => FontId::Symbol,
     }
+}
+
+/// Map a Unicode codepoint to the PDF Symbol font byte encoding.
+/// Returns the Symbol encoding byte position for Greek letters, math operators, arrows, etc.
+/// Based on the Adobe Symbol Encoding table.
+#[inline]
+pub fn unicode_to_symbol_byte(ch: char) -> Option<u8> {
+    let cp = ch as u32;
+    Some(match cp {
+        // Lowercase Greek letters
+        0x03B1 => 0x61, // α alpha
+        0x03B2 => 0x62, // β beta
+        0x03C7 => 0x63, // χ chi
+        0x03B4 => 0x64, // δ delta
+        0x03B5 => 0x65, // ε epsilon
+        0x03C6 => 0x66, // φ phi
+        0x03B3 => 0x67, // γ gamma
+        0x03B7 => 0x68, // η eta
+        0x03B9 => 0x69, // ι iota
+        0x03BA => 0x6B, // κ kappa
+        0x03BB => 0x6C, // λ lambda
+        0x03BC => 0x6D, // μ mu
+        0x03BD => 0x6E, // ν nu
+        0x03BF => 0x6F, // ο omicron
+        0x03C0 => 0x70, // π pi
+        0x03B8 => 0x71, // θ theta
+        0x03C1 => 0x72, // ρ rho
+        0x03C3 => 0x73, // σ sigma
+        0x03C4 => 0x74, // τ tau
+        0x03C5 => 0x75, // υ upsilon
+        0x03C9 => 0x77, // ω omega
+        0x03BE => 0x78, // ξ xi
+        0x03C8 => 0x79, // ψ psi
+        0x03B6 => 0x7A, // ζ zeta
+        // Uppercase Greek letters
+        0x0391 => 0x41, // Α Alpha
+        0x0392 => 0x42, // Β Beta
+        0x0393 => 0x47, // Γ Gamma
+        0x0394 => 0x44, // Δ Delta
+        0x0395 => 0x45, // Ε Epsilon
+        0x0396 => 0x5A, // Ζ Zeta
+        0x0397 => 0x48, // Η Eta
+        0x0398 => 0x51, // Θ Theta
+        0x0399 => 0x49, // Ι Iota
+        0x039A => 0x4B, // Κ Kappa
+        0x039B => 0x4C, // Λ Lambda
+        0x039C => 0x4D, // Μ Mu
+        0x039D => 0x4E, // Ν Nu
+        0x039E => 0x58, // Ξ Xi
+        0x039F => 0x4F, // Ο Omicron
+        0x03A0 => 0x50, // Π Pi
+        0x03A1 => 0x52, // Ρ Rho
+        0x03A3 => 0x53, // Σ Sigma
+        0x03A4 => 0x54, // Τ Tau
+        0x03A5 => 0x55, // Υ Upsilon
+        0x03A6 => 0x46, // Φ Phi
+        0x03A7 => 0x43, // Χ Chi
+        0x03A8 => 0x59, // Ψ Psi
+        0x03A9 => 0x57, // Ω Omega
+        // Math operators and relations
+        0x2264 => 0xA3, // ≤ lessequal
+        0x2265 => 0xB3, // ≥ greaterequal
+        0x2260 => 0xB9, // ≠ notequal
+        0x2248 => 0xBB, // ≈ approxequal
+        0x2261 => 0xBA, // ≡ equivalence
+        0x00D7 => 0xB4, // × multiply
+        0x00F7 => 0xB8, // ÷ divide
+        0x00B1 => 0xB1, // ± plusminus
+        0x2213 => 0xB1, // ∓ minusplus (approximate as ±)
+        0x00B7 => 0xD7, // · periodcentered/bullet
+        0x2022 => 0xB7, // • bullet
+        0x2208 => 0xCE, // ∈ element
+        0x2209 => 0xCF, // ∉ notelement
+        0x2282 => 0xCC, // ⊂ propersubset
+        0x2283 => 0xC9, // ⊃ propersuperset
+        0x2286 => 0xCD, // ⊆ reflexsubset
+        0x2287 => 0xCA, // ⊇ reflexsuperset
+        0x222A => 0xC8, // ∪ union
+        0x2229 => 0xC7, // ∩ intersection
+        0x2200 => 0x22, // ∀ universal
+        0x2203 => 0x24, // ∃ existential
+        0x2207 => 0xD1, // ∇ nabla/gradient
+        0x2202 => 0xB6, // ∂ partialdiff
+        0x221E => 0xA5, // ∞ infinity
+        0x221A => 0xD6, // √ radical
+        0x2205 => 0xC6, // ∅ emptyset
+        0x2220 => 0xD0, // ∠ angle
+        // Arrows
+        0x2190 => 0xAC, // ← arrowleft
+        0x2191 => 0xAD, // ↑ arrowup
+        0x2192 => 0xAE, // → arrowright
+        0x2193 => 0xAF, // ↓ arrowdown
+        0x2194 => 0xAB, // ↔ arrowboth
+        0x21D0 => 0xDC, // ⇐ arrowdblleft
+        0x21D1 => 0xDD, // ⇑ arrowdblup
+        0x21D2 => 0xDE, // ⇒ arrowdblright
+        0x21D3 => 0xDF, // ⇓ arrowdbldown
+        0x21D4 => 0xDB, // ⇔ arrowdblboth
+        // Large operators
+        0x2211 => 0xE5, // ∑ summation
+        0x220F => 0xD5, // ∏ product
+        0x222B => 0xF2, // ∫ integral
+        // Miscellaneous
+        0x2032 => 0xA2, // ′ prime
+        0x2026 => 0xBC, // … ellipsis
+        0x00B0 => 0xB0, // ° degree
+        // Delimiters
+        0x27E8 => 0xE1, // ⟨ angleleft
+        0x27E9 => 0xF1, // ⟩ angleright
+        0x2329 => 0xE1, // 〈 angleleft (old)
+        0x232A => 0xF1, // 〉 angleright (old)
+        0x230A => 0xEB, // ⌊ lfloor (bracketleftbt)
+        0x230B => 0xFB, // ⌋ rfloor (bracketrightbt)
+        0x2308 => 0xE9, // ⌈ lceil (bracketlefttp)
+        0x2309 => 0xF9, // ⌉ rceil (bracketrighttp)
+        // Additional operators
+        0x2295 => 0xC5, // ⊕ circleplus
+        0x2297 => 0xC4, // ⊗ circlemultiply
+        0x2227 => 0xD9, // ∧ logicaland
+        0x2228 => 0xDA, // ∨ logicalor
+        0x2245 => 0x40, // ≅ congruent
+        0x221D => 0xB5, // ∝ proportional
+        0x22A5 => 0x5E, // ⊥ perpendicular
+        0x2225 => 0xBD, // ∥ parallel (use bar2)
+        0x21A6 => 0xAE, // ↦ mapsto (approximate as →)
+        0x21AA => 0xAE, // ↪ hookrightarrow (approximate as →)
+        0x2243 => 0x40, // ≃ simeq (approximate as ≅)
+        _ => return None,
+    })
 }
 
 /// Font metrics: ascent, descent, cap height, x-height (in 1/1000 em)

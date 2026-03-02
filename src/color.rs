@@ -54,6 +54,10 @@ impl Color {
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
+        // Handle xcolor !mix syntax (e.g., "blue!50", "red!30!white")
+        if name.contains('!') {
+            return Self::from_mix_spec(name);
+        }
         match name.to_lowercase().as_str() {
             "black" => Some(Color::BLACK),
             "white" => Some(Color::WHITE),
@@ -69,8 +73,65 @@ impl Color {
             "orange" => Some(Color::ORANGE),
             "purple" | "violet" => Some(Color::PURPLE),
             "brown" => Some(Color::BROWN),
+            // dvipsnames
+            "navyblue" => Some(Color::from_rgb_u8(0, 0, 128)),
+            "royalblue" => Some(Color::from_rgb_u8(0, 35, 102)),
+            "cornflowerblue" => Some(Color::from_rgb_u8(89, 112, 193)),
+            "midnightblue" => Some(Color::from_rgb_u8(0, 34, 102)),
+            "processblue" => Some(Color::from_rgb_u8(10, 173, 234)),
+            "cerulean" => Some(Color::from_rgb_u8(0, 162, 227)),
+            "teal" | "tealblue" => Some(Color::from_rgb_u8(0, 128, 128)),
+            "aquamarine" => Some(Color::from_rgb_u8(46, 204, 186)),
+            "forestgreen" => Some(Color::from_rgb_u8(0, 155, 85)),
+            "olivegreen" => Some(Color::from_rgb_u8(0, 153, 0)),
+            "limegreen" | "lime" => Some(Color::from_rgb_u8(128, 222, 0)),
+            "yellowgreen" => Some(Color::from_rgb_u8(142, 176, 0)),
+            "goldenrod" => Some(Color::from_rgb_u8(255, 223, 66)),
+            "dandelion" => Some(Color::from_rgb_u8(255, 181, 41)),
+            "apricot" => Some(Color::from_rgb_u8(255, 173, 122)),
+            "peach" => Some(Color::from_rgb_u8(255, 127, 69)),
+            "melon" => Some(Color::from_rgb_u8(255, 137, 127)),
+            "yelloworange" => Some(Color::from_rgb_u8(255, 174, 0)),
+            "burntorange" => Some(Color::from_rgb_u8(255, 125, 0)),
+            "bittersweet" => Some(Color::from_rgb_u8(193, 1, 0)),
+            "redorange" => Some(Color::from_rgb_u8(255, 59, 33)),
+            "mahogany" => Some(Color::from_rgb_u8(166, 25, 22)),
+            "maroon" => Some(Color::from_rgb_u8(173, 52, 30)),
+            "brickred" => Some(Color::from_rgb_u8(182, 50, 28)),
+            "orangered" => Some(Color::from_rgb_u8(255, 0, 127)),
+            "rubinered" => Some(Color::from_rgb_u8(255, 0, 222)),
+            "wildstrawberry" => Some(Color::from_rgb_u8(255, 10, 156)),
+            "salmon" => Some(Color::from_rgb_u8(255, 120, 158)),
+            "carnationpink" => Some(Color::from_rgb_u8(255, 94, 255)),
+            "pink" => Some(Color::from_rgb_u8(255, 182, 193)),
+            "plum" => Some(Color::from_rgb_u8(128, 0, 255)),
+            "orchid" => Some(Color::from_rgb_u8(173, 91, 173)),
+            "lavender" => Some(Color::from_rgb_u8(255, 133, 255)),
+            "thistle" => Some(Color::from_rgb_u8(224, 146, 255)),
+            "darkred" | "darkviolet" => Some(Color::from_rgb_u8(138, 0, 0)),
+            "olive" | "olivegreen" => Some(Color::from_rgb_u8(0, 153, 0)),
             _ => None,
         }
+    }
+
+    /// Parse xcolor mix specification like "blue!50", "red!30!white"
+    fn from_mix_spec(spec: &str) -> Option<Self> {
+        let parts: Vec<&str> = spec.split('!').collect();
+        if parts.len() < 2 { return None; }
+
+        let base = Color::from_name(parts[0])?;
+        let pct: f32 = parts[1].parse().unwrap_or(50.0) / 100.0;
+        let other = if parts.len() >= 3 {
+            Color::from_name(parts[2]).unwrap_or(Color::WHITE)
+        } else {
+            Color::WHITE
+        };
+
+        Some(Color::from_rgb_u8(
+            (base.r as f32 * pct + other.r as f32 * (1.0 - pct) + 0.5) as u8,
+            (base.g as f32 * pct + other.g as f32 * (1.0 - pct) + 0.5) as u8,
+            (base.b as f32 * pct + other.b as f32 * (1.0 - pct) + 0.5) as u8,
+        ))
     }
 }
 

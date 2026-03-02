@@ -83,6 +83,36 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
         content_ids.push(alloc_obj());
     }
 
+    // Allocate IDs for embedded images
+    let num_images = layout.images.len();
+    let mut image_ids = Vec::with_capacity(num_images);
+    for _ in 0..num_images {
+        image_ids.push(alloc_obj());
+    }
+
+    // Allocate IDs for link annotations
+    let num_links = layout.links.len();
+    let mut link_ids = Vec::with_capacity(num_links);
+    for _ in 0..num_links {
+        link_ids.push(alloc_obj());
+    }
+    // Group links by page for efficient lookup
+    let mut links_by_page: Vec<Vec<usize>> = vec![Vec::new(); num_pages];
+    for (i, link) in layout.links.iter().enumerate() {
+        let page = link.page as usize;
+        if page < num_pages {
+            links_by_page[page].push(i);
+        }
+    }
+
+    // Allocate outline object IDs
+    let num_outlines = layout.outlines.len();
+    let outline_root_id = if num_outlines > 0 { Some(alloc_obj()) } else { None };
+    let mut outline_item_ids = Vec::with_capacity(num_outlines);
+    for _ in 0..num_outlines {
+        outline_item_ids.push(alloc_obj());
+    }
+
     // Pre-fill offsets vec
     let total_objs = next_obj as usize;
     offsets.resize(total_objs, 0);
@@ -101,7 +131,13 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     begin_obj!(catalog_id);
     w.write_all(b"<< /Type /Catalog /Pages ")?;
     w.write_all(itoa_obj.format(pages_id).as_bytes())?;
-    w.write_all(b" 0 R >>\nendobj\n")?;
+    w.write_all(b" 0 R")?;
+    if let Some(outline_id) = outline_root_id {
+        w.write_all(b" /Outlines ")?;
+        w.write_all(itoa_obj.format(outline_id).as_bytes())?;
+        w.write_all(b" 0 R /PageMode /UseOutlines")?;
+    }
+    w.write_all(b" >>\nendobj\n")?;
 
     // Pages object - write kids directly
     begin_obj!(pages_id);
@@ -118,20 +154,22 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     w.write_all(itoa_obj.format(num_pages).as_bytes())?;
     w.write_all(b" >>\nendobj\n")?;
 
-    // Fonts
+    // Fonts (WinAnsi encoding for text fonts)
     for (id, name) in [
         (font_regular_id, "Helvetica"),
         (font_bold_id, "Helvetica-Bold"),
         (font_italic_id, "Helvetica-Oblique"),
         (font_bolditalic_id, "Helvetica-BoldOblique"),
         (font_mono_id, "Courier"),
-        (font_symbol_id, "Symbol"),
     ] {
         begin_obj!(id);
         w.write_all(b"<< /Type /Font /Subtype /Type1 /BaseFont /")?;
         w.write_all(name.as_bytes())?;
         w.write_all(b" /Encoding /WinAnsiEncoding >>\nendobj\n")?;
     }
+    // Symbol font uses its own encoding (not WinAnsi)
+    begin_obj!(font_symbol_id);
+    w.write_all(b"<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>\nendobj\n")?;
 
     // Resources
     begin_obj!(resource_id);
@@ -147,7 +185,20 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     w.write_all(itoa_obj.format(font_mono_id).as_bytes())?;
     w.write_all(b" 0 R /F6 ")?;
     w.write_all(itoa_obj.format(font_symbol_id).as_bytes())?;
-    w.write_all(b" 0 R >> >>\nendobj\n")?;
+    w.write_all(b" 0 R >>")?;
+    // XObject references for embedded images
+    if !image_ids.is_empty() {
+        w.write_all(b" /XObject << ")?;
+        for (i, &img_id) in image_ids.iter().enumerate() {
+            w.write_all(b"/Im")?;
+            w.write_all(itoa_obj.format(i + 1).as_bytes())?;
+            w.write_all(b" ")?;
+            w.write_all(itoa_obj.format(img_id).as_bytes())?;
+            w.write_all(b" 0 R ")?;
+        }
+        w.write_all(b">>")?;
+    }
+    w.write_all(b" >>\nendobj\n")?;
 
     // Pre-build page object constant parts (same for all pages)
     let mut itoa_buf = itoa::Buffer::new();
@@ -162,10 +213,7 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     }
     page_prefix.extend_from_slice(b"] /Contents ");
 
-    let mut page_suffix = Vec::with_capacity(64);
-    page_suffix.extend_from_slice(b" 0 R /Resources ");
-    page_suffix.extend_from_slice(itoa_buf.format(resource_id).as_bytes());
-    page_suffix.extend_from_slice(b" 0 R >>\nendobj\n");
+    // page_suffix replaced by inline writing to support per-page annotations
 
     // Generate and write content streams in batches to reduce peak memory
     // Each batch generates ~1000 page contents in parallel, then writes them
@@ -200,9 +248,100 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
             begin_obj!(page_ids[i]);
             w.write_all(&page_prefix)?;
             w.write_all(itoa_buf.format(content_ids[i]).as_bytes())?;
-            w.write_all(&page_suffix)?;
+            w.write_all(b" 0 R /Resources ")?;
+            w.write_all(itoa_buf.format(resource_id).as_bytes())?;
+            w.write_all(b" 0 R")?;
+            // Add link annotations for this page
+            if !links_by_page[i].is_empty() {
+                w.write_all(b" /Annots [")?;
+                for &link_idx in &links_by_page[i] {
+                    w.write_all(itoa_buf.format(link_ids[link_idx]).as_bytes())?;
+                    w.write_all(b" 0 R ")?;
+                }
+                w.write_all(b"]")?;
+            }
+            w.write_all(b" >>\nendobj\n")?;
         }
         // batch_contents dropped here, freeing ~6MB
+    }
+
+    // Write image XObjects
+    for (i, img) in layout.images.iter().enumerate() {
+        let img_id = image_ids[i];
+        if img_id as usize > offsets.len() { offsets.resize(img_id as usize, 0); }
+        begin_obj!(img_id);
+        write_image_xobject(&mut w, img, i + 1)?;
+    }
+
+    // Write link annotation objects
+    for (i, link) in layout.links.iter().enumerate() {
+        let link_id = link_ids[i];
+        if link_id as usize > offsets.len() { offsets.resize(link_id as usize, 0); }
+        begin_obj!(link_id);
+        // PDF coordinates: y=0 is bottom of page
+        let y1 = layout.height - link.y - link.height;
+        let y2 = layout.height - link.y;
+        let x1 = link.x;
+        let x2 = link.x + link.width;
+        write!(w, "<< /Type /Annot /Subtype /Link /Rect [{:.1} {:.1} {:.1} {:.1}] /Border [0 0 0] /A << /Type /Action /S /URI /URI ({}) >> >>\nendobj\n",
+            x1, y1, x2, y2, escape_pdf_string(&link.url))?;
+    }
+
+    // Write outline objects (PDF bookmarks)
+    if let Some(outline_root) = outline_root_id {
+        if outline_root as usize > offsets.len() { offsets.resize(outline_root as usize, 0); }
+        // Build outline tree — flat list with proper sibling links
+        // Only include top-level items (section level ≤ 2) for cleaner bookmarks
+        let top_entries: Vec<usize> = (0..num_outlines)
+            .filter(|&i| layout.outlines[i].level <= 2)
+            .collect();
+
+        begin_obj!(outline_root);
+        if let Some(&first_idx) = top_entries.first() {
+            w.write_all(b"<< /Type /Outlines /First ")?;
+            w.write_all(itoa_obj.format(outline_item_ids[first_idx]).as_bytes())?;
+            w.write_all(b" 0 R /Last ")?;
+            let last_idx = top_entries[top_entries.len() - 1];
+            w.write_all(itoa_obj.format(outline_item_ids[last_idx]).as_bytes())?;
+            w.write_all(b" 0 R /Count ")?;
+            w.write_all(itoa_obj.format(top_entries.len()).as_bytes())?;
+            w.write_all(b" >>\nendobj\n")?;
+        } else {
+            w.write_all(b"<< /Type /Outlines /Count 0 >>\nendobj\n")?;
+        }
+
+        // Write individual outline items
+        for (pos, &idx) in top_entries.iter().enumerate() {
+            let entry = &layout.outlines[idx];
+            let item_id = outline_item_ids[idx];
+            if item_id as usize > offsets.len() { offsets.resize(item_id as usize, 0); }
+            begin_obj!(item_id);
+            w.write_all(b"<< /Title (")?;
+            w.write_all(escape_pdf_string(&entry.title).as_bytes())?;
+            w.write_all(b") /Parent ")?;
+            w.write_all(itoa_obj.format(outline_root).as_bytes())?;
+            w.write_all(b" 0 R")?;
+
+            // Destination: page + position
+            let page_idx = (entry.page as usize).min(page_ids.len().saturating_sub(1));
+            let dest_y = layout.height - entry.y;
+            w.write_all(b" /Dest [")?;
+            w.write_all(itoa_obj.format(page_ids[page_idx]).as_bytes())?;
+            write!(w, " 0 R /XYZ 0 {:.0} 0]", dest_y)?;
+
+            // Sibling links
+            if pos > 0 {
+                w.write_all(b" /Prev ")?;
+                w.write_all(itoa_obj.format(outline_item_ids[top_entries[pos - 1]]).as_bytes())?;
+                w.write_all(b" 0 R")?;
+            }
+            if pos + 1 < top_entries.len() {
+                w.write_all(b" /Next ")?;
+                w.write_all(itoa_obj.format(outline_item_ids[top_entries[pos + 1]]).as_bytes())?;
+                w.write_all(b" 0 R")?;
+            }
+            w.write_all(b" >>\nendobj\n")?;
+        }
     }
 
     // Metadata
@@ -293,6 +432,7 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                     FontStyle::Italic => 3,
                     FontStyle::BoldItalic => 4,
                     FontStyle::Monospace => 5,
+                    FontStyle::Symbol => 6,
                 };
 
                 let pdf_y = height - y;
@@ -344,18 +484,33 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                 cur_tx = *x;
                 cur_ty = pdf_y;
 
-                // Text escaping + UTF-8 to WinAnsiEncoding conversion
-                // Also handles LaTeX quote ligatures: `` → left dquote, '' → right dquote
+                // Text escaping + encoding conversion
                 let text_bytes = text.as_bytes();
                 let tlen = text_bytes.len();
+                if font_id == 6 {
+                    // Symbol font: each char is a Unicode codepoint U+00XX where XX is the
+                    // Symbol encoding byte. We must extract the byte value from the char,
+                    // NOT iterate over UTF-8 bytes (which would corrupt bytes > 127).
+                    for ch in text.chars() {
+                        let b = ch as u8;
+                        match b {
+                            b'(' => c.extend_from_slice(b"\\("),
+                            b')' => c.extend_from_slice(b"\\)"),
+                            b'\\' => c.extend_from_slice(b"\\\\"),
+                            _ => c.push(b),
+                        }
+                    }
+                } else {
+                // WinAnsiEncoding conversion
+                // Also handles LaTeX quote ligatures: `` → left dquote, '' → right dquote
                 let mut tpos = 0;
                 while tpos < tlen {
                     // Fast ASCII scan: find next byte needing special handling
-                    // Special bytes: ( ) \ ` ' - (need escaping/conversion) and >= 0x80 (non-ASCII)
+                    // Special bytes: ( ) \ ` (escaping), \n \r (→space), >= 0x80 (non-ASCII)
                     let scan_start = tpos;
                     while tpos < tlen {
                         let b = text_bytes[tpos];
-                        if b == b'(' || b == b')' || b == b'\\' || b == b'`' || b >= 0x80 {
+                        if b == b'(' || b == b')' || b == b'\\' || b == b'`' || b == b'\n' || b == b'\r' || b >= 0x80 {
                             break;
                         }
                         tpos += 1;
@@ -395,6 +550,7 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                     if b < 0x80 {
                         // ASCII special char + LaTeX quote ligatures
                         match b {
+                            b'\n' | b'\r' => c.push(b' '), // newlines → space
                             b'(' => c.extend_from_slice(b"\\("),
                             b')' => c.extend_from_slice(b"\\)"),
                             b'\\' => c.extend_from_slice(b"\\\\"),
@@ -445,6 +601,7 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                         tpos += advance;
                     }
                 }
+                } // end WinAnsi branch
 
                 c.extend_from_slice(b") Tj\n");
             }
@@ -567,6 +724,27 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
 
                 c.extend_from_slice(b"Q\n");
             }
+
+            PageElement::Image { x, y, width: img_w, height: img_h, image_idx } => {
+                if in_bt {
+                    c.extend_from_slice(b"ET\n");
+                    in_bt = false;
+                }
+                // PDF image drawing: save state, apply CTM, draw, restore
+                // CTM maps unit square [0,0]-[1,1] to [x,y]-[x+w,y+h] in PDF coords
+                let pdf_y = height - y - img_h;
+                c.extend_from_slice(b"q\n");
+                write_f32_fast(&mut c, *img_w);
+                c.extend_from_slice(b" 0 0 ");
+                write_f32_fast(&mut c, *img_h);
+                c.push(b' ');
+                write_f32_fast(&mut c, *x);
+                c.push(b' ');
+                write_f32_fast(&mut c, pdf_y);
+                c.extend_from_slice(b" cm\n/Im");
+                c.extend_from_slice(itoa::Buffer::new().format(*image_idx + 1).as_bytes());
+                c.extend_from_slice(b" Do\nQ\n");
+            }
         }
     }
 
@@ -621,6 +799,152 @@ fn write_f32_3(buf: &mut Vec<u8>, a: f32, b: f32, c_val: f32) {
     write_f32_fast(buf, b);
     buf.push(b' ');
     write_f32_fast(buf, c_val);
+}
+
+/// Write an image XObject to the PDF stream
+fn write_image_xobject<W: Write>(w: &mut CountingWriter<W>, img: &crate::layout::EmbeddedImage, _index: usize) -> Result<()> {
+    use crate::layout::ImageFormat;
+    match img.format {
+        ImageFormat::Jpeg => {
+            // JPEG: embed directly with DCTDecode
+            w.write_all(b"<< /Type /XObject /Subtype /Image")?;
+            w.write_all(b" /Width ")?;
+            w.write_all(itoa::Buffer::new().format(img.width_px).as_bytes())?;
+            w.write_all(b" /Height ")?;
+            w.write_all(itoa::Buffer::new().format(img.height_px).as_bytes())?;
+            w.write_all(b" /ColorSpace /DeviceRGB /BitsPerComponent 8")?;
+            w.write_all(b" /Filter /DCTDecode")?;
+            w.write_all(b" /Length ")?;
+            w.write_all(itoa::Buffer::new().format(img.data.len()).as_bytes())?;
+            w.write_all(b" >>\nstream\n")?;
+            w.write_all(&img.data)?;
+            w.write_all(b"\nendstream\nendobj\n")?;
+        }
+        ImageFormat::Png => {
+            // PNG: decode to raw pixels and embed with FlateDecode
+            // Simple approach: extract IDAT chunks and re-deflate raw RGB data
+            if let Some((rgb_data, has_alpha)) = decode_png_to_rgb(&img.data) {
+                let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&rgb_data, 6);
+                let cs = if has_alpha { "/DeviceRGB" } else { "/DeviceRGB" };
+                w.write_all(b"<< /Type /XObject /Subtype /Image")?;
+                w.write_all(b" /Width ")?;
+                w.write_all(itoa::Buffer::new().format(img.width_px).as_bytes())?;
+                w.write_all(b" /Height ")?;
+                w.write_all(itoa::Buffer::new().format(img.height_px).as_bytes())?;
+                w.write_all(b" /ColorSpace ")?;
+                w.write_all(cs.as_bytes())?;
+                w.write_all(b" /BitsPerComponent 8")?;
+                w.write_all(b" /Filter /FlateDecode")?;
+                w.write_all(b" /Length ")?;
+                w.write_all(itoa::Buffer::new().format(compressed.len()).as_bytes())?;
+                w.write_all(b" >>\nstream\n")?;
+                w.write_all(&compressed)?;
+                w.write_all(b"\nendstream\nendobj\n")?;
+            } else {
+                // Fallback: empty image
+                w.write_all(b"<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length 3 >>\nstream\n\xff\xff\xff\nendstream\nendobj\n")?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Decode PNG raw image data to RGB bytes
+fn decode_png_to_rgb(png_data: &[u8]) -> Option<(Vec<u8>, bool)> {
+    // Parse PNG chunks to extract IHDR and IDAT data
+    if png_data.len() < 33 { return None; }
+    // IHDR is at offset 8 (after signature)
+    let width = u32::from_be_bytes([png_data[16], png_data[17], png_data[18], png_data[19]]);
+    let height = u32::from_be_bytes([png_data[20], png_data[21], png_data[22], png_data[23]]);
+    let bit_depth = png_data[24];
+    let color_type = png_data[25];
+
+    if bit_depth != 8 { return None; } // Only support 8-bit
+
+    let channels: usize = match color_type {
+        0 => 1, // Grayscale
+        2 => 3, // RGB
+        4 => 2, // Grayscale + Alpha
+        6 => 4, // RGBA
+        _ => return None,
+    };
+
+    // Collect all IDAT chunks
+    let mut idat_data = Vec::new();
+    let mut pos = 8; // after PNG signature
+    while pos + 12 <= png_data.len() {
+        let chunk_len = u32::from_be_bytes([png_data[pos], png_data[pos+1], png_data[pos+2], png_data[pos+3]]) as usize;
+        let chunk_type = &png_data[pos+4..pos+8];
+        if chunk_type == b"IDAT" {
+            if pos + 8 + chunk_len <= png_data.len() {
+                idat_data.extend_from_slice(&png_data[pos+8..pos+8+chunk_len]);
+            }
+        }
+        pos += 12 + chunk_len; // 4 len + 4 type + data + 4 CRC
+    }
+
+    // Decompress IDAT data
+    let decompressed = miniz_oxide::inflate::decompress_to_vec_zlib(&idat_data).ok()?;
+
+    // Reconstruct raw pixels (undo PNG filtering)
+    let stride = 1 + width as usize * channels; // 1 filter byte + pixel data per row
+    if decompressed.len() < stride * height as usize { return None; }
+
+    let mut pixels = vec![0u8; width as usize * height as usize * channels];
+    let mut prev_row = vec![0u8; width as usize * channels];
+
+    for y in 0..height as usize {
+        let row_start = y * stride;
+        let filter = decompressed[row_start];
+        let row_data = &decompressed[row_start + 1..row_start + stride];
+        let px_start = y * width as usize * channels;
+
+        for x in 0..width as usize * channels {
+            let raw = row_data[x] as i32;
+            let a = if x >= channels { pixels[px_start + x - channels] as i32 } else { 0 };
+            let b = prev_row[x] as i32;
+            let c = if x >= channels { prev_row[x - channels] as i32 } else { 0 };
+
+            let val = match filter {
+                0 => raw,               // None
+                1 => raw + a,            // Sub
+                2 => raw + b,            // Up
+                3 => raw + (a + b) / 2,  // Average
+                4 => raw + paeth(a, b, c), // Paeth
+                _ => raw,
+            };
+            pixels[px_start + x] = (val & 0xFF) as u8;
+        }
+        prev_row.copy_from_slice(&pixels[px_start..px_start + width as usize * channels]);
+    }
+
+    // Convert to RGB
+    let has_alpha = channels == 4 || channels == 2;
+    let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
+    for y in 0..height as usize {
+        for x in 0..width as usize {
+            let idx = (y * width as usize + x) * channels;
+            match channels {
+                1 => { let g = pixels[idx]; rgb.extend_from_slice(&[g, g, g]); }
+                2 => { let g = pixels[idx]; rgb.extend_from_slice(&[g, g, g]); } // ignore alpha
+                3 => { rgb.extend_from_slice(&pixels[idx..idx+3]); }
+                4 => { rgb.extend_from_slice(&pixels[idx..idx+3]); } // ignore alpha
+                _ => { rgb.extend_from_slice(&[0, 0, 0]); }
+            }
+        }
+    }
+
+    Some((rgb, has_alpha))
+}
+
+fn paeth(a: i32, b: i32, c: i32) -> i32 {
+    let p = a + b - c;
+    let pa = (p - a).abs();
+    let pb = (p - b).abs();
+    let pc = (p - c).abs();
+    if pa <= pb && pa <= pc { a }
+    else if pb <= pc { b }
+    else { c }
 }
 
 fn escape_pdf_string(s: &str) -> String {
