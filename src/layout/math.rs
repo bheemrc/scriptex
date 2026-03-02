@@ -1,0 +1,264 @@
+/// Display math layout and equation numbering
+
+use crate::color::Color;
+use crate::document::*;
+use crate::typeset::FontStyle;
+use crate::font::FontId;
+use crate::math_layout;
+use super::state::LayoutState;
+use super::types::*;
+
+use anyhow::Result;
+
+pub(super) fn layout_display_math_data(math_data: &DisplayMathData, state: &mut LayoutState) -> Result<()> {
+    let has_alignment = math_data.nodes.iter().any(|n| matches!(n, MathNode::AlignmentMark | MathNode::NewLine));
+    if has_alignment && matches!(math_data.env_type, MathEnvType::Align | MathEnvType::Gather) {
+        layout_aligned_math(&math_data.nodes, math_data.numbered, state)
+    } else {
+        layout_display_math_simple(&math_data.nodes, math_data.numbered, state)
+    }
+}
+
+fn is_breakable_op(node: &MathNode) -> bool {
+    match node {
+        MathNode::Operator(op) => matches!(op.as_str(),
+            "+" | "-" | "=" | "<" | ">" | "≤" | "≥" | "≠" | "≈"
+            | "∈" | "∉" | "⊂" | "⊃" | "⊆" | "⊇" | "∼" | "≅" | "≃"
+            | "→" | "←" | "↦" | "⟶" | "⟵"
+            | "∧" | "∨" | "⊕" | "⊗" | "×"
+        ),
+        MathNode::Symbol(s) => matches!(s.as_str(),
+            "+" | "-" | "=" | "<" | ">" | "≤" | "≥" | "≠" | "≈"
+            | "∈" | "∉" | "⊂" | "⊃" | "⊆" | "⊇" | "∼" | "≅" | "≃"
+            | "→" | "←" | "↦" | "⟶" | "⟵"
+        ),
+        _ => false,
+    }
+}
+
+fn is_math_break_point(node: &MathNode) -> bool {
+    match node {
+        MathNode::Group(children) => children.iter().any(|c| is_breakable_op(c)),
+        _ => is_breakable_op(node),
+    }
+}
+
+fn layout_display_math_simple(math_nodes: &[MathNode], numbered: bool, state: &mut LayoutState) -> Result<()> {
+    state.add_vertical_space(8.0);
+
+    let filtered: Vec<&MathNode> = math_nodes.iter()
+        .filter(|n| !matches!(n, MathNode::AlignmentMark | MathNode::NewLine))
+        .collect();
+    let owned: Vec<MathNode> = filtered.into_iter().cloned().collect();
+    let math_box = math_layout::layout_math(&owned, state.current_font_size);
+
+    let eq_num_width = if numbered { 40.0 } else { 0.0 };
+    let avail_width = state.text_width() - eq_num_width;
+
+    if math_box.width <= avail_width {
+        let total_height = math_box.height + math_box.depth;
+        state.ensure_space(total_height + 16.0);
+        let cx = state.text_left() + (avail_width - math_box.width) / 2.0;
+        let baseline_y = state.current_y + math_box.height;
+        emit_math_elements(&math_box, cx, baseline_y, state);
+
+        if numbered {
+            emit_equation_number(state, baseline_y);
+        }
+        state.current_y = baseline_y + math_box.depth;
+    } else {
+        let font_size = state.current_font_size;
+        let indent = font_size * 2.0;
+        let mut break_indices: Vec<usize> = Vec::new();
+        for (i, node) in owned.iter().enumerate() {
+            if is_math_break_point(node) { break_indices.push(i); }
+        }
+
+        if break_indices.is_empty() {
+            let total_height = math_box.height + math_box.depth;
+            state.ensure_space(total_height + 16.0);
+            let baseline_y = state.current_y + math_box.height;
+            emit_math_elements(&math_box, state.text_left(), baseline_y, state);
+            state.current_y = baseline_y + math_box.depth;
+        } else {
+            let mut lines: Vec<(usize, usize)> = Vec::new();
+            let mut line_start = 0;
+            let mut last_valid_break = 0;
+            for (_bi, &break_pos) in break_indices.iter().enumerate() {
+                let segment = &owned[line_start..break_pos];
+                let seg_box = math_layout::layout_math(segment, font_size);
+                let line_avail = if lines.is_empty() { avail_width } else { avail_width - indent };
+                if seg_box.width > line_avail && last_valid_break > line_start {
+                    lines.push((line_start, last_valid_break));
+                    line_start = last_valid_break;
+                }
+                last_valid_break = break_pos;
+            }
+            lines.push((line_start, owned.len()));
+
+            let mut first_line_baseline_y = 0.0f32;
+            for (li, &(start, end)) in lines.iter().enumerate() {
+                let segment = &owned[start..end];
+                let seg_box = math_layout::layout_math(segment, font_size);
+                let total_h = seg_box.height + seg_box.depth;
+                let row_spacing = font_size * 0.4;
+                state.ensure_space(total_h + row_spacing);
+                let line_avail = if li == 0 { avail_width } else { avail_width - indent };
+                let cx = if seg_box.width <= line_avail {
+                    if li == 0 {
+                        state.text_left() + (avail_width - seg_box.width) / 2.0
+                    } else {
+                        state.text_left() + avail_width - seg_box.width
+                    }
+                } else {
+                    state.text_left() + if li > 0 { indent } else { 0.0 }
+                };
+                let baseline_y = state.current_y + seg_box.height;
+                if li == 0 { first_line_baseline_y = baseline_y; }
+                emit_math_elements(&seg_box, cx, baseline_y, state);
+                state.current_y = baseline_y + seg_box.depth + row_spacing;
+            }
+
+            if numbered {
+                emit_equation_number(state, first_line_baseline_y);
+            }
+        }
+    }
+
+    state.add_vertical_space(8.0);
+    state.current_x = state.text_left();
+    state.suppress_next_indent = true;
+    Ok(())
+}
+
+fn layout_aligned_math(math_nodes: &[MathNode], numbered: bool, state: &mut LayoutState) -> Result<()> {
+    state.add_vertical_space(8.0);
+
+    let mut rows: Vec<Vec<Vec<MathNode>>> = Vec::new();
+    let mut current_row: Vec<Vec<MathNode>> = Vec::new();
+    let mut current_col: Vec<MathNode> = Vec::new();
+
+    for node in math_nodes {
+        match node {
+            MathNode::NewLine => {
+                current_row.push(std::mem::take(&mut current_col));
+                rows.push(std::mem::take(&mut current_row));
+            }
+            MathNode::AlignmentMark => {
+                current_row.push(std::mem::take(&mut current_col));
+            }
+            _ => { current_col.push(node.clone()); }
+        }
+    }
+    if !current_col.is_empty() || !current_row.is_empty() {
+        current_row.push(current_col);
+        rows.push(current_row);
+    }
+    if rows.is_empty() { return Ok(()); }
+
+    let font_size = state.current_font_size;
+    let num_cols = rows.iter().map(|r| r.len()).max().unwrap_or(1);
+    let mut cell_boxes: Vec<Vec<math_layout::MathBox>> = Vec::new();
+    let mut col_widths = vec![0.0f32; num_cols];
+
+    for row in &rows {
+        let mut row_boxes = Vec::new();
+        for (j, cell) in row.iter().enumerate() {
+            let mb = math_layout::layout_math(cell, font_size);
+            if j < num_cols { col_widths[j] = col_widths[j].max(mb.width); }
+            row_boxes.push(mb);
+        }
+        cell_boxes.push(row_boxes);
+    }
+
+    let col_gap = font_size * 0.5;
+    let row_spacing = font_size * 1.6;
+    let total_content_width: f32 = col_widths.iter().sum::<f32>() + col_gap * (num_cols.max(1) - 1) as f32;
+    let total_height = row_spacing * rows.len() as f32;
+    let eq_num_width = if numbered { 40.0 } else { 0.0 };
+    let avail_width = state.text_width() - eq_num_width;
+
+    state.ensure_space(total_height + 16.0);
+
+    let base_x = if total_content_width > avail_width {
+        state.text_left()
+    } else {
+        state.text_left() + (avail_width - total_content_width) / 2.0
+    };
+
+    for (row_idx, row_boxes) in cell_boxes.iter().enumerate() {
+        let baseline_y = state.current_y;
+        let mut col_x = base_x;
+        for (j, cell_box) in row_boxes.iter().enumerate() {
+            let col_w = if j < col_widths.len() { col_widths[j] } else { cell_box.width };
+            let cx = if j % 2 == 0 { col_x + col_w - cell_box.width } else { col_x };
+            emit_math_elements(cell_box, cx, baseline_y + cell_box.height, state);
+            col_x += col_w + col_gap;
+        }
+
+        if numbered {
+            state.equation_counter += 1;
+            let eq_text = format!("({})", state.equation_counter);
+            let num_x = state.text_left() + state.text_width() - 30.0;
+            let offset = (state.all_text.len() - state.current_page_text_start as usize) as u32;
+            state.all_text.push_str(&eq_text);
+            let max_h = row_boxes.iter().map(|b| b.height).fold(0.0f32, f32::max);
+            state.all_elements.push(PageElement::Text {
+                x: num_x, y: baseline_y + max_h,
+                text_offset: offset, text_len: eq_text.len().min(65535) as u16,
+                font_size_100: (font_size * 100.0) as u16, font_style: FontStyle::Regular,
+                color: Color::BLACK, word_spacing_50: 0,
+            });
+        }
+        state.current_y += row_spacing;
+    }
+
+    state.add_vertical_space(8.0);
+    state.current_x = state.text_left();
+    state.suppress_next_indent = true;
+    Ok(())
+}
+
+fn emit_equation_number(state: &mut LayoutState, baseline_y: f32) {
+    state.equation_counter += 1;
+    let eq_text = format!("({})", state.equation_counter);
+    let num_x = state.text_left() + state.text_width() - 30.0;
+    let offset = (state.all_text.len() - state.current_page_text_start as usize) as u32;
+    state.all_text.push_str(&eq_text);
+    state.all_elements.push(PageElement::Text {
+        x: num_x, y: baseline_y,
+        text_offset: offset, text_len: eq_text.len().min(65535) as u16,
+        font_size_100: (state.current_font_size * 100.0) as u16,
+        font_style: FontStyle::Regular, color: Color::BLACK, word_spacing_50: 0,
+    });
+}
+
+pub(super) fn emit_math_elements(math_box: &math_layout::MathBox, cx: f32, baseline_y: f32, state: &mut LayoutState) {
+    for elem in &math_box.elements {
+        match elem {
+            math_layout::MathElement::Text { x, y, text, font_size, font_id, color } => {
+                let style = match font_id {
+                    FontId::HelveticaOblique => FontStyle::Italic,
+                    FontId::HelveticaBold => FontStyle::Bold,
+                    FontId::HelveticaBoldOblique => FontStyle::BoldItalic,
+                    FontId::Courier => FontStyle::Monospace,
+                    FontId::Symbol => FontStyle::Symbol,
+                    _ => FontStyle::Regular,
+                };
+                let abs_x = cx + x;
+                let abs_y = baseline_y + y;
+                let offset = (state.all_text.len() - state.current_page_text_start as usize) as u32;
+                state.all_text.push_str(text);
+                state.all_elements.push(PageElement::Text {
+                    x: abs_x, y: abs_y, text_offset: offset,
+                    text_len: text.len().min(65535) as u16,
+                    font_size_100: (*font_size * 100.0) as u16,
+                    font_style: style, color: *color, word_spacing_50: 0,
+                });
+            }
+            math_layout::MathElement::Line { x1, y1, x2, y2, width, color } => {
+                state.emit_line(cx + x1, baseline_y + y1, cx + x2, baseline_y + y2, *width, *color);
+            }
+        }
+    }
+}

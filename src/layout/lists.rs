@@ -1,0 +1,268 @@
+/// List, description list, and bibliography layout
+
+use crate::color::Color;
+use crate::document::*;
+use crate::typeset::FontStyle;
+use crate::font::{self, FontId};
+use super::state::LayoutState;
+use super::text::node_to_text;
+use super::spans::layout_rich_paragraph;
+
+use anyhow::Result;
+
+pub(super) fn layout_list(
+    items: &[ListItem], state: &mut LayoutState, doc: &Document,
+    numbered: bool, source: &str,
+) -> Result<()> {
+    let saved_indent = state.indent;
+    let saved_para_indent = state.paragraph_indent;
+    let depth = state.list_depth;
+    state.list_depth += 1;
+    state.set_indent(state.indent + 20.0);
+    state.paragraph_indent = 0.0;
+    state.add_vertical_space(2.0);
+
+    for (i, item) in items.iter().enumerate() {
+        if item.label.is_none() && item.content.iter().all(|n| match n {
+            Node::Text(s) => s.trim().is_empty(),
+            Node::TextRef(off, len) => source[*off as usize..(*off as usize + *len as usize)].trim().is_empty(),
+            _ => false,
+        }) { continue; }
+
+        state.current_x = state.text_left();
+        let line_h = state.current_font_size * 1.2;
+        state.ensure_space(line_h);
+
+        let marker_x = state.text_left() - 15.0;
+        state.current_x = marker_x;
+        if numbered {
+            state.text_buf.clear();
+            match depth {
+                0 => {
+                    let mut ibuf = itoa::Buffer::new();
+                    state.text_buf.push_str(ibuf.format(i + 1));
+                    state.text_buf.push('.');
+                }
+                1 => {
+                    state.text_buf.push('(');
+                    state.text_buf.push((b'a' + (i as u8).min(25)) as char);
+                    state.text_buf.push(')');
+                }
+                2 => {
+                    let roman = to_roman_lower(i + 1);
+                    state.text_buf.push_str(&roman);
+                    state.text_buf.push('.');
+                }
+                _ => {
+                    state.text_buf.push((b'A' + (i as u8).min(25)) as char);
+                    state.text_buf.push('.');
+                }
+            }
+            let marker: &str = unsafe { &*(state.text_buf.as_str() as *const str) };
+            state.emit_text(marker, state.current_font_size, FontStyle::Regular, Color::BLACK);
+        } else {
+            let bullet_r = state.current_font_size * match depth { 0 => 0.15, 1 => 0.12, _ => 0.08 };
+            let bx = marker_x + bullet_r + 2.0;
+            let by = state.current_y + state.current_font_size * 0.35;
+            if depth == 0 || depth >= 2 {
+                state.emit_rounded_rect(bx - bullet_r, by - bullet_r, bullet_r * 2.0, bullet_r * 2.0, Some(Color::BLACK), None, bullet_r);
+            } else {
+                state.emit_rounded_rect(bx - bullet_r, by - bullet_r, bullet_r * 2.0, bullet_r * 2.0, None, Some(Color::BLACK), bullet_r);
+            }
+        }
+        state.current_x = state.text_left();
+
+        let mut inline_end = item.content.len();
+        for (j, node) in item.content.iter().enumerate() {
+            if !super::is_inline_node(node) { inline_end = j; break; }
+        }
+        if inline_end > 0 {
+            layout_rich_paragraph(&item.content[..inline_end], state, source, false)?;
+        }
+        if inline_end < item.content.len() {
+            super::layout_nodes(&item.content[inline_end..], state, doc, source)?;
+        }
+    }
+
+    state.list_depth = depth;
+    state.paragraph_indent = saved_para_indent;
+    state.set_indent(saved_indent);
+    state.current_x = state.text_left();
+    state.add_vertical_space(2.0);
+    Ok(())
+}
+
+fn to_roman_lower(mut n: usize) -> String {
+    let mut s = String::new();
+    for &(val, sym) in &[(1000, "m"), (900, "cm"), (500, "d"), (400, "cd"),
+        (100, "c"), (90, "xc"), (50, "l"), (40, "xl"), (10, "x"), (9, "ix"),
+        (5, "v"), (4, "iv"), (1, "i")] {
+        while n >= val { s.push_str(sym); n -= val; }
+    }
+    s
+}
+
+pub(super) fn layout_description_list(
+    items: &[ListItem], state: &mut LayoutState, doc: &Document, source: &str,
+) -> Result<()> {
+    state.add_vertical_space(4.0);
+    for item in items {
+        state.current_x = state.text_left();
+        let line_h = state.current_font_size * 1.2;
+        state.ensure_space(line_h);
+
+        if let Some(label) = &item.label {
+            state.text_buf.clear();
+            for node in label { node_to_text(node, &mut state.text_buf, source); }
+            let label_text: &str = unsafe { &*(state.text_buf.as_str() as *const str) };
+            let label_w = font::measure_text(label_text, FontId::HelveticaBold, state.current_font_size);
+            state.emit_text(label_text, state.current_font_size, FontStyle::Bold, Color::BLACK);
+            state.current_x += label_w + state.current_font_size * 0.5;
+        }
+
+        let saved_indent = state.indent;
+        let mut inline_end = item.content.len();
+        for (j, node) in item.content.iter().enumerate() {
+            if !super::is_inline_node(node) { inline_end = j; break; }
+        }
+        if inline_end > 0 {
+            layout_rich_paragraph(&item.content[..inline_end], state, source, false)?;
+        }
+        if inline_end < item.content.len() {
+            state.set_indent(state.indent + 20.0);
+            state.current_x = state.text_left();
+            for node in &item.content[inline_end..] {
+                if super::is_inline_node(node) {
+                    layout_rich_paragraph(std::slice::from_ref(node), state, source, false)?;
+                } else {
+                    super::layout_node(node, state, doc, source)?;
+                }
+            }
+            state.set_indent(saved_indent);
+        }
+        state.add_vertical_space(4.0);
+    }
+    state.current_x = state.text_left();
+    Ok(())
+}
+
+pub(super) fn layout_bibliography(nodes: &[Node], state: &mut LayoutState, doc: &Document, source: &str) -> Result<()> {
+    state.add_vertical_space(22.0);
+    state.ensure_space(40.0);
+    if state.is_amsart {
+        let heading = "References";
+        let heading_size = state.current_font_size * 1.2;
+        let heading_w = font::measure_text(heading, FontId::Helvetica, heading_size);
+        state.current_x = state.text_left() + (state.text_width() - heading_w) * 0.5;
+        state.emit_text(heading, heading_size, FontStyle::SmallCaps, Color::BLACK);
+        state.current_y += heading_size * 1.2 + 8.0;
+    } else {
+        let heading = "References";
+        let heading_size = state.current_font_size * 1.44;
+        state.current_x = state.text_left();
+        state.emit_text(heading, heading_size, FontStyle::Bold, Color::BLACK);
+        state.current_y += heading_size * 1.2 + 10.0;
+    }
+
+    let mut bib_num = 0u32;
+    let mut entry_nodes: Vec<&Node> = Vec::new();
+    let indent = if state.is_amsart { 20.0 } else { 24.0 };
+
+    for node in nodes {
+        if let Node::BibItem(_key) = node {
+            if bib_num > 0 && !entry_nodes.is_empty() {
+                layout_bib_entry(bib_num, &entry_nodes, state, doc, source, indent)?;
+                entry_nodes.clear();
+            }
+            bib_num += 1;
+        } else if bib_num > 0 {
+            entry_nodes.push(node);
+        }
+    }
+    if bib_num > 0 && !entry_nodes.is_empty() {
+        layout_bib_entry(bib_num, &entry_nodes, state, doc, source, indent)?;
+    }
+    state.add_vertical_space(8.0);
+    Ok(())
+}
+
+fn layout_bib_entry(num: u32, nodes: &[&Node], state: &mut LayoutState, doc: &Document, source: &str, indent: f32) -> Result<()> {
+    state.ensure_space(state.current_font_size * 1.2);
+    let font_size = if state.is_amsart { state.current_font_size * 0.85 } else { state.current_font_size * 0.9 };
+
+    let mut ibuf = itoa::Buffer::new();
+    let marker = format!("[{}]", ibuf.format(num));
+    let marker_w = font::measure_text(&marker, FontId::Helvetica, font_size);
+    let marker_x = state.text_left() + indent - marker_w - 4.0;
+    state.current_x = marker_x.max(state.text_left());
+    state.emit_text(&marker, font_size, FontStyle::Regular, Color::BLACK);
+
+    let saved_indent = state.indent;
+    let saved_font_size = state.current_font_size;
+    state.set_indent(state.text_left() + indent);
+    state.current_x = state.text_left() + indent;
+    state.current_font_size = font_size;
+
+    let para_nodes = merge_adjacent_text(nodes, source);
+    let para = Node::Paragraph(para_nodes);
+    super::layout_node(&para, state, doc, source)?;
+
+    state.current_y += font_size * 0.3;
+    state.current_font_size = saved_font_size;
+    state.set_indent(saved_indent);
+    state.current_x = state.text_left();
+    Ok(())
+}
+
+fn merge_adjacent_text(nodes: &[&Node], source: &str) -> Vec<Node> {
+    let mut result: Vec<Node> = Vec::with_capacity(nodes.len());
+    let mut text_buf = String::new();
+    for node in nodes {
+        match node {
+            Node::Text(s) => text_buf.push_str(s),
+            Node::TextRef(offset, len) => {
+                text_buf.push_str(&source[*offset as usize..(*offset as usize + *len as usize)]);
+            }
+            Node::Group(children) if children.len() == 1 => {
+                if let Some(text) = extract_simple_text(&children[0], source) {
+                    text_buf.push_str(&text);
+                } else {
+                    flush_text_buf(&mut text_buf, &mut result);
+                    result.push((*node).clone());
+                }
+            }
+            Node::NonBreakingSpace => text_buf.push(' '),
+            Node::EnDash => text_buf.push('\u{2013}'),
+            Node::EmDash => text_buf.push('\u{2014}'),
+            Node::Ellipsis => text_buf.push_str("\u{2026}"),
+            Node::Ampersand => text_buf.push('&'),
+            Node::Percent => text_buf.push('%'),
+            Node::Dollar => text_buf.push('$'),
+            Node::Hash => text_buf.push('#'),
+            Node::Underscore => text_buf.push('_'),
+            Node::Tilde => text_buf.push('~'),
+            Node::LeftQuote => text_buf.push('\u{2018}'),
+            Node::RightQuote => text_buf.push('\u{2019}'),
+            Node::LeftDoubleQuote => text_buf.push('\u{201C}'),
+            Node::RightDoubleQuote => text_buf.push('\u{201D}'),
+            _ => {
+                flush_text_buf(&mut text_buf, &mut result);
+                result.push((*node).clone());
+            }
+        }
+    }
+    flush_text_buf(&mut text_buf, &mut result);
+    result
+}
+
+fn flush_text_buf(buf: &mut String, result: &mut Vec<Node>) {
+    if !buf.is_empty() { result.push(Node::Text(std::mem::take(buf))); }
+}
+
+fn extract_simple_text(node: &Node, source: &str) -> Option<String> {
+    match node {
+        Node::Text(s) => Some(s.clone()),
+        Node::TextRef(offset, len) => Some(source[*offset as usize..(*offset as usize + *len as usize)].to_string()),
+        _ => None,
+    }
+}
