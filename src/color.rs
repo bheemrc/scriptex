@@ -109,7 +109,7 @@ impl Color {
             "lavender" => Some(Color::from_rgb_u8(255, 133, 255)),
             "thistle" => Some(Color::from_rgb_u8(224, 146, 255)),
             "darkred" | "darkviolet" => Some(Color::from_rgb_u8(138, 0, 0)),
-            "olive" | "olivegreen" => Some(Color::from_rgb_u8(0, 153, 0)),
+            "olive" => Some(Color::from_rgb_u8(0, 153, 0)),
             _ => None,
         }
     }

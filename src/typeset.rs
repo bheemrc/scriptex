@@ -1,8 +1,6 @@
 /// Typesetting metrics and font measurement utilities
 /// Uses approximate metrics for built-in fonts (no external font files needed)
 
-use crate::document::FontSizeSpec;
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FontStyle {
     Regular,
