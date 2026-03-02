@@ -1,31 +1,31 @@
 /// Direct PDF generation - bypasses intermediate formats for maximum speed
-/// Uses parallel page content generation via rayon
+/// Uses parallel page content generation via rayon (when available)
 
 use anyhow::Result;
 use std::io::Write;
-use std::path::Path;
+#[cfg(feature = "rayon")]
 use rayon::prelude::*;
 use crate::document::Document;
 use crate::layout::{LayoutResult, PageElement};
 use crate::typeset::FontStyle;
 
-/// Generate a PDF file from laid-out pages
+/// Generate a PDF file from laid-out pages (filesystem version, CLI only)
 /// Uses batched generation+write to keep peak memory low (~3MB vs 150MB)
-pub fn generate_pdf(layout: &LayoutResult, doc: &Document, output: &Path, source: &str) -> Result<usize> {
-    use std::time::Instant;
+pub fn generate_pdf(layout: &LayoutResult, doc: &Document, output: &std::path::Path, source: &str) -> Result<usize> {
     use std::io::BufWriter;
 
-    let write_start = Instant::now();
     let file = std::fs::File::create(output)?;
     let mut writer = BufWriter::with_capacity(16 * 1024 * 1024, file);
     let bytes_written = write_pdf_streaming(&mut writer, layout, doc, source)?;
     writer.flush()?;
-    let write_time = write_start.elapsed();
-
-    eprintln!("  [PDF-GEN+WRITE] {:.3}ms",
-        write_time.as_secs_f64() * 1000.0);
 
     Ok(bytes_written)
+}
+
+/// Generate PDF to any writer (in-memory Vec<u8>, BufWriter, etc.)
+/// Used by both CLI and WASM paths.
+pub fn write_pdf_to_writer<W: Write>(writer: &mut W, layout: &LayoutResult, doc: &Document, source: &str) -> Result<usize> {
+    write_pdf_streaming(writer, layout, doc, source)
 }
 
 /// Counting writer wrapper - tracks bytes written for xref offsets
@@ -74,6 +74,10 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     let font_bolditalic_id = alloc_obj();
     let font_mono_id = alloc_obj();
     let font_symbol_id = alloc_obj();
+    let font_times_roman_id = alloc_obj();
+    let font_times_italic_id = alloc_obj();
+    let font_times_bold_id = alloc_obj();
+    let font_dingbats_id = alloc_obj();
     let resource_id = alloc_obj();
 
     let mut page_ids = Vec::with_capacity(num_pages);
@@ -171,6 +175,22 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     begin_obj!(font_symbol_id);
     w.write_all(b"<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>\nendobj\n")?;
 
+    // Times fonts (WinAnsi encoding) — for math rendering
+    for (id, name) in [
+        (font_times_roman_id, "Times-Roman"),
+        (font_times_italic_id, "Times-Italic"),
+        (font_times_bold_id, "Times-Bold"),
+    ] {
+        begin_obj!(id);
+        w.write_all(b"<< /Type /Font /Subtype /Type1 /BaseFont /")?;
+        w.write_all(name.as_bytes())?;
+        w.write_all(b" /Encoding /WinAnsiEncoding >>\nendobj\n")?;
+    }
+
+    // ZapfDingbats font uses its own encoding (not WinAnsi)
+    begin_obj!(font_dingbats_id);
+    w.write_all(b"<< /Type /Font /Subtype /Type1 /BaseFont /ZapfDingbats >>\nendobj\n")?;
+
     // Resources
     begin_obj!(resource_id);
     w.write_all(b"<< /Font << /F1 ")?;
@@ -185,6 +205,14 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     w.write_all(itoa_obj.format(font_mono_id).as_bytes())?;
     w.write_all(b" 0 R /F6 ")?;
     w.write_all(itoa_obj.format(font_symbol_id).as_bytes())?;
+    w.write_all(b" 0 R /F7 ")?;
+    w.write_all(itoa_obj.format(font_times_roman_id).as_bytes())?;
+    w.write_all(b" 0 R /F8 ")?;
+    w.write_all(itoa_obj.format(font_times_italic_id).as_bytes())?;
+    w.write_all(b" 0 R /F9 ")?;
+    w.write_all(itoa_obj.format(font_times_bold_id).as_bytes())?;
+    w.write_all(b" 0 R /F10 ")?;
+    w.write_all(itoa_obj.format(font_dingbats_id).as_bytes())?;
     w.write_all(b" 0 R >>")?;
     // XObject references for embedded images
     if !image_ids.is_empty() {
@@ -221,7 +249,8 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     for batch_start in (0..num_pages).step_by(BATCH_SIZE) {
         let batch_end = (batch_start + BATCH_SIZE).min(num_pages);
 
-        // Generate batch in parallel
+        // Generate batch (parallel with rayon, sequential in WASM)
+        #[cfg(feature = "rayon")]
         let batch_contents: Vec<Vec<u8>> = (batch_start..batch_end).into_par_iter()
             .map(|i| generate_page_content(
                 layout.page_elements(i),
@@ -232,16 +261,37 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
             ))
             .collect();
 
-        // Write batch sequentially
+        #[cfg(not(feature = "rayon"))]
+        let batch_contents: Vec<Vec<u8>> = (batch_start..batch_end)
+            .map(|i| generate_page_content(
+                layout.page_elements(i),
+                layout.page_text(i),
+                &layout.rect_data,
+                layout.height,
+                source,
+            ))
+            .collect();
+
+        // Write batch sequentially (with FlateDecode compression for reasonable-sized documents)
+        // Skip compression for very large documents (>10K pages) to avoid excessive CPU time
+        let use_compression = num_pages <= 10000;
+
         for (j, content) in batch_contents.iter().enumerate() {
             let i = batch_start + j;
 
-            // Content stream object
             begin_obj!(content_ids[i]);
-            w.write_all(b"<< /Length ")?;
-            w.write_all(itoa_buf.format(content.len()).as_bytes())?;
-            w.write_all(b" >>\nstream\n")?;
-            w.write_all(content)?;
+            if use_compression {
+                let compressed = miniz_oxide::deflate::compress_to_vec_zlib(content, 4);
+                w.write_all(b"<< /Filter /FlateDecode /Length ")?;
+                w.write_all(itoa_buf.format(compressed.len()).as_bytes())?;
+                w.write_all(b" >>\nstream\n")?;
+                w.write_all(&compressed)?;
+            } else {
+                w.write_all(b"<< /Length ")?;
+                w.write_all(itoa_buf.format(content.len()).as_bytes())?;
+                w.write_all(b" >>\nstream\n")?;
+                w.write_all(content)?;
+            }
             w.write_all(b"\nendstream\nendobj\n")?;
 
             // Page object
@@ -387,7 +437,9 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     // Trailer
     w.write_all(b"trailer\n<< /Size ")?;
     w.write_all(itoa_obj.format(next_obj).as_bytes())?;
-    w.write_all(b" /Root 1 0 R >>\nstartxref\n")?;
+    w.write_all(b" /Root 1 0 R /Info ")?;
+    w.write_all(itoa_obj.format(info_id).as_bytes())?;
+    w.write_all(b" 0 R >>\nstartxref\n")?;
     w.write_all(itoa_obj.format(xref_offset).as_bytes())?;
     w.write_all(b"\n%%EOF\n")?;
 
@@ -421,9 +473,12 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                 // Decode text source: high bit = source reference, else page text_buffer
                 let text = if *text_offset & SOURCE_REF_FLAG != 0 {
                     let off = (*text_offset & !SOURCE_REF_FLAG) as usize;
+                    if off + tlen > source.len() { continue; }
                     &source[off..off + tlen]
                 } else {
-                    &text_buffer[*text_offset as usize..*text_offset as usize + tlen]
+                    let off = *text_offset as usize;
+                    if off + tlen > text_buffer.len() { continue; }
+                    &text_buffer[off..off + tlen]
                 };
 
                 let font_id = match font_style {
@@ -433,6 +488,10 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                     FontStyle::BoldItalic => 4,
                     FontStyle::Monospace => 5,
                     FontStyle::Symbol => 6,
+                    FontStyle::TimesRoman => 7,
+                    FontStyle::TimesItalic => 8,
+                    FontStyle::TimesBold => 9,
+                    FontStyle::ZapfDingbats => 10,
                 };
 
                 let pdf_y = height - y;
@@ -454,7 +513,12 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                 if font_id != current_font || *font_size_100 != current_size {
                     c.push(b'/');
                     c.push(b'F');
-                    c.push(b'0' + font_id);
+                    if font_id >= 10 {
+                        c.push(b'0' + font_id / 10);
+                        c.push(b'0' + font_id % 10);
+                    } else {
+                        c.push(b'0' + font_id);
+                    }
                     c.push(b' ');
                     write_f32_fast(&mut c, font_size);
                     c.extend_from_slice(b" Tf\n");
@@ -487,9 +551,9 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                 // Text escaping + encoding conversion
                 let text_bytes = text.as_bytes();
                 let tlen = text_bytes.len();
-                if font_id == 6 {
-                    // Symbol font: each char is a Unicode codepoint U+00XX where XX is the
-                    // Symbol encoding byte. We must extract the byte value from the char,
+                if font_id == 6 || font_id == 10 {
+                    // Symbol/ZapfDingbats font: each char is a Unicode codepoint U+00XX where XX
+                    // is the font encoding byte. We must extract the byte value from the char,
                     // NOT iterate over UTF-8 bytes (which would corrupt bytes > 127).
                     for ch in text.chars() {
                         let b = ch as u8;

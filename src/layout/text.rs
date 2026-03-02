@@ -20,14 +20,42 @@ pub(super) fn layout_paragraph(children: &[Node], state: &mut LayoutState, _doc:
 /// Calculate word spacing for justified text.
 #[inline]
 pub(super) fn justify_line(line: &[u8], available_width: f32, avg_width: f32, font_size: f32, is_last_line: bool) -> i16 {
+    justify_line_ext(line, available_width, avg_width, font_size, is_last_line, crate::font::FontId::Helvetica)
+}
+
+pub(super) fn justify_line_ext(line: &[u8], available_width: f32, avg_width: f32, font_size: f32, is_last_line: bool, font_id: crate::font::FontId) -> i16 {
     if is_last_line { return 0; }
     let num_spaces = memchr::memchr_iter(b' ', line).count();
     if num_spaces == 0 { return 0; }
-    let natural_width = line.len() as f32 * avg_width;
+
+    // Use per-glyph font metrics for accurate width — but only for
+    // lines where char-count estimation would be noticeably wrong
+    let natural_width = {
+        let est_width = line.len() as f32 * avg_width;
+        let est_slack = (available_width - est_width).abs();
+        // Only use accurate metrics if the estimated slack is small
+        // (i.e., the line is close to full width where justification matters)
+        if est_slack < font_size * 2.0 && line.len() <= 200 {
+            let widths = crate::font::font_widths(font_id);
+            let scale = font_size / 1000.0;
+            let mut w = 0.0f32;
+            for &b in line {
+                w += widths[b as usize] as f32 * scale;
+            }
+            w
+        } else {
+            est_width
+        }
+    };
+
     let extra = available_width - natural_width;
-    if extra <= 0.0 || extra > font_size * 2.0 { return 0; }
+    // Skip justification if line is way too short (< 70% full) or way too long
+    if extra > available_width * 0.3 { return 0; }
+    if extra < -font_size * 1.0 { return 0; }
     let ws = extra / num_spaces as f32;
-    (ws * 50.0).min(i16::MAX as f32) as i16
+    // Clamp: allow slight compression (-0.5pt) and moderate stretch (+4pt per space)
+    let ws_clamped = ws.max(-0.5).min(4.0);
+    (ws_clamped * 50.0).min(i16::MAX as f32) as i16
 }
 
 /// Core word-wrapping and text layout.
@@ -69,7 +97,10 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
 
         let mut lines_until_break = ((state.cached_max_y - state.current_y - line_height) / step) as i32 + 1;
 
-        if lines_until_break == 1 {
+        // Orphan prevention: if only 1 line would fit, move whole paragraph to next page
+        // Also estimate total lines — if paragraph is 3+ lines and only 1 line fits, start fresh
+        let est_total_lines = (len as f32 * avg_width / full_text_width).ceil() as i32;
+        if lines_until_break <= 1 && est_total_lines > 1 {
             state.new_page();
             push_start = 0;
             buf_push_pos = 0;
@@ -440,7 +471,7 @@ fn node_to_text_ext(node: &Node, out: &mut String, source: &str, labels: Option<
         Node::LeftBrace => out.push('{'),
         Node::RightBrace => out.push('}'),
         Node::Footnote(_content) => { out.push('\u{2020}'); }
-        Node::Ref(label) => {
+        Node::Ref(label) | Node::Cref(label, _) => {
             if let Some(map) = labels {
                 if let Some(resolved) = map.get(label) { out.push_str(resolved); }
                 else { out.push_str("??"); }
@@ -454,12 +485,13 @@ fn node_to_text_ext(node: &Node, out: &mut String, source: &str, labels: Option<
             } else { out.push_str("??"); }
             out.push(')');
         }
-        Node::Citation(key, opt) => {
+        Node::Citation(key, opt, _style) => {
             out.push('[');
             out.push_str(key);
             if let Some(o) = opt { out.push_str(", "); out.push_str(o); }
             out.push(']');
         }
+        Node::Dingbat(code) => out.push(char::from(*code)),
         Node::Label(_) | Node::BibItem(_) => {}
         Node::Code(s) => out.push_str(s),
         Node::Href { content, .. } => {
@@ -469,23 +501,76 @@ fn node_to_text_ext(node: &Node, out: &mut String, source: &str, labels: Option<
     }
 }
 
-pub(super) fn resolve_citations(key: &str, opt: Option<&str>, citation_map: &HashMap<String, u32>) -> String {
+pub(super) fn resolve_citations(
+    key: &str,
+    opt: Option<&str>,
+    citation_map: &HashMap<String, u32>,
+    style: crate::document::CitationStyle,
+    author_year_map: &HashMap<String, (String, String)>,
+) -> String {
+    use crate::document::CitationStyle;
+
     let keys: Vec<&str> = key.split(',').map(|k| k.trim()).collect();
-    let mut nums = Vec::new();
-    for k in &keys {
-        if let Some(&num) = citation_map.get(*k) {
-            nums.push(num.to_string());
-        } else {
-            nums.push((*k).to_string());
+
+    // Check if we have author-year data for any key
+    let has_author_year = keys.iter().any(|k| author_year_map.contains_key(*k));
+
+    // When author-year data is available, use it for all styles including Numeric (\cite{})
+    if has_author_year {
+        // Determine effective style: \cite{} (Numeric) becomes Parenthetical when author-year data exists
+        let eff_style = if style == CitationStyle::Numeric { CitationStyle::Parenthetical } else { style };
+        let mut parts = Vec::new();
+        for k in &keys {
+            if let Some((author, year)) = author_year_map.get(*k) {
+                match eff_style {
+                    CitationStyle::Parenthetical => parts.push(format!("{}, {}", author, year)),
+                    CitationStyle::Textual => parts.push(format!("{} ({})", author, year)),
+                    CitationStyle::AuthorOnly => parts.push(author.clone()),
+                    CitationStyle::YearOnly => parts.push(year.clone()),
+                    CitationStyle::AltNoParen => parts.push(format!("{} {}", author, year)),
+                    CitationStyle::Numeric => {
+                        if let Some(&num) = citation_map.get(*k) {
+                            parts.push(num.to_string());
+                        }
+                    }
+                }
+            } else if let Some(&num) = citation_map.get(*k) {
+                parts.push(num.to_string());
+            } else {
+                parts.push((*k).to_string());
+            }
         }
-    }
-    let base = nums.join(",");
-    match opt {
-        Some(text) => {
-            let clean = text.replace('~', " ");
-            format!("[{}, {}]", base, clean)
+        let base = parts.join("; ");
+        match eff_style {
+            CitationStyle::Parenthetical => {
+                if let Some(text) = opt {
+                    format!("({}; {})", base, text.replace('~', " "))
+                } else {
+                    format!("({})", base)
+                }
+            }
+            CitationStyle::Textual | CitationStyle::AuthorOnly
+            | CitationStyle::YearOnly | CitationStyle::AltNoParen => base,
+            _ => format!("[{}]", base),
         }
-        None => format!("[{}]", base),
+    } else {
+        // Numeric formatting (fallback)
+        let mut nums = Vec::new();
+        for k in &keys {
+            if let Some(&num) = citation_map.get(*k) {
+                nums.push(num.to_string());
+            } else {
+                nums.push((*k).to_string());
+            }
+        }
+        let base = nums.join(",");
+        match opt {
+            Some(text) => {
+                let clean = text.replace('~', " ");
+                format!("[{}, {}]", base, clean)
+            }
+            None => format!("[{}]", base),
+        }
     }
 }
 
@@ -591,6 +676,11 @@ pub(super) fn math_node_to_text(node: &MathNode, out: &mut String) {
             if let Some(u) = upper { out.push_str("^{"); math_to_text_buf(u, out); out.push('}'); }
         }
         MathNode::Left(d) | MathNode::Right(d) => out.push_str(d),
+        MathNode::DelimitedGroup { left, right, content } => {
+            out.push_str(left);
+            math_to_text_buf(content, out);
+            out.push_str(right);
+        }
         MathNode::Matrix { rows, .. } => {
             for (i, row) in rows.iter().enumerate() {
                 for (j, cell) in row.iter().enumerate() {
@@ -634,7 +724,16 @@ pub(super) fn math_node_to_text(node: &MathNode, out: &mut String) {
         MathNode::AlignmentMark => out.push_str("  "),
         MathNode::NewLine => out.push('\n'),
         MathNode::Phantom(_) => {}
-        MathNode::StyleSwitch(_) => {}
+        MathNode::StyleSwitch(_) | MathNode::Boxed(_) | MathNode::LimitOp { .. } | MathNode::NoTag | MathNode::Tag(_) | MathNode::Label(_) | MathNode::Substack(_) => {}
+        MathNode::StyledText(text, _) => out.push_str(text),
         MathNode::BigDelim { delim, .. } => out.push_str(delim),
+        MathNode::Intertext(text) => out.push_str(text),
+        MathNode::VPhantom(_) | MathNode::HPhantom(_) => {}
+        MathNode::Pmod(content) => { out.push_str(" (mod "); math_to_text_buf(content, out); out.push(')'); }
+        MathNode::Pod(content) => { out.push_str(" ("); math_to_text_buf(content, out); out.push(')'); }
+        MathNode::Bmod => out.push_str(" mod "),
+        MathNode::MathRel(content) | MathNode::MathBin(content) => math_to_text_buf(content, out),
+        MathNode::Rule { .. } => {}
+        MathNode::Middle(d) => out.push_str(d),
     }
 }

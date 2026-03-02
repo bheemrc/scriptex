@@ -44,9 +44,10 @@ impl MacroEngine {
         let preamble = &source[..scan_end];
         preamble.contains("\\def") || preamble.contains("\\newcommand")
             || preamble.contains("\\renewcommand") || preamble.contains("\\let\\")
-            || preamble.contains("\\DeclareMathOperator")
+            || preamble.contains("\\DeclarePairedDelimiter")
             || preamble.contains("\\providecommand")
             || preamble.contains("\\newenvironment")
+            || source.contains("\\DeclareMathOperator")
             || source.contains("\\today")
     }
 
@@ -85,6 +86,11 @@ impl MacroEngine {
                 }
             } else if source[pos..].starts_with("\\DeclareMathOperator") {
                 if let Some(new_pos) = self.parse_declare_math_operator(source, pos) {
+                    pos = new_pos;
+                    continue;
+                }
+            } else if source[pos..].starts_with("\\DeclarePairedDelimiter") {
+                if let Some(new_pos) = self.parse_declare_paired_delimiter(source, pos) {
                     pos = new_pos;
                     continue;
                 }
@@ -425,6 +431,38 @@ impl MacroEngine {
             default_first: None,
         });
         Some(end2)
+    }
+
+    /// Parse \DeclarePairedDelimiter{\norm}{\lVert}{\rVert}
+    fn parse_declare_paired_delimiter(&mut self, source: &str, start: usize) -> Option<usize> {
+        let mut pos = start;
+        // Skip \DeclarePairedDelimiter or \DeclarePairedDelimiterX etc.
+        while pos < source.len() && (source.as_bytes()[pos].is_ascii_alphabetic() || source.as_bytes()[pos] == b'\\') {
+            pos += 1;
+        }
+        if source.as_bytes().get(pos) == Some(&b'X') || source.as_bytes().get(pos) == Some(&b'*') {
+            pos += 1;
+        }
+        pos = skip_ws(source, pos);
+
+        // Read command name {\norm}
+        let (name, end1) = read_braced(source, pos)?;
+        pos = skip_ws(source, end1);
+
+        // Read left delimiter {\lVert}
+        let (left_delim, end2) = read_braced(source, pos)?;
+        pos = skip_ws(source, end2);
+
+        // Read right delimiter {\rVert}
+        let (right_delim, end3) = read_braced(source, pos)?;
+
+        // Expand \norm{x} to \left<left>x\right<right>
+        self.macros.insert(name, MacroDef {
+            param_count: 1,
+            body: format!("\\left{}#1\\right{}", left_delim, right_delim),
+            default_first: None,
+        });
+        Some(end3)
     }
 
     /// Parse \newenvironment{name}{begin_code}{end_code}

@@ -28,7 +28,8 @@ pub(super) fn layout_section(
         (level.font_size(state.base_font_size), FontStyle::Bold)
     };
     let line_height = font_size * 1.2;
-    state.ensure_space(line_height + level.spacing_after() + state.cached_line_height);
+    // Ensure heading + spacing + at least 2 lines of body text fit on current page
+    state.ensure_space(line_height + level.spacing_after() + state.cached_line_height * 2.5);
 
     state.text_buf.clear();
     if numbered {
@@ -90,6 +91,13 @@ pub(super) fn layout_section(
     let has_inline_math = title.iter().any(|n| matches!(n, Node::InlineMath(_)));
     let title_start = state.text_buf.len();
     for node in title { node_to_text(node, &mut state.text_buf, source); }
+    // \paragraph and \subparagraph: append period after title (LaTeX convention)
+    if matches!(level, SectionLevel::Paragraph | SectionLevel::Subparagraph) {
+        let title_text = state.text_buf[title_start..].trim_end();
+        if !title_text.ends_with('.') && !title_text.ends_with('!') && !title_text.ends_with('?') {
+            state.text_buf.push('.');
+        }
+    }
     if state.is_amsart && matches!(level, SectionLevel::Section) {
         let title_text = state.text_buf[title_start..].to_uppercase();
         state.text_buf.truncate(title_start);

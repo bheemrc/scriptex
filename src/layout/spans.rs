@@ -22,6 +22,35 @@ pub(super) struct StyledSpan {
     pub strikethrough: bool,
 }
 
+/// Split text into uppercase (normal size) and lowercase (uppercase at 75% size) spans for small caps
+fn emit_smallcaps_spans(text: &str, style: FontStyle, color: Color, font_size: f32, out: &mut Vec<StyledSpan>) {
+    let sc_size = font_size * 0.75;
+    let mut seg_start = 0;
+    let mut seg_is_lower = text.as_bytes().first().map_or(false, |b| b.is_ascii_lowercase());
+
+    for (i, ch) in text.char_indices() {
+        let is_lower = ch.is_ascii_lowercase();
+        if is_lower != seg_is_lower && i > seg_start {
+            let seg = &text[seg_start..i];
+            if seg_is_lower {
+                out.push(StyledSpan { text: seg.to_ascii_uppercase(), style, color, font_size: sc_size, underline: false, strikethrough: false });
+            } else {
+                out.push(StyledSpan { text: seg.to_string(), style, color, font_size, underline: false, strikethrough: false });
+            }
+            seg_start = i;
+            seg_is_lower = is_lower;
+        }
+    }
+    if seg_start < text.len() {
+        let seg = &text[seg_start..];
+        if seg_is_lower {
+            out.push(StyledSpan { text: seg.to_ascii_uppercase(), style, color, font_size: sc_size, underline: false, strikethrough: false });
+        } else {
+            out.push(StyledSpan { text: seg.to_string(), style, color, font_size, underline: false, strikethrough: false });
+        }
+    }
+}
+
 pub(super) fn nodes_to_spans(nodes: &[Node], style: FontStyle, color: Color, font_size: f32, base_size: f32, out: &mut Vec<StyledSpan>, source: &str, labels: &HashMap<String, String>, citations: &HashMap<String, u32>) {
     nodes_to_spans_sc(nodes, style, color, font_size, base_size, false, out, source, labels, citations);
 }
@@ -55,8 +84,7 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
             Node::Text(s) => {
                 let normalized = if s.contains('\n') { s.replace('\n', " ") } else { s.clone() };
                 if smallcaps {
-                    let sc_size = font_size * 0.82;
-                    out.push(StyledSpan { text: normalized.to_ascii_uppercase(), style, color, font_size: sc_size, underline: false, strikethrough: false });
+                    emit_smallcaps_spans(&normalized, style, color, font_size, out);
                 } else {
                     out.push(StyledSpan { text: normalized, style, color, font_size, underline: false, strikethrough: false });
                 }
@@ -65,8 +93,7 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
                 let raw = &source[*offset as usize..(*offset as usize + *len as usize)];
                 let text = if raw.contains('\n') { raw.replace('\n', " ") } else { raw.to_string() };
                 if smallcaps {
-                    let sc_size = font_size * 0.82;
-                    out.push(StyledSpan { text: text.to_ascii_uppercase(), style, color, font_size: sc_size, underline: false, strikethrough: false });
+                    emit_smallcaps_spans(&text, style, color, font_size, out);
                 } else {
                     out.push(StyledSpan { text, style, color, font_size, underline: false, strikethrough: false });
                 }
@@ -100,6 +127,11 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
                 nodes_to_spans_sc(children, style, color, font_size, base_size, smallcaps, out, source, labels, citations);
                 for span in &mut out[start_idx..] { span.strikethrough = true; }
             }
+            Node::Dingbat(code) => {
+                // ZapfDingbats character: text is a single char whose byte value is the dingbat code
+                let text = String::from(char::from(*code));
+                out.push(StyledSpan { text, style: FontStyle::ZapfDingbats, color, font_size, underline: false, strikethrough: false });
+            }
             Node::Group(children) | Node::Superscript(children) | Node::Subscript(children) => {
                 nodes_to_spans_sc(children, style, color, font_size, base_size, smallcaps, out, source, labels, citations);
             }
@@ -116,14 +148,19 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
             Node::NonBreakingSpace | Node::HSpace(_) => {
                 out.push(StyledSpan { text: " ".to_string(), style, color, font_size, underline: false, strikethrough: false });
             }
+            Node::HFill => {
+                // Sentinel marker — handled in layout_rich_paragraph
+                out.push(StyledSpan { text: "\x01HFILL\x01".to_string(), style, color, font_size, underline: false, strikethrough: false });
+            }
             Node::LineBreak => {
                 out.push(StyledSpan { text: "\n".to_string(), style, color, font_size, underline: false, strikethrough: false });
             }
             Node::InlineMath(math) => {
                 inline_math_to_spans(math, color, font_size, out);
             }
-            Node::Citation(key, opt) => {
-                let cite_text = resolve_citations(key, opt.as_deref(), citations);
+            Node::Citation(key, opt, cite_style) => {
+                // For spans, use numeric style (author-year handled at layout level)
+                let cite_text = resolve_citations(key, opt.as_deref(), citations, *cite_style, &std::collections::HashMap::new());
                 out.push(StyledSpan { text: cite_text, style, color, font_size, underline: false, strikethrough: false });
             }
             Node::Href { content, .. } => {
@@ -210,6 +247,18 @@ fn inline_math_node_to_spans(node: &MathNode, color: Color, font_size: f32, out:
                 }
             }
         }
+        MathNode::DelimitedGroup { left, right, content } => {
+            // For inline span fallback, just render as left + content + right
+            let ld = left.chars().next().unwrap_or('.');
+            if ld != '.' {
+                out.push(StyledSpan { text: left.clone(), style: FontStyle::Regular, color, font_size, underline: false, strikethrough: false });
+            }
+            inline_math_to_spans(content, color, font_size, out);
+            let rd = right.chars().next().unwrap_or('.');
+            if rd != '.' {
+                out.push(StyledSpan { text: right.clone(), style: FontStyle::Regular, color, font_size, underline: false, strikethrough: false });
+            }
+        }
         MathNode::Sum { .. } => {
             if let Some(byte) = font::unicode_to_symbol_byte('\u{2211}') {
                 out.push(StyledSpan { text: String::from(byte as char), style: FontStyle::Symbol, color, font_size, underline: false, strikethrough: false });
@@ -262,7 +311,27 @@ fn inline_math_node_to_spans(node: &MathNode, color: Color, font_size: f32, out:
         MathNode::AlignmentMark => {
             out.push(StyledSpan { text: " ".to_string(), style: FontStyle::Regular, color, font_size, underline: false, strikethrough: false });
         }
-        MathNode::NewLine | MathNode::StyleSwitch(_) | MathNode::BigDelim { .. } => {}
+        MathNode::NewLine | MathNode::StyleSwitch(_) | MathNode::BigDelim { .. }
+        | MathNode::Boxed(_) | MathNode::LimitOp { .. } | MathNode::NoTag | MathNode::Tag(_) | MathNode::Intertext(_)
+        | MathNode::Label(_) | MathNode::Substack(_) | MathNode::StyledText(..) => {}
+        MathNode::VPhantom(_) | MathNode::HPhantom(_) | MathNode::Rule { .. } => {}
+        MathNode::Pmod(content) => {
+            out.push(StyledSpan { text: " (mod ".to_string(), style: FontStyle::Regular, color, font_size, underline: false, strikethrough: false });
+            inline_math_to_spans(content, color, font_size, out);
+            out.push(StyledSpan { text: ")".to_string(), style: FontStyle::Regular, color, font_size, underline: false, strikethrough: false });
+        }
+        MathNode::Pod(content) => {
+            out.push(StyledSpan { text: " (".to_string(), style: FontStyle::Regular, color, font_size, underline: false, strikethrough: false });
+            inline_math_to_spans(content, color, font_size, out);
+            out.push(StyledSpan { text: ")".to_string(), style: FontStyle::Regular, color, font_size, underline: false, strikethrough: false });
+        }
+        MathNode::Bmod => {
+            out.push(StyledSpan { text: " mod ".to_string(), style: FontStyle::Regular, color, font_size, underline: false, strikethrough: false });
+        }
+        MathNode::MathRel(content) | MathNode::MathBin(content) => { inline_math_to_spans(content, color, font_size, out); }
+        MathNode::Middle(d) => {
+            out.push(StyledSpan { text: d.clone(), style: FontStyle::Regular, color, font_size, underline: false, strikethrough: false });
+        }
     }
 }
 
@@ -273,7 +342,8 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         | Node::Colored { .. } | Node::Code(_) | Node::SmallCaps(_)
         | Node::Underline(_) | Node::InlineMath(_) | Node::Href { .. }
         | Node::Footnote(_) | Node::FontStyleDecl(_) | Node::ColorDecl(_) | Node::Group(_)
-        | Node::FontSize { .. } | Node::Citation(..)
+        | Node::FontSize { .. } | Node::Citation(..) | Node::Cref(..)
+        | Node::Dingbat(_)
     ));
 
     if !has_formatting {
@@ -331,6 +401,33 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                     words.push(StyledWord { text: String::new(), style: FontStyle::Regular, color: state.current_color, font_size, width: w, math: Some(math_box), superscript: false, underline: false, strikethrough: false });
                 }
             }
+            Node::Cref(label, capitalize) => {
+                let num = state.label_map.get(label).cloned().unwrap_or_else(|| "??".to_string());
+                let type_name = state.label_types.get(label).map(|s| s.as_str()).unwrap_or("section");
+                let prefix = match type_name {
+                    "section" | "subsection" | "subsubsection" => if *capitalize { "Section" } else { "section" },
+                    "chapter" => if *capitalize { "Chapter" } else { "chapter" },
+                    "part" => if *capitalize { "Part" } else { "part" },
+                    "figure" => if *capitalize { "Figure" } else { "figure" },
+                    "table" => if *capitalize { "Table" } else { "table" },
+                    "equation" => if *capitalize { "Equation" } else { "eq." },
+                    "theorem" => if *capitalize { "Theorem" } else { "theorem" },
+                    "lemma" => if *capitalize { "Lemma" } else { "lemma" },
+                    "proposition" => if *capitalize { "Proposition" } else { "proposition" },
+                    "corollary" => if *capitalize { "Corollary" } else { "corollary" },
+                    "definition" => if *capitalize { "Definition" } else { "definition" },
+                    "remark" => if *capitalize { "Remark" } else { "remark" },
+                    "example" => if *capitalize { "Example" } else { "example" },
+                    _ => if *capitalize { "Section" } else { "section" },
+                };
+                let ref_text = if type_name == "equation" && !*capitalize {
+                    format!("{}\u{00A0}({})", prefix, num)
+                } else {
+                    format!("{}\u{00A0}{}", prefix, num)
+                };
+                let w = font::measure_text(&ref_text, FontId::Helvetica, font_size);
+                words.push(StyledWord { text: ref_text, style: state.current_font_style, color: state.current_color, font_size, width: w, math: None, superscript: false, underline: false, strikethrough: false });
+            }
             _ => {
                 let mut node_spans = Vec::new();
                 let node_style = state.current_font_style;
@@ -341,6 +438,10 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                     let sw = sf * 0.25;
                     if span.text == "\n" {
                         words.push(StyledWord { text: "\n".to_string(), style: span.style, color: span.color, font_size: sf, width: 0.0, math: None, superscript: false, underline: span.underline, strikethrough: span.strikethrough });
+                        continue;
+                    }
+                    if span.text == "\x01HFILL\x01" {
+                        words.push(StyledWord { text: "\x01HFILL\x01".to_string(), style: span.style, color: span.color, font_size: sf, width: 0.0, math: None, superscript: false, underline: false, strikethrough: false });
                         continue;
                     }
                     let font_id = match span.style {
@@ -448,9 +549,10 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         lines.push(LineInfo { start: line_start, end: words.len(), max_above: line_max_above, max_below: line_max_below, hyphen: None });
     }
 
+    let total_lines = lines.len();
     let mut first_line = true;
     let mut prev_max_below = text_descent;
-    for line in &lines {
+    for (line_idx, line) in lines.iter().enumerate() {
         if !first_line {
             let effective_step = (prev_max_below + line.max_above).max(step);
             state.current_y += effective_step;
@@ -460,9 +562,46 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         }
 
         let mut line_x = if first_line { initial_line_x } else { state.text_left() };
+
+        // Justification: compute extra space per word gap for non-last lines
+        let is_last_line = line_idx == total_lines - 1;
+        let available = if first_line { text_width - first_line_used } else { text_width };
+        let mut extra_per_space = 0.0f32;
+        if !is_last_line {
+            let mut content_w = 0.0f32;
+            let mut space_count = 0u32;
+            for wi in line.start..line.end {
+                let word = &words[wi];
+                if word.text == " " {
+                    space_count += 1;
+                    content_w += word.width;
+                } else {
+                    content_w += word.width;
+                }
+            }
+            if space_count > 0 {
+                let slack = available - content_w;
+                if slack > 0.0 && slack < available * 0.3 {
+                    extra_per_space = slack / space_count as f32;
+                    // Clamp to avoid visually bad gaps
+                    extra_per_space = extra_per_space.min(font_size * 0.4);
+                }
+            }
+        }
+
         for wi in line.start..line.end {
             let word = &words[wi];
-            if word.text == " " { line_x += word.width; continue; }
+            if word.text == " " { line_x += word.width + extra_per_space; continue; }
+            if word.text == "\x01HFILL\x01" {
+                // Compute remaining content width after HFill
+                let mut remaining_w = 0.0f32;
+                for rw in (wi + 1)..line.end {
+                    remaining_w += words[rw].width;
+                }
+                let right_edge = state.text_left() + text_width;
+                line_x = (right_edge - remaining_w).max(line_x);
+                continue;
+            }
             if let Some((hyph_wi, bp)) = line.hyphen {
                 if wi == hyph_wi {
                     state.current_x = line_x;

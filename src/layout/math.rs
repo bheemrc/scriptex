@@ -12,7 +12,14 @@ use anyhow::Result;
 
 pub(super) fn layout_display_math_data(math_data: &DisplayMathData, state: &mut LayoutState) -> Result<()> {
     let has_alignment = math_data.nodes.iter().any(|n| matches!(n, MathNode::AlignmentMark | MathNode::NewLine));
-    if has_alignment && matches!(math_data.env_type, MathEnvType::Align | MathEnvType::Gather) {
+    let has_newlines = math_data.nodes.iter().any(|n| matches!(n, MathNode::NewLine));
+
+    if has_newlines && matches!(math_data.env_type, MathEnvType::Multline) {
+        layout_multline_math(&math_data.nodes, math_data.numbered, state)
+    } else if has_alignment && matches!(math_data.env_type, MathEnvType::Align | MathEnvType::Gather) {
+        layout_aligned_math(&math_data.nodes, math_data.numbered, state)
+    } else if has_newlines && !has_alignment {
+        // split/gather with newlines but no & alignment marks — treat each line as centered
         layout_aligned_math(&math_data.nodes, math_data.numbered, state)
     } else {
         layout_display_math_simple(&math_data.nodes, math_data.numbered, state)
@@ -131,6 +138,75 @@ fn layout_display_math_simple(math_nodes: &[MathNode], numbered: bool, state: &m
     Ok(())
 }
 
+/// Layout multline environment: first line left-aligned, last line right-aligned, middle centered.
+fn layout_multline_math(math_nodes: &[MathNode], numbered: bool, state: &mut LayoutState) -> Result<()> {
+    state.add_vertical_space(8.0);
+
+    // Split into lines at NewLine nodes
+    let mut lines: Vec<Vec<MathNode>> = vec![vec![]];
+    for node in math_nodes {
+        if matches!(node, MathNode::NewLine) {
+            lines.push(vec![]);
+        } else {
+            lines.last_mut().unwrap().push(node.clone());
+        }
+    }
+    // Remove empty trailing lines
+    while lines.last().map_or(false, |l| l.is_empty()) { lines.pop(); }
+    if lines.is_empty() { return Ok(()); }
+
+    let font_size = state.current_font_size;
+    let step = font_size * 1.6;
+    let text_left = state.text_left();
+    let text_width = state.text_width();
+    let num_lines = lines.len();
+    let eq_number_width = if numbered { 40.0 } else { 0.0 };
+    let total_height = step * num_lines as f32;
+    state.ensure_space(total_height + 16.0);
+
+    for (line_idx, line_nodes) in lines.iter().enumerate() {
+        if line_nodes.is_empty() { continue; }
+
+        let math_box = math_layout::layout_math(line_nodes, font_size);
+        let line_width = math_box.width;
+
+        let x = if line_idx == 0 {
+            // First line: left-aligned (with small indent)
+            text_left + 15.0
+        } else if line_idx == num_lines - 1 {
+            // Last line: right-aligned (before equation number)
+            (text_left + text_width - line_width - eq_number_width - 15.0).max(text_left)
+        } else {
+            // Middle lines: centered
+            text_left + (text_width - line_width) / 2.0
+        };
+
+        emit_math_elements(&math_box, x.max(text_left), state.current_y + math_box.height, state);
+
+        // Equation number on the last line
+        if numbered && line_idx == num_lines - 1 {
+            state.equation_counter += 1;
+            let eq_text = format!("({})", state.equation_counter);
+            let num_x = state.text_left() + state.text_width() - 30.0;
+            let offset = (state.all_text.len() - state.current_page_text_start as usize) as u32;
+            state.all_text.push_str(&eq_text);
+            state.all_elements.push(PageElement::Text {
+                x: num_x, y: state.current_y + math_box.height,
+                text_offset: offset, text_len: eq_text.len().min(65535) as u16,
+                font_size_100: (font_size * 100.0) as u16, font_style: FontStyle::Regular,
+                color: Color::BLACK, word_spacing_50: 0,
+            });
+        }
+
+        state.current_y += step;
+    }
+
+    state.add_vertical_space(8.0);
+    state.current_x = state.text_left();
+    state.suppress_next_indent = true;
+    Ok(())
+}
+
 fn layout_aligned_math(math_nodes: &[MathNode], numbered: bool, state: &mut LayoutState) -> Result<()> {
     state.add_vertical_space(8.0);
 
@@ -138,14 +214,36 @@ fn layout_aligned_math(math_nodes: &[MathNode], numbered: bool, state: &mut Layo
     let mut current_row: Vec<Vec<MathNode>> = Vec::new();
     let mut current_col: Vec<MathNode> = Vec::new();
 
+    // Track per-row numbering overrides: None = use default, Some(true) = force no number, Some(tag) = custom
+    let mut row_tags: Vec<Option<String>> = Vec::new(); // None = default numbering, Some("") = suppress, Some(text) = custom
+    let mut current_row_tag: Option<String> = None;
+
     for node in math_nodes {
         match node {
             MathNode::NewLine => {
                 current_row.push(std::mem::take(&mut current_col));
                 rows.push(std::mem::take(&mut current_row));
+                row_tags.push(current_row_tag.take());
             }
             MathNode::AlignmentMark => {
                 current_row.push(std::mem::take(&mut current_col));
+            }
+            MathNode::NoTag => {
+                current_row_tag = Some(String::new()); // Empty = suppress
+            }
+            MathNode::Tag(text) => {
+                current_row_tag = Some(text.clone());
+            }
+            MathNode::Intertext(_) => {
+                // Flush current row first
+                if !current_col.is_empty() || !current_row.is_empty() {
+                    current_row.push(std::mem::take(&mut current_col));
+                    rows.push(std::mem::take(&mut current_row));
+                    row_tags.push(current_row_tag.take());
+                }
+                // Store intertext as a single-element row with special marker
+                rows.push(vec![vec![node.clone()]]);
+                row_tags.push(Some("\x01INTERTEXT\x01".to_string()));
             }
             _ => { current_col.push(node.clone()); }
         }
@@ -153,6 +251,7 @@ fn layout_aligned_math(math_nodes: &[MathNode], numbered: bool, state: &mut Layo
     if !current_col.is_empty() || !current_row.is_empty() {
         current_row.push(current_col);
         rows.push(current_row);
+        row_tags.push(current_row_tag.take());
     }
     if rows.is_empty() { return Ok(()); }
 
@@ -187,6 +286,23 @@ fn layout_aligned_math(math_nodes: &[MathNode], numbered: bool, state: &mut Layo
     };
 
     for (row_idx, row_boxes) in cell_boxes.iter().enumerate() {
+        // Check for intertext row
+        let tag = row_tags.get(row_idx).and_then(|t| t.as_deref());
+        if tag == Some("\x01INTERTEXT\x01") {
+            // Render intertext as a normal text paragraph
+            if let Some(row) = rows.get(row_idx) {
+                if let Some(cells) = row.first() {
+                    if let Some(MathNode::Intertext(text)) = cells.first() {
+                        state.current_x = state.text_left();
+                        state.emit_text(text, font_size, FontStyle::Regular, Color::BLACK);
+                        state.current_y += row_spacing;
+                        state.current_x = state.text_left();
+                    }
+                }
+            }
+            continue;
+        }
+
         let baseline_y = state.current_y;
         let mut col_x = base_x;
         for (j, cell_box) in row_boxes.iter().enumerate() {
@@ -197,18 +313,26 @@ fn layout_aligned_math(math_nodes: &[MathNode], numbered: bool, state: &mut Layo
         }
 
         if numbered {
-            state.equation_counter += 1;
-            let eq_text = format!("({})", state.equation_counter);
-            let num_x = state.text_left() + state.text_width() - 30.0;
-            let offset = (state.all_text.len() - state.current_page_text_start as usize) as u32;
-            state.all_text.push_str(&eq_text);
-            let max_h = row_boxes.iter().map(|b| b.height).fold(0.0f32, f32::max);
-            state.all_elements.push(PageElement::Text {
-                x: num_x, y: baseline_y + max_h,
-                text_offset: offset, text_len: eq_text.len().min(65535) as u16,
-                font_size_100: (font_size * 100.0) as u16, font_style: FontStyle::Regular,
-                color: Color::BLACK, word_spacing_50: 0,
-            });
+            let suppress = tag == Some("");
+            let custom_tag = tag.filter(|t| !t.is_empty());
+            if !suppress {
+                let eq_text = if let Some(ct) = custom_tag {
+                    format!("({})", ct)
+                } else {
+                    state.equation_counter += 1;
+                    format!("({})", state.equation_counter)
+                };
+                let num_x = state.text_left() + state.text_width() - 30.0;
+                let offset = (state.all_text.len() - state.current_page_text_start as usize) as u32;
+                state.all_text.push_str(&eq_text);
+                let max_h = row_boxes.iter().map(|b| b.height).fold(0.0f32, f32::max);
+                state.all_elements.push(PageElement::Text {
+                    x: num_x, y: baseline_y + max_h,
+                    text_offset: offset, text_len: eq_text.len().min(65535) as u16,
+                    font_size_100: (font_size * 100.0) as u16, font_style: FontStyle::Regular,
+                    color: Color::BLACK, word_spacing_50: 0,
+                });
+            }
         }
         state.current_y += row_spacing;
     }
@@ -243,6 +367,10 @@ pub(super) fn emit_math_elements(math_box: &math_layout::MathBox, cx: f32, basel
                     FontId::HelveticaBoldOblique => FontStyle::BoldItalic,
                     FontId::Courier => FontStyle::Monospace,
                     FontId::Symbol => FontStyle::Symbol,
+                    FontId::TimesRoman => FontStyle::TimesRoman,
+                    FontId::TimesItalic => FontStyle::TimesItalic,
+                    FontId::TimesBold => FontStyle::TimesBold,
+                    FontId::ZapfDingbats => FontStyle::ZapfDingbats,
                     _ => FontStyle::Regular,
                 };
                 let abs_x = cx + x;

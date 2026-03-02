@@ -7,6 +7,23 @@ use crate::typeset::{FontMetrics, FontStyle};
 use crate::font::{self, FontId};
 use super::types::*;
 use super::prescans::{TocEntry, TocFixup};
+use super::spans::StyledSpan;
+
+fn to_roman(mut n: u32) -> String {
+    let table = [
+        (1000, "m"), (900, "cm"), (500, "d"), (400, "cd"),
+        (100, "c"), (90, "xc"), (50, "l"), (40, "xl"),
+        (10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"),
+    ];
+    let mut result = String::new();
+    for &(val, sym) in &table {
+        while n >= val {
+            result.push_str(sym);
+            n -= val;
+        }
+    }
+    result
+}
 
 /// Compute baselineskip factor matching pdflatex defaults for standard font sizes.
 #[inline]
@@ -25,6 +42,16 @@ pub(super) enum PageStyle {
     Plain,    // centered page number at bottom, no header
     Headings, // section title + page number in header, no footer
     Empty,    // no header or footer
+    Fancy,    // fancyhdr custom headers/footers
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum PageNumberingStyle {
+    Arabic,
+    Roman,      // lowercase roman (i, ii, iii, iv...)
+    UpperRoman, // uppercase roman (I, II, III, IV...)
+    Alph,       // lowercase letter (a, b, c...)
+    UpperAlph,  // uppercase letter (A, B, C...)
 }
 
 pub(super) struct LayoutState {
@@ -67,7 +94,10 @@ pub(super) struct LayoutState {
     pub list_depth: u32,
     pub text_buf: String,
     pub label_map: HashMap<String, String>,
+    pub label_types: HashMap<String, String>,
     pub citation_map: HashMap<String, u32>,
+    /// Map from citation key to (author_short, year) for natbib-style citations
+    pub author_year_map: HashMap<String, (String, String)>,
     pub equation_counter: u32,
     pub theorem_counters: HashMap<String, u32>,
     pub current_section_num: u32,
@@ -80,13 +110,45 @@ pub(super) struct LayoutState {
     pub toc_fixups: Vec<TocFixup>,
     pub toc_section_idx: u32,
     pub page_style: PageStyle,
+    pub page_numbering: PageNumberingStyle,
     pub current_section_title: String,
     pub first_page: bool,
     pub is_amsart: bool,
     pub amsart_header_author: String,
     pub amsart_header_title: String,
+    // fancyhdr configuration
+    pub fancy_head_left: String,
+    pub fancy_head_center: String,
+    pub fancy_head_right: String,
+    pub fancy_foot_left: String,
+    pub fancy_foot_center: String,
+    pub fancy_foot_right: String,
+    pub fancy_head_rule: f32,
+    pub fancy_foot_rule: f32,
     pub deferred_abstract_idx: Option<usize>,
     pub amsart_pre_title: bool,
+    // Two-column layout support
+    pub current_column: u32,          // 0 = left column (or single), 1 = right column
+    pub twocolumn_active: bool,       // whether two-column mode is currently active
+    pub spanning_mode: bool,          // true = spanning both columns (e.g. title)
+    pub column1_max_y: f32,           // highest y reached in left column (for balancing)
+    // In-memory project images (for WASM or multi-file compilation)
+    pub project_images: HashMap<String, Vec<u8>>,
+    // Base directory for resolving relative paths (images, includes)
+    pub base_dir: String,
+    // Deferred floats waiting for placement
+    pub deferred_top_floats: Vec<DeferredFloat>,
+    pub deferred_bottom_floats: Vec<DeferredFloat>,
+    pub has_pending_top_floats: bool,
+}
+
+/// A figure/table deferred for float placement
+#[derive(Clone)]
+pub struct DeferredFloat {
+    pub content: Vec<Node>,
+    pub caption: Option<Vec<Node>>,
+    pub label: Option<String>,
+    pub is_table: bool,
 }
 
 impl LayoutState {
@@ -140,7 +202,9 @@ impl LayoutState {
             list_depth: 0,
             text_buf: String::with_capacity(4096),
             label_map: HashMap::new(),
+            label_types: HashMap::new(),
             citation_map: HashMap::new(),
+            author_year_map: HashMap::new(),
             equation_counter: 0,
             theorem_counters: HashMap::new(),
             current_section_num: 0,
@@ -153,13 +217,31 @@ impl LayoutState {
             toc_fixups: Vec::new(),
             toc_section_idx: 0,
             page_style: PageStyle::Plain,
+            page_numbering: PageNumberingStyle::Arabic,
             current_section_title: String::new(),
             first_page: true,
             is_amsart: false,
             amsart_header_author: String::new(),
             amsart_header_title: String::new(),
+            fancy_head_left: String::new(),
+            fancy_head_center: String::new(),
+            fancy_head_right: String::new(),
+            fancy_foot_left: String::new(),
+            fancy_foot_center: String::new(),
+            fancy_foot_right: String::new(),
+            fancy_head_rule: 0.4,
+            fancy_foot_rule: 0.0,
             deferred_abstract_idx: None,
             amsart_pre_title: false,
+            current_column: 0,
+            twocolumn_active: false,
+            spanning_mode: false,
+            column1_max_y: 0.0,
+            project_images: HashMap::new(),
+            base_dir: String::new(),
+            deferred_top_floats: Vec::new(),
+            deferred_bottom_floats: Vec::new(),
+            has_pending_top_floats: false,
         }
     }
 
@@ -196,15 +278,30 @@ impl LayoutState {
     #[inline(always)]
     pub fn set_indent(&mut self, indent: f32) {
         self.indent = indent;
-        self.cached_text_width = self.page_setup.text_width() - indent - self.right_indent;
-        self.cached_text_left = self.page_setup.margin_left + indent;
+        let base_width = if self.twocolumn_active && !self.spanning_mode {
+            self.page_setup.column_width()
+        } else {
+            self.page_setup.text_width()
+        };
+        self.cached_text_width = base_width - indent - self.right_indent;
+        if self.twocolumn_active && !self.spanning_mode && self.current_column == 1 {
+            let col_width = self.page_setup.column_width();
+            self.cached_text_left = self.page_setup.margin_left + col_width + self.page_setup.column_sep + indent;
+        } else {
+            self.cached_text_left = self.page_setup.margin_left + indent;
+        }
         self.cached_font_key = u32::MAX;
     }
 
     #[inline(always)]
     pub fn set_right_indent(&mut self, right_indent: f32) {
         self.right_indent = right_indent;
-        self.cached_text_width = self.page_setup.text_width() - self.indent - right_indent;
+        let base_width = if self.twocolumn_active && !self.spanning_mode {
+            self.page_setup.column_width()
+        } else {
+            self.page_setup.text_width()
+        };
+        self.cached_text_width = base_width - self.indent - right_indent;
         self.cached_font_key = u32::MAX;
     }
 
@@ -242,52 +339,132 @@ impl LayoutState {
         let fn_size = self.base_font_size * 0.8;
         let fn_line_height = fn_size * 1.3;
 
-        let total_height = footnotes.len() as f32 * fn_line_height + 10.0;
+        // Column-aware footnote area
+        let fn_left = if self.twocolumn_active && !self.spanning_mode {
+            if self.current_column == 0 {
+                self.page_setup.margin_left
+            } else {
+                self.page_setup.margin_left + self.page_setup.column_width() + self.page_setup.column_sep
+            }
+        } else {
+            self.page_setup.margin_left
+        };
+        let fn_width = if self.twocolumn_active && !self.spanning_mode {
+            self.page_setup.column_width()
+        } else {
+            self.page_setup.text_width()
+        };
+
+        // Convert footnote nodes to styled spans for rich rendering
+        let source = self.source_str() as *const str;
+        let source_ref = unsafe { &*source };
+        let text_indent = fn_size * 1.2; // indent for wrapped lines (past the number)
+        let usable_width = fn_width - text_indent;
+
+        // Build span lists and estimate heights
+        let labels = self.label_map.clone();
+        let citations = self.citation_map.clone();
+        let mut fn_span_lists: Vec<Vec<StyledSpan>> = Vec::with_capacity(footnotes.len());
+        let mut total_lines: f32 = 0.0;
+
+        for fn_content in &footnotes {
+            let mut spans = Vec::new();
+            super::spans::nodes_to_spans(
+                fn_content, FontStyle::Regular, Color::BLACK,
+                fn_size, fn_size, &mut spans, source_ref,
+                &labels, &citations,
+            );
+            // Estimate number of lines from total text width
+            let text_w: f32 = spans.iter().map(|s| {
+                font::measure_text(&s.text, font::style_to_font_id(s.style), s.font_size)
+            }).sum();
+            let lines = if text_w <= usable_width {
+                1.0
+            } else {
+                1.0 + ((text_w - usable_width) / usable_width).ceil()
+            };
+            total_lines += lines;
+            fn_span_lists.push(spans);
+        }
+
+        let total_height = total_lines * fn_line_height + 10.0;
         let orig_max_y = self.page_setup.height - self.page_setup.margin_bottom
             - self.page_setup.footer_height;
         let fn_y_start = orig_max_y - total_height;
 
         if fn_y_start < self.current_y + 20.0 {
+            // Not enough space — defer to next page
             self.footnotes = footnotes;
             return;
         }
 
+        // Separator rule
         self.emit_line(
-            self.page_setup.margin_left,
+            fn_left,
             fn_y_start,
-            self.page_setup.margin_left + self.page_setup.text_width() * 0.3,
+            fn_left + fn_width * 0.3,
             fn_y_start,
             0.4,
             Color::GRAY,
         );
 
-        let source = self.source_str() as *const str;
-        let source_ref = unsafe { &*source };
         let mut y = fn_y_start + 6.0;
-        for (i, fn_content) in footnotes.iter().enumerate() {
+        for (i, spans) in fn_span_lists.iter().enumerate() {
             let num = fn_start_num + i as u32;
-            let num_str = format!("{}  ", num);
-            let x = self.page_setup.margin_left;
+            let mut ibuf = itoa::Buffer::new();
+            let num_str = ibuf.format(num);
 
+            // Render superscript number
             let sup_size = fn_size * 0.75;
-            self.current_x = x;
+            self.current_x = fn_left;
+            self.current_y = y - fn_size * 0.15;
+            self.emit_text(num_str, sup_size, FontStyle::Regular, Color::BLACK);
             self.current_y = y;
-            self.emit_text(&num_str, sup_size, FontStyle::Regular, Color::BLACK);
 
-            let mut fn_text = String::new();
-            for node in fn_content {
-                super::text::node_to_text(node, &mut fn_text, source_ref);
+            // Render styled spans with word wrapping
+            let text_start_x = fn_left + text_indent;
+            let mut line_x = text_start_x;
+
+            for span in spans {
+                let font_id = font::style_to_font_id(span.style);
+                // Split span into words for wrapping
+                let words: Vec<&str> = span.text.split_whitespace().collect();
+                let space_w = font::measure_text(" ", font_id, span.font_size);
+
+                for (wi, word) in words.iter().enumerate() {
+                    let word_w = font::measure_text(word, font_id, span.font_size);
+
+                    // Check if word fits on current line
+                    if line_x > text_start_x && line_x + word_w > fn_left + fn_width {
+                        y += fn_line_height;
+                        line_x = text_start_x;
+                    }
+
+                    // Add space before word (except at line start)
+                    if wi > 0 || line_x > text_start_x {
+                        if line_x > text_start_x {
+                            line_x += space_w;
+                        }
+                    }
+
+                    self.current_x = line_x;
+                    self.current_y = y;
+                    self.emit_text(word, span.font_size, span.style, span.color);
+                    line_x += word_w;
+                }
             }
-            let fn_text = fn_text.trim().to_string();
-            let text_x = x + font::measure_text(&num_str, FontId::Helvetica, sup_size);
-            self.current_x = text_x;
-            self.emit_text(&fn_text, fn_size, FontStyle::Regular, Color::BLACK);
 
             y += fn_line_height;
         }
     }
 
     pub fn new_page(&mut self) {
+        // In two-column mode: if we're in column 1, switch to column 2 first
+        if self.twocolumn_active && !self.spanning_mode && self.current_column == 0 {
+            self.switch_to_column(1);
+            return;
+        }
+
         self.render_footnotes();
 
         let effective_style = if self.first_page { PageStyle::Plain } else { self.page_style };
@@ -302,20 +479,11 @@ impl LayoutState {
                 let left_x = self.page_setup.margin_left;
                 let right_x = self.page_setup.width - self.page_setup.margin_right;
 
-                let mut num_buf = [0u8; 8];
-                let n = self.page_number;
-                let mut pos = 8;
-                let mut v = n;
-                loop {
-                    pos -= 1;
-                    num_buf[pos] = b'0' + (v % 10) as u8;
-                    v /= 10;
-                    if v == 0 { break; }
-                }
-                let num_str = unsafe { std::str::from_utf8_unchecked(&num_buf[pos..8]) };
-                let num_len = 8 - pos;
-                let digit_width = header_font_size * 0.5;
-                let num_width = num_len as f32 * digit_width;
+                let mut num_string = String::new();
+                self.format_page_number(&mut num_string);
+                let num_str: &str = unsafe { &*(&*num_string as *const str) };
+                let num_len = num_str.len();
+                let num_width = font::measure_text(num_str, FontId::TimesRoman, header_font_size);
 
                 if self.is_amsart {
                     let is_even = self.page_number % 2 == 0;
@@ -382,6 +550,96 @@ impl LayoutState {
                 }
             }
             PageStyle::Empty => {}
+            PageStyle::Fancy => {
+                let header_font_size = 9.0;
+                let left_x = self.page_setup.margin_left;
+                let right_x = self.page_setup.width - self.page_setup.margin_right;
+
+                // Render header
+                let header_y = self.page_setup.margin_top - 14.0;
+                let resolve = |tmpl: &str, state: &mut LayoutState| -> String {
+                    let mut s = tmpl.to_string();
+                    if s.contains("\x01PAGE\x01") {
+                        let mut ibuf = itoa::Buffer::new();
+                        s = s.replace("\x01PAGE\x01", ibuf.format(state.page_number));
+                    }
+                    if s.contains("\x01LEFTMARK\x01") {
+                        let title: String = state.current_section_title.clone();
+                        s = s.replace("\x01LEFTMARK\x01", &title);
+                    }
+                    if s.contains("\x01RIGHTMARK\x01") {
+                        let title: String = state.current_section_title.clone();
+                        s = s.replace("\x01RIGHTMARK\x01", &title);
+                    }
+                    if s.contains("\x01SECTION\x01") {
+                        let mut ibuf = itoa::Buffer::new();
+                        s = s.replace("\x01SECTION\x01", ibuf.format(state.current_section_num));
+                    }
+                    s
+                };
+
+                // Header left
+                if !self.fancy_head_left.is_empty() {
+                    let tmpl: String = unsafe { &*(self.fancy_head_left.as_str() as *const str) }.to_string();
+                    let text = resolve(&tmpl, self);
+                    self.emit_header_text(&text, left_x, header_y, header_font_size, FontStyle::Regular);
+                }
+                // Header center
+                if !self.fancy_head_center.is_empty() {
+                    let tmpl: String = unsafe { &*(self.fancy_head_center.as_str() as *const str) }.to_string();
+                    let text = resolve(&tmpl, self);
+                    let w = font::measure_text(&text, FontId::Helvetica, header_font_size);
+                    let cx = (left_x + right_x - w) / 2.0;
+                    self.emit_header_text(&text, cx, header_y, header_font_size, FontStyle::Regular);
+                }
+                // Header right
+                if !self.fancy_head_right.is_empty() {
+                    let tmpl: String = unsafe { &*(self.fancy_head_right.as_str() as *const str) }.to_string();
+                    let text = resolve(&tmpl, self);
+                    let w = font::measure_text(&text, FontId::Helvetica, header_font_size);
+                    self.emit_header_text(&text, right_x - w, header_y, header_font_size, FontStyle::Regular);
+                }
+                // Header rule
+                if self.fancy_head_rule > 0.0 {
+                    let rule_y = header_y + 4.0;
+                    self.all_elements.push(PageElement::Line {
+                        x1: left_x, y1: rule_y, x2: right_x, y2: rule_y,
+                        width_1000: (self.fancy_head_rule * 1000.0) as u16, color: Color::BLACK,
+                    });
+                }
+
+                // Footer
+                let footer_y = self.page_setup.height - self.page_setup.margin_bottom + 10.0;
+                // Footer rule
+                if self.fancy_foot_rule > 0.0 {
+                    let rule_y = footer_y - 6.0;
+                    self.all_elements.push(PageElement::Line {
+                        x1: left_x, y1: rule_y, x2: right_x, y2: rule_y,
+                        width_1000: (self.fancy_foot_rule * 1000.0) as u16, color: Color::BLACK,
+                    });
+                }
+                // Footer left
+                if !self.fancy_foot_left.is_empty() {
+                    let tmpl: String = unsafe { &*(self.fancy_foot_left.as_str() as *const str) }.to_string();
+                    let text = resolve(&tmpl, self);
+                    self.emit_header_text(&text, left_x, footer_y, header_font_size, FontStyle::Regular);
+                }
+                // Footer center
+                if !self.fancy_foot_center.is_empty() {
+                    let tmpl: String = unsafe { &*(self.fancy_foot_center.as_str() as *const str) }.to_string();
+                    let text = resolve(&tmpl, self);
+                    let w = font::measure_text(&text, FontId::Helvetica, header_font_size);
+                    let cx = (left_x + right_x - w) / 2.0;
+                    self.emit_header_text(&text, cx, footer_y, header_font_size, FontStyle::Regular);
+                }
+                // Footer right
+                if !self.fancy_foot_right.is_empty() {
+                    let tmpl: String = unsafe { &*(self.fancy_foot_right.as_str() as *const str) }.to_string();
+                    let text = resolve(&tmpl, self);
+                    let w = font::measure_text(&text, FontId::Helvetica, header_font_size);
+                    self.emit_header_text(&text, right_x - w, footer_y, header_font_size, FontStyle::Regular);
+                }
+            }
         }
 
         self.page_bounds.push(PageBounds {
@@ -394,32 +652,93 @@ impl LayoutState {
         self.current_page_text_start = self.all_text.len() as u32;
         self.page_number += 1;
         self.first_page = false;
-        self.current_x = self.text_left();
-        self.current_y = self.cached_start_y;
         self.footnote_reserved = 0.0;
         self.cached_max_y = self.page_setup.height - self.page_setup.margin_bottom
             - self.page_setup.footer_height;
+        // Reset column start Y to page top for new pages
+        self.cached_start_y = self.page_setup.margin_top + self.page_setup.header_height;
+
+        // Reset to column 0 in two-column mode
+        if self.twocolumn_active && !self.spanning_mode {
+            self.current_column = 0;
+            let col_width = self.page_setup.column_width();
+            self.cached_text_left = self.page_setup.margin_left + self.indent;
+            self.cached_text_width = col_width - self.indent - self.right_indent;
+            self.column1_max_y = 0.0;
+        }
+        self.current_x = self.text_left();
+        self.current_y = self.cached_start_y;
+
+        // Mark that top floats should be rendered at start of this new page
+        self.has_pending_top_floats = !self.deferred_top_floats.is_empty();
+    }
+
+    /// Check if there are deferred floats pending and whether this is the right
+    /// time to render them. Called at the start of layout_nodes.
+    pub fn should_render_top_floats(&self) -> bool {
+        self.has_pending_top_floats && !self.deferred_top_floats.is_empty()
+    }
+
+    /// Take all pending top floats (consumer takes ownership)
+    pub fn take_top_floats(&mut self) -> Vec<DeferredFloat> {
+        self.has_pending_top_floats = false;
+        std::mem::take(&mut self.deferred_top_floats)
+    }
+
+    pub fn set_page_numbering(&mut self, style: &str) {
+        self.page_numbering = match style {
+            "roman" => PageNumberingStyle::Roman,
+            "Roman" => PageNumberingStyle::UpperRoman,
+            "alph" => PageNumberingStyle::Alph,
+            "Alph" => PageNumberingStyle::UpperAlph,
+            _ => PageNumberingStyle::Arabic,
+        };
+        self.page_number = 1; // Reset counter on numbering change
+    }
+
+    fn format_page_number(&self, buf: &mut String) {
+        let n = self.page_number;
+        match self.page_numbering {
+            PageNumberingStyle::Arabic => {
+                use std::fmt::Write;
+                let _ = write!(buf, "{}", n);
+            }
+            PageNumberingStyle::Roman | PageNumberingStyle::UpperRoman => {
+                let lower = to_roman(n);
+                if self.page_numbering == PageNumberingStyle::UpperRoman {
+                    buf.push_str(&lower.to_uppercase());
+                } else {
+                    buf.push_str(&lower);
+                }
+            }
+            PageNumberingStyle::Alph | PageNumberingStyle::UpperAlph => {
+                if n >= 1 && n <= 26 {
+                    let base = if self.page_numbering == PageNumberingStyle::UpperAlph { b'A' } else { b'a' };
+                    buf.push((base + (n - 1) as u8) as char);
+                } else {
+                    use std::fmt::Write;
+                    let _ = write!(buf, "{}", n);
+                }
+            }
+        }
+    }
+
+    pub fn emit_section_heading(&mut self, title: &str, font_size: f32) {
+        self.ensure_space(font_size * 2.0);
+        self.current_y += font_size * 0.5;
+        self.emit_text(title, font_size, FontStyle::Bold, Color::BLACK);
+        self.current_y += font_size * 1.5;
     }
 
     fn emit_page_number_centered(&mut self) {
-        let digit_width = 9.0 * 0.5;
         let center_x = self.page_setup.width / 2.0;
         let y = self.page_setup.height - self.page_setup.margin_bottom + 10.0;
-        let mut num_buf = [0u8; 8];
-        let n = self.page_number;
-        let mut pos = 8;
-        let mut v = n;
-        loop {
-            pos -= 1;
-            num_buf[pos] = b'0' + (v % 10) as u8;
-            v /= 10;
-            if v == 0 { break; }
-        }
-        let num_str = unsafe { std::str::from_utf8_unchecked(&num_buf[pos..8]) };
-        let num_len = 8 - pos;
-        let text_width = num_len as f32 * digit_width;
+        let mut num_str = String::new();
+        self.format_page_number(&mut num_str);
+        let text_width = font::measure_text(&num_str, FontId::TimesRoman, 9.0);
         let offset = (self.all_text.len() - self.current_page_text_start as usize) as u32;
-        self.all_text.push_str(num_str);
+        let num_len = num_str.len();
+        self.all_text.push_str(&num_str);
         self.all_elements.push(PageElement::Text {
             x: center_x - text_width / 2.0, y, text_offset: offset,
             text_len: num_len as u16, font_size_100: 900,
@@ -430,7 +749,12 @@ impl LayoutState {
     #[inline(always)]
     pub fn ensure_space(&mut self, height: f32) {
         if self.current_y + height > self.cached_max_y {
-            self.new_page();
+            if self.twocolumn_active && !self.spanning_mode && self.current_column == 0 {
+                // Switch to column 2 instead of new page
+                self.switch_to_column(1);
+            } else {
+                self.new_page();
+            }
         }
     }
 
@@ -438,7 +762,90 @@ impl LayoutState {
     pub fn add_vertical_space(&mut self, space: f32) {
         self.current_y += space;
         if self.current_y > self.cached_max_y {
-            self.new_page();
+            if self.twocolumn_active && !self.spanning_mode && self.current_column == 0 {
+                self.switch_to_column(1);
+            } else {
+                self.new_page();
+            }
+        }
+    }
+
+    /// Enter two-column mode. Sets up column widths.
+    /// If called after spanning content (e.g. \twocolumn[...]), columns start
+    /// at the current Y position, not the top of the page.
+    pub fn enter_twocolumn(&mut self) {
+        self.twocolumn_active = true;
+        self.current_column = 0;
+        self.spanning_mode = false;
+        // Ensure page_setup knows we're in 2-column mode (for column_width() calculation)
+        if self.page_setup.columns < 2 {
+            self.page_setup.columns = 2;
+        }
+        // Set column start Y to current position (so right column starts at same height)
+        self.cached_start_y = self.current_y;
+        // Reset indent/right_indent when entering twocolumn to avoid carrying over
+        self.indent = 0.0;
+        self.right_indent = 0.0;
+        // Update text width to column width
+        let col_width = self.page_setup.column_width();
+        self.cached_text_width = col_width;
+        self.cached_text_left = self.page_setup.margin_left;
+        self.current_x = self.cached_text_left;
+        self.cached_font_key = u32::MAX; // invalidate cached metrics
+    }
+
+    /// Enter spanning mode (both columns, e.g. for title/abstract or figure*/table*)
+    pub fn enter_spanning(&mut self) {
+        // If entering spanning from column 1, advance Y to below both columns
+        // so spanning content doesn't overlap column 0's content
+        if self.twocolumn_active && self.current_column == 1 {
+            if self.column1_max_y > self.current_y {
+                self.current_y = self.column1_max_y;
+            }
+        }
+        self.spanning_mode = true;
+        self.cached_text_width = self.page_setup.text_width() - self.indent - self.right_indent;
+        self.cached_text_left = self.page_setup.margin_left + self.indent;
+        self.current_x = self.cached_text_left;
+        self.cached_font_key = u32::MAX;
+    }
+
+    /// Exit spanning mode, return to columnar layout
+    pub fn exit_spanning(&mut self) {
+        self.spanning_mode = false;
+        if self.twocolumn_active {
+            self.current_column = 0;
+            // Update cached_start_y so right column starts below spanning content
+            self.cached_start_y = self.current_y;
+            let col_width = self.page_setup.column_width();
+            self.cached_text_width = col_width - self.indent - self.right_indent;
+            self.cached_text_left = self.page_setup.margin_left + self.indent;
+            self.current_x = self.cached_text_left;
+            self.cached_font_key = u32::MAX;
+        }
+    }
+
+    /// Switch to specified column (0=left, 1=right)
+    pub fn switch_to_column(&mut self, col: u32) {
+        if col == 1 && self.current_column == 0 {
+            // Save column 1 height
+            self.column1_max_y = self.current_y;
+            // Move to column 2
+            self.current_column = 1;
+            let col_width = self.page_setup.column_width();
+            let col2_left = self.page_setup.margin_left + col_width + self.page_setup.column_sep;
+            self.cached_text_left = col2_left + self.indent;
+            self.cached_text_width = col_width - self.indent - self.right_indent;
+            self.current_x = self.cached_text_left;
+            self.current_y = self.cached_start_y; // start from top of page
+            self.cached_font_key = u32::MAX;
+        } else if col == 0 {
+            self.current_column = 0;
+            let col_width = self.page_setup.column_width();
+            self.cached_text_left = self.page_setup.margin_left + self.indent;
+            self.cached_text_width = col_width - self.indent - self.right_indent;
+            self.current_x = self.cached_text_left;
+            self.cached_font_key = u32::MAX;
         }
     }
 
@@ -453,6 +860,50 @@ impl LayoutState {
             font_size_100: (font_size * 100.0) as u16,
             font_style: style, color, word_spacing_50: 0,
         });
+    }
+
+    /// Emit text with simulated small caps: lowercase → uppercase at 75% size
+    pub fn emit_text_smallcaps(&mut self, text: &str, font_size: f32, color: Color) {
+        if text.is_empty() { return; }
+        let small_size = font_size * 0.75;
+        let mut seg_start = 0;
+        let mut seg_is_upper = !text.as_bytes().first().map_or(true, |b| b.is_ascii_lowercase());
+
+        for (i, ch) in text.char_indices() {
+            let is_lower = ch.is_ascii_lowercase();
+            let cur_upper = !is_lower;
+            if cur_upper != seg_is_upper && i > seg_start {
+                let seg = &text[seg_start..i];
+                if seg_is_upper {
+                    // Uppercase/spaces/digits: emit at normal size
+                    let w = font::measure_text(seg, FontId::Helvetica, font_size);
+                    self.emit_text(seg, font_size, FontStyle::Regular, color);
+                    self.current_x += w;
+                } else {
+                    // Lowercase: convert to uppercase, emit at small size
+                    let upper: String = seg.to_uppercase();
+                    let w = font::measure_text(&upper, FontId::Helvetica, small_size);
+                    self.emit_text(&upper, small_size, FontStyle::Regular, color);
+                    self.current_x += w;
+                }
+                seg_start = i;
+                seg_is_upper = cur_upper;
+            }
+        }
+        // Final segment
+        if seg_start < text.len() {
+            let seg = &text[seg_start..];
+            if seg_is_upper {
+                let w = font::measure_text(seg, FontId::Helvetica, font_size);
+                self.emit_text(seg, font_size, FontStyle::Regular, color);
+                self.current_x += w;
+            } else {
+                let upper: String = seg.to_uppercase();
+                let w = font::measure_text(&upper, FontId::Helvetica, small_size);
+                self.emit_text(&upper, small_size, FontStyle::Regular, color);
+                self.current_x += w;
+            }
+        }
     }
 
     pub fn emit_header_text(&mut self, text: &str, x: f32, y: f32, font_size: f32, base_style: FontStyle) {

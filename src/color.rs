@@ -115,6 +115,16 @@ impl Color {
     }
 
     /// Parse xcolor mix specification like "blue!50", "red!30!white"
+    /// Parse a color from any xcolor spec: name, name!pct!mix, or rgb values
+    pub fn from_spec(spec: &str) -> Option<Self> {
+        let spec = spec.trim();
+        if spec.contains('!') {
+            Self::from_mix_spec(spec)
+        } else {
+            Self::from_name(spec)
+        }
+    }
+
     fn from_mix_spec(spec: &str) -> Option<Self> {
         let parts: Vec<&str> = spec.split('!').collect();
         if parts.len() < 2 { return None; }

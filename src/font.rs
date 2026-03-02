@@ -2,7 +2,7 @@
 /// Widths from Adobe AFM files, stored as u16 in 1/1000 em units
 /// Provides O(1) character width lookup for accurate text measurement
 
-/// Font identifiers matching PDF font numbering (F1-F6)
+/// Font identifiers matching PDF font numbering (F1-F6, F7-F9 for Times)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum FontId {
@@ -12,6 +12,10 @@ pub enum FontId {
     HelveticaBoldOblique = 4,
     Courier = 5,
     Symbol = 6,
+    TimesRoman = 7,
+    TimesItalic = 8,
+    TimesBold = 9,
+    ZapfDingbats = 10,
 }
 
 /// Helvetica character widths (WinAnsi encoding, indices 0-255)
@@ -429,6 +433,608 @@ static SYMBOL_WIDTHS: [u16; 256] = {
     w
 };
 
+/// Times-Roman character widths (WinAnsi encoding, indices 0-255)
+/// Source: Adobe Times-Roman AFM file (tecnickcom/tc-font-core14-afms)
+/// FontInfo: ascent=683, descent=-217, cap_height=662, x_height=450
+static TIMES_ROMAN_WIDTHS: [u16; 256] = [
+    // 0x00-0x1F: control chars
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    // 0x20-0x7E: ASCII printable
+    250, // 0x20 space
+    333, // 0x21 exclam
+    408, // 0x22 quotedbl
+    500, // 0x23 numbersign
+    500, // 0x24 dollar
+    833, // 0x25 percent
+    778, // 0x26 ampersand
+    333, // 0x27 quoteright (apostrophe)
+    333, // 0x28 parenleft
+    333, // 0x29 parenright
+    500, // 0x2A asterisk
+    564, // 0x2B plus
+    250, // 0x2C comma
+    333, // 0x2D hyphen
+    250, // 0x2E period
+    278, // 0x2F slash
+    500, 500, 500, 500, 500, 500, 500, 500, 500, 500, // 0x30-0x39 digits 0-9
+    278, // 0x3A colon
+    278, // 0x3B semicolon
+    564, // 0x3C less
+    564, // 0x3D equal
+    564, // 0x3E greater
+    444, // 0x3F question
+    921, // 0x40 at
+    722, 667, 667, 722, 611, 556, 722, 722, 333, 389, // 0x41-0x4A A-J
+    722, 611, 889, 722, 722, 556, 722, 667, 556, 611, // 0x4B-0x54 K-T
+    722, 722, 944, 722, 722, 611, // 0x55-0x5A U-Z
+    333, // 0x5B bracketleft
+    278, // 0x5C backslash
+    333, // 0x5D bracketright
+    469, // 0x5E asciicircum
+    500, // 0x5F underscore
+    333, // 0x60 quoteleft (grave)
+    444, 500, 444, 500, 444, 333, 500, 500, 278, 278, // 0x61-0x6A a-j
+    500, 278, 778, 500, 500, 500, 500, 333, 389, 278, // 0x6B-0x74 k-t
+    500, 500, 722, 500, 500, 444, // 0x75-0x7A u-z
+    480, // 0x7B braceleft
+    200, // 0x7C bar
+    480, // 0x7D braceright
+    541, // 0x7E asciitilde
+    0,   // 0x7F DEL
+    // 0x80-0x9F: Windows-1252 extended (WinAnsi above Latin-1)
+    500, // 0x80 Euro
+    0,   // 0x81 undefined
+    333, // 0x82 quotesinglbase
+    500, // 0x83 florin
+    444, // 0x84 quotedblbase
+    1000,// 0x85 ellipsis
+    500, // 0x86 dagger
+    500, // 0x87 daggerdbl
+    333, // 0x88 circumflex (accent)
+    1000,// 0x89 perthousand
+    556, // 0x8A Scaron
+    333, // 0x8B guilsinglleft
+    722, // 0x8C OE (oe ligature uppercase)
+    0,   // 0x8D undefined
+    611, // 0x8E Zcaron
+    0,   // 0x8F undefined
+    0,   // 0x90 undefined
+    333, // 0x91 quoteleft
+    333, // 0x92 quoteright
+    444, // 0x93 quotedblleft
+    444, // 0x94 quotedblright
+    350, // 0x95 bullet
+    500, // 0x96 endash
+    1000,// 0x97 emdash
+    333, // 0x98 tilde (accent)
+    980, // 0x99 trademark
+    389, // 0x9A scaron
+    333, // 0x9B guilsinglright
+    722, // 0x9C oe (oe ligature lowercase)
+    0,   // 0x9D undefined
+    444, // 0x9E zcaron
+    722, // 0x9F Ydieresis
+    // 0xA0-0xFF: Latin-1 Supplement (U+00A0-U+00FF)
+    250, // 0xA0 nbspace (same as space)
+    333, // 0xA1 exclamdown
+    500, // 0xA2 cent
+    500, // 0xA3 sterling
+    167, // 0xA4 currency (fraction glyph)
+    500, // 0xA5 yen
+    200, // 0xA6 brokenbar
+    500, // 0xA7 section
+    333, // 0xA8 dieresis
+    760, // 0xA9 copyright
+    276, // 0xAA ordfeminine
+    500, // 0xAB guillemotleft
+    564, // 0xAC logicalnot
+    333, // 0xAD softhyphen
+    760, // 0xAE registered
+    333, // 0xAF macron
+    400, // 0xB0 degree
+    564, // 0xB1 plusminus
+    300, // 0xB2 twosuperior
+    300, // 0xB3 threesuperior
+    333, // 0xB4 acute
+    500, // 0xB5 mu
+    453, // 0xB6 paragraph
+    250, // 0xB7 periodcentered
+    333, // 0xB8 cedilla
+    300, // 0xB9 onesuperior
+    310, // 0xBA ordmasculine
+    500, // 0xBB guillemotright
+    750, // 0xBC onequarter
+    750, // 0xBD onehalf
+    750, // 0xBE threequarters
+    444, // 0xBF questiondown
+    722, // 0xC0 Agrave
+    722, // 0xC1 Aacute
+    722, // 0xC2 Acircumflex
+    722, // 0xC3 Atilde
+    722, // 0xC4 Adieresis
+    722, // 0xC5 Aring
+    889, // 0xC6 AE
+    667, // 0xC7 Ccedilla
+    611, // 0xC8 Egrave
+    611, // 0xC9 Eacute
+    611, // 0xCA Ecircumflex
+    611, // 0xCB Edieresis
+    333, // 0xCC Igrave
+    333, // 0xCD Iacute
+    333, // 0xCE Icircumflex
+    333, // 0xCF Idieresis
+    722, // 0xD0 Eth (Dcroat)
+    722, // 0xD1 Ntilde
+    722, // 0xD2 Ograve
+    722, // 0xD3 Oacute
+    722, // 0xD4 Ocircumflex
+    722, // 0xD5 Otilde
+    722, // 0xD6 Odieresis
+    564, // 0xD7 multiply
+    722, // 0xD8 Oslash
+    722, // 0xD9 Ugrave
+    722, // 0xDA Uacute
+    722, // 0xDB Ucircumflex
+    722, // 0xDC Udieresis
+    722, // 0xDD Yacute
+    556, // 0xDE Thorn
+    500, // 0xDF germandbls
+    444, // 0xE0 agrave
+    444, // 0xE1 aacute
+    444, // 0xE2 acircumflex
+    444, // 0xE3 atilde
+    444, // 0xE4 adieresis
+    444, // 0xE5 aring
+    667, // 0xE6 ae
+    444, // 0xE7 ccedilla
+    444, // 0xE8 egrave
+    444, // 0xE9 eacute
+    444, // 0xEA ecircumflex
+    444, // 0xEB edieresis
+    278, // 0xEC igrave
+    278, // 0xED iacute
+    278, // 0xEE icircumflex
+    278, // 0xEF idieresis
+    500, // 0xF0 eth
+    500, // 0xF1 ntilde
+    500, // 0xF2 ograve
+    500, // 0xF3 oacute
+    500, // 0xF4 ocircumflex
+    500, // 0xF5 otilde
+    500, // 0xF6 odieresis
+    564, // 0xF7 divide
+    500, // 0xF8 oslash
+    500, // 0xF9 ugrave
+    500, // 0xFA uacute
+    500, // 0xFB ucircumflex
+    500, // 0xFC udieresis
+    500, // 0xFD yacute
+    500, // 0xFE thorn
+    500, // 0xFF ydieresis
+];
+
+/// Times-Italic character widths (WinAnsi encoding, indices 0-255)
+/// Source: Adobe Times-Italic AFM file (tecnickcom/tc-font-core14-afms)
+/// FontInfo: ascent=683, descent=-217, cap_height=653, x_height=441
+static TIMES_ITALIC_WIDTHS: [u16; 256] = [
+    // 0x00-0x1F: control chars
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    // 0x20-0x7E: ASCII printable
+    250, // 0x20 space
+    333, // 0x21 exclam
+    420, // 0x22 quotedbl
+    500, // 0x23 numbersign
+    500, // 0x24 dollar
+    833, // 0x25 percent
+    778, // 0x26 ampersand
+    333, // 0x27 quoteright (apostrophe)
+    333, // 0x28 parenleft
+    333, // 0x29 parenright
+    500, // 0x2A asterisk
+    675, // 0x2B plus
+    250, // 0x2C comma
+    333, // 0x2D hyphen
+    250, // 0x2E period
+    278, // 0x2F slash
+    500, 500, 500, 500, 500, 500, 500, 500, 500, 500, // 0x30-0x39 digits 0-9
+    333, // 0x3A colon
+    333, // 0x3B semicolon
+    675, // 0x3C less
+    675, // 0x3D equal
+    675, // 0x3E greater
+    500, // 0x3F question
+    920, // 0x40 at
+    611, 611, 667, 722, 611, 611, 722, 722, 333, 444, // 0x41-0x4A A-J
+    667, 556, 833, 667, 722, 611, 722, 611, 500, 556, // 0x4B-0x54 K-T
+    722, 611, 833, 611, 556, 556, // 0x55-0x5A U-Z
+    389, // 0x5B bracketleft
+    278, // 0x5C backslash
+    389, // 0x5D bracketright
+    422, // 0x5E asciicircum
+    500, // 0x5F underscore
+    333, // 0x60 quoteleft (grave)
+    500, 500, 444, 500, 444, 278, 500, 500, 278, 278, // 0x61-0x6A a-j
+    444, 278, 722, 500, 500, 500, 500, 389, 389, 278, // 0x6B-0x74 k-t
+    500, 444, 667, 444, 444, 389, // 0x75-0x7A u-z
+    400, // 0x7B braceleft
+    275, // 0x7C bar
+    400, // 0x7D braceright
+    541, // 0x7E asciitilde
+    0,   // 0x7F DEL
+    // 0x80-0x9F: Windows-1252 extended
+    500, // 0x80 Euro
+    0,   // 0x81 undefined
+    333, // 0x82 quotesinglbase
+    500, // 0x83 florin
+    556, // 0x84 quotedblbase
+    889, // 0x85 ellipsis
+    500, // 0x86 dagger
+    500, // 0x87 daggerdbl
+    333, // 0x88 circumflex (accent)
+    1000,// 0x89 perthousand
+    500, // 0x8A Scaron
+    333, // 0x8B guilsinglleft
+    944, // 0x8C OE (uppercase)
+    0,   // 0x8D undefined
+    556, // 0x8E Zcaron
+    0,   // 0x8F undefined
+    0,   // 0x90 undefined
+    333, // 0x91 quoteleft
+    333, // 0x92 quoteright
+    556, // 0x93 quotedblleft
+    556, // 0x94 quotedblright
+    350, // 0x95 bullet
+    500, // 0x96 endash
+    889, // 0x97 emdash
+    333, // 0x98 tilde (accent)
+    980, // 0x99 trademark
+    389, // 0x9A scaron
+    333, // 0x9B guilsinglright
+    667, // 0x9C oe (lowercase)
+    0,   // 0x9D undefined
+    389, // 0x9E zcaron
+    556, // 0x9F Ydieresis
+    // 0xA0-0xFF: Latin-1 Supplement
+    250, // 0xA0 nbspace
+    389, // 0xA1 exclamdown
+    500, // 0xA2 cent
+    500, // 0xA3 sterling
+    167, // 0xA4 currency (fraction glyph)
+    500, // 0xA5 yen
+    275, // 0xA6 brokenbar
+    500, // 0xA7 section
+    333, // 0xA8 dieresis
+    760, // 0xA9 copyright
+    276, // 0xAA ordfeminine
+    500, // 0xAB guillemotleft
+    675, // 0xAC logicalnot
+    333, // 0xAD softhyphen
+    760, // 0xAE registered
+    333, // 0xAF macron
+    400, // 0xB0 degree
+    675, // 0xB1 plusminus
+    300, // 0xB2 twosuperior
+    300, // 0xB3 threesuperior
+    333, // 0xB4 acute
+    500, // 0xB5 mu
+    523, // 0xB6 paragraph
+    250, // 0xB7 periodcentered
+    333, // 0xB8 cedilla
+    300, // 0xB9 onesuperior
+    310, // 0xBA ordmasculine
+    500, // 0xBB guillemotright
+    750, // 0xBC onequarter
+    750, // 0xBD onehalf
+    750, // 0xBE threequarters
+    500, // 0xBF questiondown
+    611, // 0xC0 Agrave
+    611, // 0xC1 Aacute
+    611, // 0xC2 Acircumflex
+    611, // 0xC3 Atilde
+    611, // 0xC4 Adieresis
+    611, // 0xC5 Aring
+    889, // 0xC6 AE
+    667, // 0xC7 Ccedilla
+    611, // 0xC8 Egrave
+    611, // 0xC9 Eacute
+    611, // 0xCA Ecircumflex
+    611, // 0xCB Edieresis
+    333, // 0xCC Igrave
+    333, // 0xCD Iacute
+    333, // 0xCE Icircumflex
+    333, // 0xCF Idieresis
+    722, // 0xD0 Eth
+    667, // 0xD1 Ntilde
+    722, // 0xD2 Ograve
+    722, // 0xD3 Oacute
+    722, // 0xD4 Ocircumflex
+    722, // 0xD5 Otilde
+    722, // 0xD6 Odieresis
+    675, // 0xD7 multiply
+    722, // 0xD8 Oslash
+    722, // 0xD9 Ugrave
+    722, // 0xDA Uacute
+    722, // 0xDB Ucircumflex
+    722, // 0xDC Udieresis
+    556, // 0xDD Yacute
+    611, // 0xDE Thorn
+    500, // 0xDF germandbls
+    500, // 0xE0 agrave
+    500, // 0xE1 aacute
+    500, // 0xE2 acircumflex
+    500, // 0xE3 atilde
+    500, // 0xE4 adieresis
+    500, // 0xE5 aring
+    667, // 0xE6 ae
+    444, // 0xE7 ccedilla
+    444, // 0xE8 egrave
+    444, // 0xE9 eacute
+    444, // 0xEA ecircumflex
+    444, // 0xEB edieresis
+    278, // 0xEC igrave
+    278, // 0xED iacute
+    278, // 0xEE icircumflex
+    278, // 0xEF idieresis
+    500, // 0xF0 eth
+    500, // 0xF1 ntilde
+    500, // 0xF2 ograve
+    500, // 0xF3 oacute
+    500, // 0xF4 ocircumflex
+    500, // 0xF5 otilde
+    500, // 0xF6 odieresis
+    675, // 0xF7 divide
+    500, // 0xF8 oslash
+    500, // 0xF9 ugrave
+    500, // 0xFA uacute
+    500, // 0xFB ucircumflex
+    500, // 0xFC udieresis
+    444, // 0xFD yacute
+    500, // 0xFE thorn
+    444, // 0xFF ydieresis
+];
+
+/// Times-Bold character widths (WinAnsi encoding, indices 0-255)
+/// Source: Adobe Times-Bold AFM file (tecnickcom/tc-font-core14-afms)
+/// FontInfo: ascent=683, descent=-217, cap_height=676, x_height=461
+static TIMES_BOLD_WIDTHS: [u16; 256] = [
+    // 0x00-0x1F: control chars
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    // 0x20-0x7E: ASCII printable
+    250, // 0x20 space
+    333, // 0x21 exclam
+    555, // 0x22 quotedbl
+    500, // 0x23 numbersign
+    500, // 0x24 dollar
+    1000,// 0x25 percent
+    833, // 0x26 ampersand
+    333, // 0x27 quoteright (apostrophe)
+    333, // 0x28 parenleft
+    333, // 0x29 parenright
+    500, // 0x2A asterisk
+    570, // 0x2B plus
+    250, // 0x2C comma
+    333, // 0x2D hyphen
+    250, // 0x2E period
+    278, // 0x2F slash
+    500, 500, 500, 500, 500, 500, 500, 500, 500, 500, // 0x30-0x39 digits 0-9
+    333, // 0x3A colon
+    333, // 0x3B semicolon
+    570, // 0x3C less
+    570, // 0x3D equal
+    570, // 0x3E greater
+    500, // 0x3F question
+    930, // 0x40 at
+    722, 667, 722, 722, 667, 611, 778, 778, 389, 500, // 0x41-0x4A A-J
+    778, 667, 944, 722, 778, 611, 778, 722, 556, 667, // 0x4B-0x54 K-T
+    722, 722, 1000, 722, 722, 667, // 0x55-0x5A U-Z
+    333, // 0x5B bracketleft
+    278, // 0x5C backslash
+    333, // 0x5D bracketright
+    581, // 0x5E asciicircum
+    500, // 0x5F underscore
+    333, // 0x60 quoteleft (grave)
+    500, 556, 444, 556, 444, 333, 500, 556, 278, 333, // 0x61-0x6A a-j
+    556, 278, 833, 556, 500, 556, 556, 444, 389, 333, // 0x6B-0x74 k-t
+    556, 500, 722, 500, 500, 444, // 0x75-0x7A u-z
+    394, // 0x7B braceleft
+    220, // 0x7C bar
+    394, // 0x7D braceright
+    520, // 0x7E asciitilde
+    0,   // 0x7F DEL
+    // 0x80-0x9F: Windows-1252 extended
+    500, // 0x80 Euro
+    0,   // 0x81 undefined
+    333, // 0x82 quotesinglbase
+    500, // 0x83 florin
+    500, // 0x84 quotedblbase
+    1000,// 0x85 ellipsis
+    500, // 0x86 dagger
+    500, // 0x87 daggerdbl
+    333, // 0x88 circumflex (accent)
+    1000,// 0x89 perthousand
+    556, // 0x8A Scaron
+    333, // 0x8B guilsinglleft
+    1000,// 0x8C OE (uppercase)
+    0,   // 0x8D undefined
+    667, // 0x8E Zcaron
+    0,   // 0x8F undefined
+    0,   // 0x90 undefined
+    333, // 0x91 quoteleft
+    333, // 0x92 quoteright
+    500, // 0x93 quotedblleft
+    500, // 0x94 quotedblright
+    350, // 0x95 bullet
+    500, // 0x96 endash
+    1000,// 0x97 emdash
+    333, // 0x98 tilde (accent)
+    1000,// 0x99 trademark
+    389, // 0x9A scaron
+    333, // 0x9B guilsinglright
+    722, // 0x9C oe (lowercase)
+    0,   // 0x9D undefined
+    444, // 0x9E zcaron
+    722, // 0x9F Ydieresis
+    // 0xA0-0xFF: Latin-1 Supplement
+    250, // 0xA0 nbspace
+    333, // 0xA1 exclamdown
+    500, // 0xA2 cent
+    500, // 0xA3 sterling
+    167, // 0xA4 currency (fraction glyph)
+    500, // 0xA5 yen
+    220, // 0xA6 brokenbar
+    500, // 0xA7 section
+    333, // 0xA8 dieresis
+    747, // 0xA9 copyright
+    300, // 0xAA ordfeminine
+    500, // 0xAB guillemotleft
+    570, // 0xAC logicalnot
+    333, // 0xAD softhyphen
+    747, // 0xAE registered
+    333, // 0xAF macron
+    400, // 0xB0 degree
+    570, // 0xB1 plusminus
+    300, // 0xB2 twosuperior
+    300, // 0xB3 threesuperior
+    333, // 0xB4 acute
+    556, // 0xB5 mu
+    540, // 0xB6 paragraph
+    250, // 0xB7 periodcentered
+    333, // 0xB8 cedilla
+    300, // 0xB9 onesuperior
+    330, // 0xBA ordmasculine
+    500, // 0xBB guillemotright
+    750, // 0xBC onequarter
+    750, // 0xBD onehalf
+    750, // 0xBE threequarters
+    500, // 0xBF questiondown
+    722, // 0xC0 Agrave
+    722, // 0xC1 Aacute
+    722, // 0xC2 Acircumflex
+    722, // 0xC3 Atilde
+    722, // 0xC4 Adieresis
+    722, // 0xC5 Aring
+    1000,// 0xC6 AE
+    722, // 0xC7 Ccedilla
+    667, // 0xC8 Egrave
+    667, // 0xC9 Eacute
+    667, // 0xCA Ecircumflex
+    667, // 0xCB Edieresis
+    389, // 0xCC Igrave
+    389, // 0xCD Iacute
+    389, // 0xCE Icircumflex
+    389, // 0xCF Idieresis
+    722, // 0xD0 Eth
+    722, // 0xD1 Ntilde
+    778, // 0xD2 Ograve
+    778, // 0xD3 Oacute
+    778, // 0xD4 Ocircumflex
+    778, // 0xD5 Otilde
+    778, // 0xD6 Odieresis
+    570, // 0xD7 multiply
+    778, // 0xD8 Oslash
+    722, // 0xD9 Ugrave
+    722, // 0xDA Uacute
+    722, // 0xDB Ucircumflex
+    722, // 0xDC Udieresis
+    722, // 0xDD Yacute
+    611, // 0xDE Thorn
+    556, // 0xDF germandbls
+    500, // 0xE0 agrave
+    500, // 0xE1 aacute
+    500, // 0xE2 acircumflex
+    500, // 0xE3 atilde
+    500, // 0xE4 adieresis
+    500, // 0xE5 aring
+    722, // 0xE6 ae
+    444, // 0xE7 ccedilla
+    444, // 0xE8 egrave
+    444, // 0xE9 eacute
+    444, // 0xEA ecircumflex
+    444, // 0xEB edieresis
+    278, // 0xEC igrave
+    278, // 0xED iacute
+    278, // 0xEE icircumflex
+    278, // 0xEF idieresis
+    500, // 0xF0 eth
+    556, // 0xF1 ntilde
+    500, // 0xF2 ograve
+    500, // 0xF3 oacute
+    500, // 0xF4 ocircumflex
+    500, // 0xF5 otilde
+    500, // 0xF6 odieresis
+    570, // 0xF7 divide
+    500, // 0xF8 oslash
+    556, // 0xF9 ugrave
+    556, // 0xFA uacute
+    556, // 0xFB ucircumflex
+    556, // 0xFC udieresis
+    500, // 0xFD yacute
+    556, // 0xFE thorn
+    500, // 0xFF ydieresis
+];
+
+/// ZapfDingbats character widths (ZapfDingbats encoding, indices 0-255)
+/// Source: Adobe ZapfDingbats AFM file
+/// Only commonly-used positions have accurate widths; others use 788 as reasonable default
+static ZAPFDINGBATS_WIDTHS: [u16; 256] = {
+    let mut w = [788u16; 256];
+    // Control characters + undefined
+    w[0] = 0; w[1] = 0; w[2] = 0; w[3] = 0; w[4] = 0; w[5] = 0; w[6] = 0; w[7] = 0;
+    w[8] = 0; w[9] = 0; w[10] = 0; w[11] = 0; w[12] = 0; w[13] = 0; w[14] = 0; w[15] = 0;
+    w[16] = 0; w[17] = 0; w[18] = 0; w[19] = 0; w[20] = 0; w[21] = 0; w[22] = 0; w[23] = 0;
+    w[24] = 0; w[25] = 0; w[26] = 0; w[27] = 0; w[28] = 0; w[29] = 0; w[30] = 0; w[31] = 0;
+    w[0x20] = 278; // space
+    // Key dingbats with accurate widths from AFM:
+    w[0x21] = 974; // ✁ a1
+    w[0x22] = 961; // ✂ a2
+    w[0x23] = 974; // a202
+    w[0x24] = 980; // a3
+    w[0x25] = 719; // a4 (✥)
+    w[0x26] = 789; // a5
+    w[0x27] = 790; // a119
+    w[0x28] = 791; // a118
+    w[0x29] = 690; // a117
+    w[0x2A] = 960; // a11
+    w[0x2B] = 939; // a12
+    w[0x2C] = 549; // a13
+    w[0x2D] = 855; // a14
+    w[0x2E] = 911; // a15
+    w[0x2F] = 933; // a16
+    w[0x30] = 911; // a105
+    w[0x31] = 945; // a17
+    w[0x32] = 974; // a18
+    w[0x33] = 755; // a19 ✓ checkmark
+    w[0x34] = 846; // a20 ✔ heavy checkmark
+    w[0x35] = 762; // a21
+    w[0x36] = 761; // a22
+    w[0x37] = 571; // a23 ✗ ballot X
+    w[0x38] = 677; // a24 ✘ heavy ballot X
+    w[0x39] = 763; // a25
+    w[0x3A] = 760; // a26
+    w[0x3B] = 759; // a27
+    w[0x3C] = 754; // a28
+    w[0x3D] = 494; // a6
+    w[0x3E] = 552; // a7
+    w[0x3F] = 537; // a8
+    // 0x40-0x7E: various symbols (use default 788)
+    w[0x6C] = 791; // a105 ● black circle
+    w[0x6E] = 761; // ■ black square
+    w[0x73] = 789; // ★ black star
+    // 0x7F: undefined
+    w[0x7F] = 0;
+    // 0x80-0x9F: undefined range
+    w[0x80] = 0; w[0x81] = 0; w[0x82] = 0; w[0x83] = 0; w[0x84] = 0; w[0x85] = 0;
+    w[0x86] = 0; w[0x87] = 0; w[0x88] = 0; w[0x89] = 0; w[0x8A] = 0; w[0x8B] = 0;
+    w[0x8C] = 0; w[0x8D] = 0; w[0x8E] = 0; w[0x8F] = 0; w[0x90] = 0; w[0x91] = 0;
+    w[0x92] = 0; w[0x93] = 0; w[0x94] = 0; w[0x95] = 0; w[0x96] = 0; w[0x97] = 0;
+    w[0x98] = 0; w[0x99] = 0; w[0x9A] = 0; w[0x9B] = 0; w[0x9C] = 0; w[0x9D] = 0;
+    w[0x9E] = 0; w[0x9F] = 0;
+    w
+};
+
 /// Get the width table for a given font
 #[inline]
 pub fn font_widths(font: FontId) -> &'static [u16; 256] {
@@ -439,6 +1045,10 @@ pub fn font_widths(font: FontId) -> &'static [u16; 256] {
         FontId::HelveticaBoldOblique => &HELVETICA_BOLDOBLIQUE_WIDTHS,
         FontId::Courier => &COURIER_WIDTHS,
         FontId::Symbol => &SYMBOL_WIDTHS,
+        FontId::TimesRoman => &TIMES_ROMAN_WIDTHS,
+        FontId::TimesItalic => &TIMES_ITALIC_WIDTHS,
+        FontId::TimesBold => &TIMES_BOLD_WIDTHS,
+        FontId::ZapfDingbats => &ZAPFDINGBATS_WIDTHS,
     }
 }
 
@@ -581,6 +1191,10 @@ pub fn avg_char_width_1000(font: FontId) -> u16 {
         FontId::HelveticaBold | FontId::HelveticaBoldOblique => 547,
         FontId::Courier => 600,
         FontId::Symbol => 500,
+        FontId::TimesRoman => 472,        // weighted avg (Times is narrower than Helvetica)
+        FontId::TimesItalic => 462,
+        FontId::TimesBold => 497,
+        FontId::ZapfDingbats => 788,
     }
 }
 
@@ -592,6 +1206,8 @@ pub fn space_width_1000(font: FontId) -> u16 {
         FontId::HelveticaBold | FontId::HelveticaBoldOblique => 278,
         FontId::Courier => 600,
         FontId::Symbol => 250,
+        FontId::TimesRoman | FontId::TimesItalic | FontId::TimesBold => 250,
+        FontId::ZapfDingbats => 278,
     }
 }
 
@@ -606,6 +1222,10 @@ pub fn style_to_font_id(style: crate::typeset::FontStyle) -> FontId {
         FontStyle::BoldItalic => FontId::HelveticaBoldOblique,
         FontStyle::Monospace => FontId::Courier,
         FontStyle::Symbol => FontId::Symbol,
+        FontStyle::TimesRoman => FontId::TimesRoman,
+        FontStyle::TimesItalic => FontId::TimesItalic,
+        FontStyle::TimesBold => FontId::TimesBold,
+        FontStyle::ZapfDingbats => FontId::ZapfDingbats,
     }
 }
 
@@ -734,6 +1354,36 @@ pub fn unicode_to_symbol_byte(ch: char) -> Option<u8> {
         0x21A6 => 0xAE, // ↦ mapsto (approximate as →)
         0x21AA => 0xAE, // ↪ hookrightarrow (approximate as →)
         0x2243 => 0x40, // ≃ simeq (approximate as ≅)
+        // Additional Symbol font mappings
+        0x2284 => 0xCB, // ⊄ notsubset
+        0x2204 => 0x24, // ∄ notexistential (approximate as ∃)
+        0x2135 => 0xC0, // ℵ aleph
+        0x2111 => 0xC1, // ℑ Ifraktur
+        0x211C => 0xC2, // ℜ Rfraktur
+        0x2118 => 0xC3, // ℘ weierstrass
+        0x2234 => 0x5C, // ∴ therefore
+        0x2235 => 0x5C, // ∵ because (approximate)
+        0x2299 => 0xC4, // ⊙ circledot (approximate as circlemultiply)
+        0x2296 => 0xC5, // ⊖ circleminus (approximate as circleplus)
+        0x22C5 => 0xD7, // ⋅ sdot (centered dot)
+        0x2217 => 0x2A, // ∗ asterisk operator
+        0x22C0 => 0xD9, // ⋀ bigwedge (approximate as logicaland)
+        0x22C1 => 0xDA, // ⋁ bigvee (approximate as logicalor)
+        0x22C2 => 0xC7, // ⋂ bigcap (approximate as intersection)
+        0x22C3 => 0xC8, // ⋃ bigcup (approximate as union)
+        0x2250 => 0xBA, // ≐ doteq (approximate as equivalence)
+        0x2223 => 0xBD, // ∣ divides (approximate as bar)
+        0x2224 => 0xBD, // ∤ nmid (approximate as bar)
+        0x2266 => 0xA3, // ≦ leqq (approximate as ≤)
+        0x2267 => 0xB3, // ≧ geqq (approximate as ≥)
+        0x226A => 0xAB, // ≪ ll (much less than, approximate as <<)
+        0x226B => 0xBB, // ≫ gg (much greater than, approximate as >>)
+        0x2218 => 0xB0, // ∘ ring (approximate as degree)
+        0x2662 => 0xA8, // ♢ diamondsuit
+        0x2663 => 0xA7, // ♣ clubsuit
+        0x2661 => 0xA9, // ♡ heartsuit
+        0x2660 => 0xAA, // ♠ spadesuit
+        0x2113 => 0x60, // ℓ ell
         _ => return None,
     })
 }
@@ -760,6 +1410,18 @@ pub fn font_info(font: FontId) -> FontInfo {
         },
         FontId::Symbol => FontInfo {
             ascent: 1010, descent: -293, cap_height: 1010, x_height: 500, line_gap: 200,
+        },
+        FontId::TimesRoman => FontInfo {
+            ascent: 683, descent: -217, cap_height: 662, x_height: 450, line_gap: 200,
+        },
+        FontId::TimesItalic => FontInfo {
+            ascent: 683, descent: -217, cap_height: 653, x_height: 441, line_gap: 200,
+        },
+        FontId::TimesBold => FontInfo {
+            ascent: 683, descent: -217, cap_height: 676, x_height: 461, line_gap: 200,
+        },
+        FontId::ZapfDingbats => FontInfo {
+            ascent: 820, descent: -143, cap_height: 820, x_height: 525, line_gap: 200,
         },
     }
 }

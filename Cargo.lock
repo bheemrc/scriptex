@@ -21,7 +21,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
 dependencies = [
  "cfg-if",
- "getrandom",
+ "getrandom 0.3.4",
  "once_cell",
  "version_check",
  "zerocopy",
@@ -404,6 +404,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -698,14 +708,29 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
+dependencies = [
+ "cfg-if",
+ "js-sys",
+ "libc",
+ "wasi",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "getrandom"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi",
  "wasip2",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -877,7 +902,7 @@ version = "0.1.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9afb3de4395d6b3e67a780b6de64b51c978ecf11cb9a462c66be7d4ca9039d33"
 dependencies = [
- "getrandom",
+ "getrandom 0.3.4",
  "libc",
 ]
 
@@ -1423,7 +1448,7 @@ version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c"
 dependencies = [
- "getrandom",
+ "getrandom 0.3.4",
 ]
 
 [[package]]
@@ -1692,11 +1717,15 @@ dependencies = [
  "biblatex",
  "bstr",
  "clap",
+ "console_error_panic_hook",
  "crossbeam",
  "env_logger",
  "flate2",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
  "image",
  "itoa",
+ "js-sys",
  "log",
  "lopdf 0.34.0",
  "memchr",
@@ -1714,6 +1743,7 @@ dependencies = [
  "thiserror",
  "unicode-linebreak",
  "unicode-segmentation",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -1963,6 +1993,12 @@ dependencies = [
  "same-file",
  "winapi-util",
 ]
+
+[[package]]
+name = "wasi"
+version = "0.11.1+wasi-snapshot-preview1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "wasip2"

@@ -50,6 +50,9 @@ pub mod cmd_id {
     pub const COLOR: u8 = 36;
     pub const TEXTCOLOR: u8 = 37;
     pub const BIBITEM: u8 = 38;
+    pub const TWOCOLUMN: u8 = 39;
+    pub const ONECOLUMN: u8 = 40;
+    pub const ICMLTITLE: u8 = 41;
 }
 
 /// Compact token representation: 8 bytes total
@@ -553,8 +556,15 @@ impl<'a> Lexer<'a> {
             (10, b'm') => {
                 if &src[start+1..start+10] == b"maketitle" { return cmd_id::MAKETITLE; }
             }
+            (10, b'i') => {
+                if &src[start+1..start+10] == b"icmltitle" { return cmd_id::ICMLTITLE; }
+            }
             (10, b't') => {
                 if &src[start+1..start+10] == b"textcolor" { return cmd_id::TEXTCOLOR; }
+                if &src[start+1..start+10] == b"twocolumn" { return cmd_id::TWOCOLUMN; }
+            }
+            (10, b'o') => {
+                if &src[start+1..start+10] == b"onecolumn" { return cmd_id::ONECOLUMN; }
             }
             (10, b'c') => {
                 if &src[start+1..start+10] == b"centering" { return cmd_id::CENTERING; }
@@ -586,8 +596,22 @@ impl<'a> Lexer<'a> {
     }
 }
 
-/// Parallel tokenization: splits source at paragraph breaks and lexes chunks in parallel
+/// Parallel tokenization: splits source at paragraph breaks and lexes chunks in parallel.
+/// Falls back to single-threaded when rayon is not available (WASM).
 pub fn tokenize_parallel(source: &str) -> Vec<Token> {
+    #[cfg(not(feature = "rayon"))]
+    {
+        return Lexer::new(source).tokenize();
+    }
+
+    #[cfg(feature = "rayon")]
+    {
+        return _tokenize_parallel_rayon(source);
+    }
+}
+
+#[cfg(feature = "rayon")]
+fn _tokenize_parallel_rayon(source: &str) -> Vec<Token> {
     use rayon::prelude::*;
 
     let bytes = source.as_bytes();
@@ -656,6 +680,12 @@ pub fn tokenize_parallel(source: &str) -> Vec<Token> {
     }
     merged.push(Token::new(TokenKind::Eof, len, 0));
     merged
+}
+
+#[allow(unreachable_code)]
+fn _ensure_tokenize_parallel_compiles() {
+    // This function exists to suppress "unreachable code" warnings from the
+    // cfg-gated returns in tokenize_parallel. It is never called.
 }
 
 #[cfg(test)]

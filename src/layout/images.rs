@@ -8,37 +8,108 @@ use super::types::*;
 
 use anyhow::Result;
 
-/// Try to load an image file and return embedded data + native dimensions
-pub(super) fn load_image_for_pdf(path: &str, _state: &LayoutState) -> Option<(EmbeddedImage, u32, u32)> {
-    let candidates = [
-        path.to_string(),
-        format!("{}.png", path),
-        format!("{}.jpg", path),
-        format!("{}.jpeg", path),
-        format!("{}.pdf", path),
-    ];
+/// Try to load an image file and return embedded data + native dimensions.
+/// Checks in-memory project images first (for WASM / multi-file compilation),
+/// then falls back to filesystem (native CLI only).
+pub(super) fn load_image_for_pdf(path: &str, state: &LayoutState) -> Option<(EmbeddedImage, u32, u32)> {
+    // First: check in-memory project images
+    if !state.project_images.is_empty() {
+        if let Some(result) = load_from_project_images(path, &state.project_images) {
+            return Some(result);
+        }
+    }
 
-    for candidate in &candidates {
-        let p = std::path::Path::new(candidate);
-        if !p.exists() { continue; }
-        let data = match std::fs::read(p) {
-            Ok(d) => d,
-            Err(_) => continue,
-        };
-        if data.len() < 8 { continue; }
+    // Second: try filesystem (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let extensions = ["", ".png", ".jpg", ".jpeg"];
+        let mut search_paths = Vec::new();
 
-        if data[0..2] == [0xFF, 0xD8] {
-            if let Some((w, h)) = jpeg_dimensions(&data) {
-                return Some((EmbeddedImage { data, width_px: w, height_px: h, format: ImageFormat::Jpeg }, w, h));
+        for ext in &extensions {
+            // Try absolute/CWD-relative path first
+            search_paths.push(format!("{}{}", path, ext));
+            // Try relative to base_dir
+            if !state.base_dir.is_empty() {
+                search_paths.push(format!("{}/{}{}", state.base_dir, path, ext));
             }
-        } else if data[0..4] == [0x89, b'P', b'N', b'G'] {
-            if data.len() >= 24 {
-                let w = u32::from_be_bytes([data[16], data[17], data[18], data[19]]);
-                let h = u32::from_be_bytes([data[20], data[21], data[22], data[23]]);
-                return Some((EmbeddedImage { data, width_px: w, height_px: h, format: ImageFormat::Png }, w, h));
+        }
+
+        for candidate in &search_paths {
+            let p = std::path::Path::new(candidate);
+            if !p.exists() { continue; }
+            let data = match std::fs::read(p) {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            if let Some(result) = detect_image_format(data) {
+                return Some(result);
             }
         }
     }
+
+    None
+}
+
+/// Look up an image in the project's in-memory image store.
+/// Tries exact match, then basename, then with common extensions.
+fn load_from_project_images(
+    path: &str,
+    project_images: &std::collections::HashMap<String, Vec<u8>>,
+) -> Option<(EmbeddedImage, u32, u32)> {
+    // Extract just the filename (strip directory paths)
+    let basename = path.rsplit('/').next().unwrap_or(path);
+    let basename_no_ext = basename.rsplit_once('.').map(|(b, _)| b).unwrap_or(basename);
+
+    // Candidates: exact path, basename, basename with extensions
+    let candidates = [
+        path.to_string(),
+        basename.to_string(),
+        format!("{}.png", basename_no_ext),
+        format!("{}.jpg", basename_no_ext),
+        format!("{}.jpeg", basename_no_ext),
+        format!("{}.pdf", basename_no_ext),
+    ];
+
+    for candidate in &candidates {
+        if let Some(data) = project_images.get(candidate.as_str()) {
+            if let Some(result) = detect_image_format(data.clone()) {
+                return Some(result);
+            }
+        }
+    }
+
+    // Fuzzy match: find any key that ends with the basename
+    if !basename.is_empty() {
+        for (key, data) in project_images {
+            if key.ends_with(basename) {
+                if let Some(result) = detect_image_format(data.clone()) {
+                    return Some(result);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Detect image format from raw bytes and return embedded image with dimensions.
+fn detect_image_format(data: Vec<u8>) -> Option<(EmbeddedImage, u32, u32)> {
+    if data.len() < 8 { return None; }
+
+    if data[0..2] == [0xFF, 0xD8] {
+        // JPEG
+        if let Some((w, h)) = jpeg_dimensions(&data) {
+            return Some((EmbeddedImage { data, width_px: w, height_px: h, format: ImageFormat::Jpeg }, w, h));
+        }
+    } else if data[0..4] == [0x89, b'P', b'N', b'G'] {
+        // PNG
+        if data.len() >= 24 {
+            let w = u32::from_be_bytes([data[16], data[17], data[18], data[19]]);
+            let h = u32::from_be_bytes([data[20], data[21], data[22], data[23]]);
+            return Some((EmbeddedImage { data, width_px: w, height_px: h, format: ImageFormat::Png }, w, h));
+        }
+    }
+
     None
 }
 

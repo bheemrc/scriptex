@@ -7,6 +7,7 @@ use super::text::node_to_text;
 /// Pre-scan AST to collect label→display-number mappings for \ref resolution.
 pub(super) struct LabelCollector<'a> {
     pub labels: HashMap<String, String>,
+    pub label_types: HashMap<String, String>,
     pub citations: HashMap<String, u32>,
     fig_counter: u32,
     tbl_counter: u32,
@@ -16,12 +17,14 @@ pub(super) struct LabelCollector<'a> {
     theorem_counters: HashMap<String, u32>,
     pending_number: Option<String>,
     pending_is_section: bool,
+    pending_type: Option<String>,
     theorem_defs: &'a [TheoremDef],
 }
 
-pub(super) fn collect_labels(nodes: &[Node], doc: &Document) -> (HashMap<String, String>, HashMap<String, u32>) {
+pub(super) fn collect_labels(nodes: &[Node], doc: &Document) -> (HashMap<String, String>, HashMap<String, u32>, HashMap<String, String>) {
     let mut ctx = LabelCollector {
         labels: HashMap::new(),
+        label_types: HashMap::new(),
         citations: HashMap::new(),
         fig_counter: 0,
         tbl_counter: 0,
@@ -31,10 +34,11 @@ pub(super) fn collect_labels(nodes: &[Node], doc: &Document) -> (HashMap<String,
         theorem_counters: HashMap::new(),
         pending_number: None,
         pending_is_section: false,
+        pending_type: None,
         theorem_defs: &doc.preamble.theorem_defs,
     };
     collect_labels_inner(nodes, &mut ctx);
-    (ctx.labels, ctx.citations)
+    (ctx.labels, ctx.citations, ctx.label_types)
 }
 
 impl LabelCollector<'_> {
@@ -68,6 +72,14 @@ fn collect_labels_inner(nodes: &[Node], ctx: &mut LabelCollector) {
                     }
                     ctx.pending_number = None;
                     ctx.pending_is_section = true;
+                    ctx.pending_type = Some(match level {
+                        SectionLevel::Part => "part",
+                        SectionLevel::Chapter => "chapter",
+                        SectionLevel::Section => "section",
+                        SectionLevel::Subsection => "subsection",
+                        SectionLevel::Subsubsection => "subsubsection",
+                        _ => "section",
+                    }.to_string());
                 }
                 collect_labels_inner(title, ctx);
             }
@@ -76,6 +88,7 @@ fn collect_labels_inner(nodes: &[Node], ctx: &mut LabelCollector) {
                     ctx.fig_counter += 1;
                     if let Some(ref lbl) = fig.label {
                         ctx.labels.insert(lbl.clone(), ctx.fig_counter.to_string());
+                        ctx.label_types.insert(lbl.clone(), "figure".to_string());
                     }
                 }
                 collect_labels_inner(&fig.content, ctx);
@@ -85,6 +98,7 @@ fn collect_labels_inner(nodes: &[Node], ctx: &mut LabelCollector) {
                     ctx.tbl_counter += 1;
                     if let Some(ref lbl) = table.label {
                         ctx.labels.insert(lbl.clone(), ctx.tbl_counter.to_string());
+                        ctx.label_types.insert(lbl.clone(), "table".to_string());
                     }
                 }
             }
@@ -111,17 +125,67 @@ fn collect_labels_inner(nodes: &[Node], ctx: &mut LabelCollector) {
                 };
                 ctx.pending_number = Some(thm_label);
                 ctx.pending_is_section = false;
+                ctx.pending_type = Some(thm.env_name.clone());
                 collect_labels_inner(&thm.body, ctx);
             }
-            Node::Proof(content) => {
+            Node::Proof { content, .. } => {
                 collect_labels_inner(content, ctx);
             }
             Node::DisplayMath(math_data) => {
                 if math_data.numbered {
-                    ctx.eq_counter += 1;
-                    let eq_label = format!("{}", ctx.eq_counter);
-                    ctx.pending_number = Some(eq_label);
-                    ctx.pending_is_section = false;
+                    let is_align = matches!(math_data.env_type,
+                        MathEnvType::Align | MathEnvType::Gather);
+                    if is_align {
+                        // Count per-row equation numbers for align environments
+                        // Walk math nodes to find rows, \notag, \tag, and \label
+                        let mut row_count = 0u32;
+                        let mut current_row_suppressed = false;
+                        let mut current_row_label: Option<String> = None;
+                        let mut flush_row = |ctx: &mut LabelCollector, suppressed: bool, label: &mut Option<String>| {
+                            if !suppressed {
+                                ctx.eq_counter += 1;
+                                let eq_num = format!("{}", ctx.eq_counter);
+                                if let Some(lbl) = label.take() {
+                                    ctx.labels.insert(lbl.clone(), eq_num);
+                                    ctx.label_types.insert(lbl, "equation".to_string());
+                                }
+                            } else {
+                                label.take();
+                            }
+                        };
+                        for node in &math_data.nodes {
+                            match node {
+                                MathNode::NewLine => {
+                                    flush_row(ctx, current_row_suppressed, &mut current_row_label);
+                                    row_count += 1;
+                                    current_row_suppressed = false;
+                                }
+                                MathNode::NoTag => { current_row_suppressed = true; }
+                                MathNode::Tag(_) => { /* custom tag — still numbered */ }
+                                MathNode::Label(l) => { current_row_label = Some(l.clone()); }
+                                _ => {}
+                            }
+                        }
+                        // Flush last row
+                        flush_row(ctx, current_row_suppressed, &mut current_row_label);
+                        // Set pending for any Node::Label that follows the DisplayMath
+                        ctx.pending_number = Some(format!("{}", ctx.eq_counter));
+                        ctx.pending_is_section = false;
+                        ctx.pending_type = Some("equation".to_string());
+                    } else {
+                        ctx.eq_counter += 1;
+                        let eq_label = format!("{}", ctx.eq_counter);
+                        ctx.pending_number = Some(eq_label);
+                        ctx.pending_is_section = false;
+                        ctx.pending_type = Some("equation".to_string());
+                        // Check for \label inside the math nodes
+                        for node in &math_data.nodes {
+                            if let MathNode::Label(l) = node {
+                                ctx.labels.insert(l.clone(), format!("{}", ctx.eq_counter));
+                                ctx.label_types.insert(l.clone(), "equation".to_string());
+                            }
+                        }
+                    }
                 }
             }
             Node::Label(name) => {
@@ -133,6 +197,11 @@ fn collect_labels_inner(nodes: &[Node], ctx: &mut LabelCollector) {
                     ctx.current_section_str()
                 };
                 ctx.labels.insert(name.clone(), num);
+                if let Some(ref t) = ctx.pending_type {
+                    ctx.label_types.insert(name.clone(), t.clone());
+                } else if ctx.pending_is_section {
+                    ctx.label_types.insert(name.clone(), "section".to_string());
+                }
             }
             Node::ItemizeList(items) | Node::EnumerateList(items) => {
                 for item in items {
@@ -146,8 +215,12 @@ fn collect_labels_inner(nodes: &[Node], ctx: &mut LabelCollector) {
             | Node::Center(c) | Node::FlushLeft(c) | Node::FlushRight(c)
             | Node::Bold(c) | Node::Italic(c) | Node::Group(c) | Node::SmallCaps(c)
             | Node::Footnote(c) | Node::Colored { content: c, .. }
-            | Node::Minipage { content: c, .. } => {
+            | Node::Minipage { content: c, .. } | Node::TwoColumn(c)
+            | Node::WrapFigure { content: c, .. } | Node::SubFigure { content: c, .. } => {
                 collect_labels_inner(c, ctx);
+            }
+            Node::ColorBox(boxdata) => {
+                collect_labels_inner(&boxdata.content, ctx);
             }
             _ => {}
         }

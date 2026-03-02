@@ -4,10 +4,30 @@ use crate::color::Color;
 use crate::document::*;
 use crate::typeset::{FontMetrics, FontStyle};
 use crate::font::{self, FontId};
+use crate::math_layout;
 use super::state::LayoutState;
 use super::text::{node_to_text_resolved, node_to_text};
+use super::math::emit_math_elements;
 
 use anyhow::Result;
+
+/// Check if cell content contains inline math or dingbats (requires special font handling)
+fn cell_has_math(content: &[Node]) -> bool {
+    fn check(nodes: &[Node]) -> bool {
+        for n in nodes {
+            match n {
+                Node::InlineMath(_) | Node::Dingbat(_) => return true,
+                Node::Bold(c) | Node::Italic(c) | Node::Emph(c) | Node::Group(c)
+                | Node::Underline(c) | Node::Monospace(c) | Node::SmallCaps(c)
+                | Node::Strikethrough(c) | Node::Paragraph(c) => { if check(c) { return true; } }
+                Node::Colored { content, .. } | Node::FontSize { content, .. } => { if check(content) { return true; } }
+                _ => {}
+            }
+        }
+        false
+    }
+    check(content)
+}
 
 fn detect_cell_style(content: &[Node]) -> FontStyle {
     if content.is_empty() { return FontStyle::Regular; }
@@ -53,33 +73,47 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     let mut cell_texts: Vec<Vec<String>> = Vec::with_capacity(table.rows.len());
     let mut cell_styles: Vec<Vec<FontStyle>> = Vec::with_capacity(table.rows.len());
     let mut cell_logical_cols: Vec<Vec<(u32, u32, Option<ColumnSpec>)>> = Vec::with_capacity(table.rows.len());
+    // Pre-computed math boxes for cells with inline math (row_idx, cell_idx) → MathBox
+    let mut cell_math: Vec<Vec<Option<math_layout::MathBox>>> = Vec::with_capacity(table.rows.len());
 
     for row in &table.rows {
         let mut row_texts = Vec::with_capacity(num_cols);
         let mut row_styles = Vec::with_capacity(num_cols);
         let mut row_cols = Vec::with_capacity(num_cols);
+        let mut row_math: Vec<Option<math_layout::MathBox>> = Vec::with_capacity(num_cols);
         let mut logical_col: u32 = 0;
         for cell in &row.cells {
             if logical_col as usize >= num_cols { break; }
             let span = cell.colspan.max(1);
+            let has_math = cell_has_math(&cell.content);
             let mut text = String::new();
             for node in &cell.content { node_to_text_resolved(node, &mut text, source, &state.label_map); }
             let trimmed = text.trim().to_string();
             let style = detect_cell_style(&cell.content);
             let fid = if style == FontStyle::Bold { FontId::HelveticaBold } else { FontId::Helvetica };
-            let w = font::measure_text(&trimmed, fid, font_size);
+            // For cells with math, compute math box for accurate width
+            let (w, math_box) = if has_math {
+                let mb = layout_cell_with_math(&cell.content, font_size, source, &state.label_map);
+                let w = mb.width;
+                (w, Some(mb))
+            } else {
+                (font::measure_text(&trimmed, fid, font_size), None)
+            };
             if span == 1 && (logical_col as usize) < num_cols {
                 if w > col_max_widths[logical_col as usize] { col_max_widths[logical_col as usize] = w; }
             }
             row_texts.push(trimmed); row_styles.push(style);
             row_cols.push((logical_col, span, cell.alignment.clone()));
+            row_math.push(math_box);
             logical_col += span;
         }
         while row_texts.len() < num_cols {
             row_texts.push(String::new()); row_styles.push(FontStyle::Regular);
             row_cols.push((logical_col, 1, None)); logical_col += 1;
+            row_math.push(None);
         }
         cell_texts.push(row_texts); cell_styles.push(row_styles); cell_logical_cols.push(row_cols);
+        cell_math.push(row_math);
     }
 
     let col_widths: Vec<f32> = if has_explicit_widths {
@@ -109,15 +143,29 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
         }
         widths
     } else {
+        // Improved auto-calculation: use min widths + proportional distribution
+        let min_col_width = cell_padding * 4.0; // absolute minimum
         let total_content = col_max_widths.iter().sum::<f32>() + (num_cols as f32 * cell_padding * 2.0);
         if total_content <= available_width {
+            // Everything fits — distribute remaining space proportionally to content
             let remaining = available_width - total_content;
-            let extra_per_col = remaining / num_cols as f32;
-            col_max_widths.iter().map(|&w| w + cell_padding * 2.0 + extra_per_col).collect()
+            if total_content > 0.0 {
+                col_max_widths.iter().map(|&w| {
+                    let base = w + cell_padding * 2.0;
+                    let share = (w / total_content) * remaining;
+                    base + share
+                }).collect()
+            } else {
+                vec![available_width / num_cols as f32; num_cols]
+            }
         } else {
+            // Overflow — give each column at least min_width, then distribute proportionally
+            let total_min = min_col_width * num_cols as f32;
+            let distributable = (available_width - total_min).max(0.0);
+            let total_max_content = col_max_widths.iter().sum::<f32>().max(1.0);
             col_max_widths.iter().map(|&w| {
-                let ratio = if total_content > 0.0 { w / total_content } else { 1.0 / num_cols as f32 };
-                (ratio * available_width).max(cell_padding * 3.0)
+                let share = (w / total_max_content) * distributable;
+                (min_col_width + share).max(min_col_width)
             }).collect()
         }
     };
@@ -223,18 +271,31 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
             let style = cell_styles[row_idx].get(cell_idx).copied().unwrap_or(FontStyle::Regular);
             let fid = if style == FontStyle::Bold { FontId::HelveticaBold } else { FontId::Helvetica };
 
-            for (line_idx, line_text) in cell_lines.iter().enumerate() {
-                let display_w = font::measure_text(line_text, fid, font_size);
+            // Use pre-computed math box if available (for cells with inline math/dingbats)
+            if let Some(Some(ref math_box)) = cell_math.get(row_idx).and_then(|r| r.get(cell_idx)) {
+                let display_w = math_box.width;
                 let text_x = match align {
                     ColumnSpec::Center => cx + (cell_content_width - display_w) / 2.0,
                     ColumnSpec::Right => cx + cell_content_width - display_w,
                     _ => cx,
                 };
                 let rule_sep = if row.hline_before { font_size * 0.9 } else { 0.0 };
-                let text_y = y + cell_padding + rule_sep + line_idx as f32 * line_h;
-                state.current_x = text_x;
-                state.current_y = text_y;
-                state.emit_text(line_text, state.current_font_size, style, Color::BLACK);
+                let text_y = y + cell_padding + rule_sep;
+                emit_math_elements(math_box, text_x, text_y + math_box.height, state);
+            } else {
+                for (line_idx, line_text) in cell_lines.iter().enumerate() {
+                    let display_w = font::measure_text(line_text, fid, font_size);
+                    let text_x = match align {
+                        ColumnSpec::Center => cx + (cell_content_width - display_w) / 2.0,
+                        ColumnSpec::Right => cx + cell_content_width - display_w,
+                        _ => cx,
+                    };
+                    let rule_sep = if row.hline_before { font_size * 0.9 } else { 0.0 };
+                    let text_y = y + cell_padding + rule_sep + line_idx as f32 * line_h;
+                    state.current_x = text_x;
+                    state.current_y = text_y;
+                    state.emit_text(line_text, state.current_font_size, style, Color::BLACK);
+                }
             }
         }
 
@@ -247,10 +308,80 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
             let rule_width = if row_idx == num_data_rows - 1 { 1.2 } else { 0.8 };
             state.emit_line(table_x, line_y, table_x + actual_table_width, line_y, rule_width, Color::BLACK);
         }
+        // Render cmidrules (partial horizontal rules)
+        for &(start_col, end_col) in &row.cmidrules {
+            let s = (start_col.max(1) - 1) as usize; // convert to 0-based
+            let e = end_col as usize;
+            let x1 = table_x + col_widths.iter().take(s).sum::<f32>();
+            let x2 = table_x + col_widths.iter().take(e.min(num_cols)).sum::<f32>();
+            state.emit_line(x1, y, x2, y, 0.6, Color::BLACK);
+        }
         state.current_y = y + row_height - extra;
     }
 
     state.add_vertical_space(8.0);
     state.current_x = state.text_left();
     Ok(())
+}
+
+/// Layout a cell that contains inline math/dingbats as a horizontal sequence of text + math boxes
+fn layout_cell_with_math(content: &[Node], font_size: f32, source: &str, label_map: &std::collections::HashMap<String, String>) -> math_layout::MathBox {
+    let mut result = math_layout::MathBox { width: 0.0, height: font_size, depth: 0.0, elements: Vec::new() };
+    let mut x = 0.0f32;
+    layout_cell_nodes(&mut result, &mut x, content, font_size, source, label_map);
+    result.width = x;
+    result
+}
+
+fn layout_cell_nodes(result: &mut math_layout::MathBox, x: &mut f32, nodes: &[Node], font_size: f32, source: &str, label_map: &std::collections::HashMap<String, String>) {
+    for node in nodes {
+        match node {
+            Node::InlineMath(math_nodes) => {
+                let mb = math_layout::layout_math(math_nodes, font_size);
+                for elem in &mb.elements {
+                    let shifted = match elem {
+                        math_layout::MathElement::Text { x: ex, y, text, font_size: fs, font_id, color } => {
+                            math_layout::MathElement::Text { x: ex + *x, y: *y, text: text.clone(), font_size: *fs, font_id: *font_id, color: *color }
+                        }
+                        math_layout::MathElement::Line { x1, y1, x2, y2, width, color } => {
+                            math_layout::MathElement::Line { x1: x1 + *x, y1: *y1, x2: x2 + *x, y2: *y2, width: *width, color: *color }
+                        }
+                    };
+                    result.elements.push(shifted);
+                }
+                result.height = result.height.max(mb.height);
+                result.depth = result.depth.max(mb.depth);
+                *x += mb.width;
+            }
+            Node::Dingbat(code) => {
+                let text = String::from(char::from(*code));
+                let tw = font::char_width_1000(FontId::ZapfDingbats, *code) as f32 * font_size / 1000.0;
+                result.elements.push(math_layout::MathElement::Text {
+                    x: *x, y: 0.0, text, font_size, font_id: FontId::ZapfDingbats, color: Color::BLACK,
+                });
+                *x += tw;
+            }
+            // Recurse into wrapper nodes
+            Node::Bold(c) | Node::Italic(c) | Node::Emph(c) | Node::Group(c)
+            | Node::Underline(c) | Node::Monospace(c) | Node::SmallCaps(c)
+            | Node::Strikethrough(c) | Node::Paragraph(c) | Node::Superscript(c) | Node::Subscript(c) => {
+                layout_cell_nodes(result, x, c, font_size, source, label_map);
+            }
+            Node::Colored { content, .. } | Node::FontSize { content, .. } => {
+                layout_cell_nodes(result, x, content, font_size, source, label_map);
+            }
+            _ => {
+                let mut text = String::new();
+                node_to_text_resolved(node, &mut text, source, label_map);
+                let text = text.trim_matches(|c: char| c == '\n').to_string();
+                if !text.is_empty() {
+                    let tw = font::measure_text(&text, FontId::Helvetica, font_size);
+                    result.elements.push(math_layout::MathElement::Text {
+                        x: *x, y: 0.0, text, font_size, font_id: FontId::Helvetica, color: Color::BLACK,
+                    });
+                    *x += tw;
+                }
+            }
+        }
+    }
 }

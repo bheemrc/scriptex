@@ -34,12 +34,28 @@ pub struct Preamble {
     pub page_setup: PageSetup,
     pub font_size: f32,
     pub line_spacing: f32,
+    pub paragraph_indent: Option<f32>,  // \parindent
+    pub paragraph_skip: Option<f32>,    // \parskip
     pub commands: Vec<(String, Vec<Node>)>,
     pub theorem_defs: Vec<TheoremDef>,
-    pub page_style: String, // "plain", "headings", "empty"
+    pub page_style: String, // "plain", "headings", "empty", "fancy"
+    pub fancy_header: FancyHeaderFooter,
     pub addresses: Vec<AuthorAddress>,
     pub keywords: Option<String>,
     pub subjclass: Option<(String, String)>, // (year, classification text)
+}
+
+/// fancyhdr header/footer configuration
+#[derive(Debug, Clone, Default)]
+pub struct FancyHeaderFooter {
+    pub head_left: String,
+    pub head_center: String,
+    pub head_right: String,
+    pub foot_left: String,
+    pub foot_center: String,
+    pub foot_right: String,
+    pub head_rule_width: f32, // 0.4pt default, 0 = no rule
+    pub foot_rule_width: f32, // 0pt default
 }
 
 #[derive(Debug, Clone)]
@@ -58,9 +74,12 @@ impl Default for Preamble {
             page_setup: PageSetup::default(),
             font_size: 10.0,
             line_spacing: 1.0,
+            paragraph_indent: None,
+            paragraph_skip: None,
             commands: Vec::new(),
             theorem_defs: Vec::new(),
             page_style: String::new(), // empty = default (plain for article)
+            fancy_header: FancyHeaderFooter::default(),
             addresses: Vec::new(),
             keywords: None,
             subjclass: None,
@@ -151,11 +170,19 @@ pub enum Node {
     /// Page break
     PageBreak,
 
+    /// Switch to two-column mode, with optional spanning content
+    TwoColumn(Vec<Node>),
+
+    /// Switch to one-column mode
+    OneColumn,
+
     /// Horizontal space
     HSpace(f32),
 
     /// Vertical space
     VSpace(f32),
+    /// Set paragraph indent
+    SetParIndent(f32),
 
     /// Section heading
     Section {
@@ -215,6 +242,11 @@ pub enum Node {
 
     /// Table of contents
     TableOfContents,
+    ListOfFigures,
+    ListOfTables,
+
+    /// Page numbering style change: "arabic", "roman", "Roman", "alph", "Alph"
+    PageNumbering(String),
 
     /// Switch to appendix mode (sections numbered A, B, C...)
     Appendix,
@@ -228,10 +260,12 @@ pub enum Node {
     /// Cross-reference
     Label(String),
     Ref(String),
+    /// Clever reference — renders as "Type N" (\cref) or "TYPE N" (\Cref)
+    Cref(String, bool),
     /// Equation reference — renders as (N)
     EqRef(String),
-    /// Citation — key, optional argument text (e.g. "Prop.~1.6")
-    Citation(String, Option<String>),
+    /// Citation — key, optional argument text (e.g. "Prop.~1.6"), citation style
+    Citation(String, Option<String>, CitationStyle),
     /// Bibliography item marker
     BibItem(String),
 
@@ -262,8 +296,10 @@ pub enum Node {
 
     /// Theorem-like environments
     Theorem(Box<TheoremData>),
-    /// Proof environment
-    Proof(Vec<Node>),
+    /// Proof environment with optional header (e.g. "Proof of Theorem 1.2")
+    Proof { header: Option<String>, content: Vec<Node> },
+    /// Expandable horizontal fill
+    HFill,
 
     /// Font style declaration (e.g. \bfseries, \itshape) — changes style for subsequent siblings
     FontStyleDecl(FontDeclType),
@@ -279,6 +315,15 @@ pub enum Node {
 
     /// Suppress indent on next paragraph
     NoIndent,
+
+    /// Set a counter value
+    SetCounter(String, i32),
+
+    /// Define a custom color (\definecolor)
+    DefineColor { name: String, color: Color },
+
+    /// ZapfDingbats character (byte code in ZapfDingbats encoding)
+    Dingbat(u8),
 
     /// Special characters
     NonBreakingSpace,
@@ -302,6 +347,59 @@ pub enum Node {
     Caret,
     LeftBrace,
     RightBrace,
+
+    /// Colored/framed box (tcolorbox, mdframed, etc.)
+    ColorBox(Box<ColorBoxData>),
+
+    /// Wrapped figure (text flows around it)
+    WrapFigure {
+        placement: char,      // 'r' or 'l'
+        width: f32,           // width as fraction of text width
+        content: Vec<Node>,
+        caption: Option<Vec<Node>>,
+        label: Option<String>,
+    },
+
+    /// Sub-figure within a figure environment
+    SubFigure {
+        width: f32,
+        content: Vec<Node>,
+        caption: Option<Vec<Node>>,
+    },
+
+    /// Algorithm float (like figure/table with caption/label)
+    Algorithm {
+        caption: Option<String>,
+        label: Option<String>,
+        content: Vec<AlgoLine>,
+        line_numbered: bool,
+    },
+}
+
+/// A line in an algorithmic/pseudocode environment
+#[derive(Debug, Clone)]
+pub struct AlgoLine {
+    pub indent: u32,
+    pub content: Vec<AlgoToken>,
+}
+
+/// Token in an algorithm line
+#[derive(Debug, Clone)]
+pub enum AlgoToken {
+    Keyword(String),
+    Text(String),
+    Math(Vec<MathNode>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ColorBoxData {
+    pub content: Vec<Node>,
+    pub title: Option<Vec<Node>>,
+    pub bg_color: Color,
+    pub frame_color: Color,
+    pub corner_radius: f32,  // in points
+    pub rule_width: f32,     // frame thickness in points
+    pub padding: f32,        // inner padding in points
 }
 
 #[derive(Debug, Clone)]
@@ -319,6 +417,22 @@ pub enum TheoremStyle {
     Plain,      // bold label, italic body (default)
     Definition, // bold label, upright body
     Remark,     // italic label, upright body
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CitationStyle {
+    /// \cite{} or \citep{} — [Author et al., 2024] or (Author et al., 2024)
+    Numeric,
+    /// \citep{} — (Author et al., 2024)
+    Parenthetical,
+    /// \citet{} — Author et al. (2024)
+    Textual,
+    /// \citeauthor{} — Author et al.
+    AuthorOnly,
+    /// \citeyear{} — 2024
+    YearOnly,
+    /// \citealt{} / \citealp{} — Author et al. 2024 (no parens)
+    AltNoParen,
 }
 
 #[derive(Debug, Clone)]
@@ -359,6 +473,7 @@ pub struct FigureData {
     pub caption: Option<Vec<Node>>,
     pub label: Option<String>,
     pub placement: String,
+    pub starred: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -502,12 +617,15 @@ pub struct TableRow {
     pub hline_before: bool,
     pub hline_after: bool,
     pub extra_space_before: f32,
+    /// Partial column rules: (start_col, end_col) — 1-based as in LaTeX
+    pub cmidrules: Vec<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
 pub struct TableCell {
     pub content: Vec<Node>,
     pub colspan: u32,
+    pub rowspan: u32,
     pub alignment: Option<ColumnSpec>,
 }
 
@@ -528,6 +646,7 @@ pub enum MathNode {
     Space(f32),
     Left(String),
     Right(String),
+    DelimitedGroup { left: String, right: String, content: Vec<MathNode> },
     Sum { lower: Option<Vec<MathNode>>, upper: Option<Vec<MathNode>> },
     Integral { lower: Option<Vec<MathNode>>, upper: Option<Vec<MathNode>> },
     Product { lower: Option<Vec<MathNode>>, upper: Option<Vec<MathNode>> },
@@ -546,6 +665,40 @@ pub enum MathNode {
     Phantom(Vec<MathNode>),
     StyleSwitch(MathStyleType),
     BigDelim { delim: String, size: f32 },
+    /// Boxed expression (thin frame around content)
+    Boxed(Vec<MathNode>),
+    /// Limit-style operator (lim, sup, inf, max, min) with limits below/above
+    LimitOp { name: String, lower: Option<Vec<MathNode>>, upper: Option<Vec<MathNode>> },
+    /// Suppress equation number on this row
+    NoTag,
+    /// Custom equation tag
+    Tag(String),
+    /// Intertext — break out of alignment for a text paragraph
+    Intertext(String),
+    /// Label inside math (for align equation numbering)
+    Label(String),
+    /// Substack — vertically stacked lines (used under \sum)
+    Substack(Vec<Vec<MathNode>>),
+    /// Styled text — text with explicit font (for \textbf, \textit, etc. in math)
+    StyledText(String, crate::font::FontId),
+    /// \vphantom — zero width, keeps height/depth
+    VPhantom(Vec<MathNode>),
+    /// \hphantom — zero height/depth, keeps width
+    HPhantom(Vec<MathNode>),
+    /// \pmod{X} → renders as "(mod X)" with thin space before
+    Pmod(Vec<MathNode>),
+    /// \bmod → renders as "mod" binary operator
+    Bmod,
+    /// \pod{X} → renders as "(X)" with thin space before
+    Pod(Vec<MathNode>),
+    /// \mathrel{X} — relation spacing wrapper
+    MathRel(Vec<MathNode>),
+    /// \mathbin{X} — binary operator spacing wrapper
+    MathBin(Vec<MathNode>),
+    /// \rule{width}{height} in math mode — inline filled rectangle
+    Rule { width: f32, height: f32 },
+    /// \middle delimiter
+    Middle(String),
 }
 
 #[derive(Debug, Clone, Copy)]

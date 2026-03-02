@@ -66,13 +66,26 @@ impl MathBox {
 pub fn layout_math(nodes: &[MathNode], font_size: f32) -> MathBox {
     let mut result = MathBox::empty();
     let mut x = 0.0f32;
+    let mut current_size = font_size;
 
     let mut i = 0;
     while i < nodes.len() {
         let node = &nodes[i];
 
+        // Handle style switches by adjusting font size
+        if let MathNode::StyleSwitch(style) = node {
+            current_size = match style {
+                MathStyleType::Display => font_size * 1.2, // display style: larger
+                MathStyleType::Text => font_size,          // text style: normal
+                MathStyleType::Script => font_size * 0.7,  // script: smaller
+                MathStyleType::ScriptScript => font_size * 0.5, // scriptscript: smallest
+            };
+            i += 1;
+            continue;
+        }
+
         // Check for super/subscript following the current node
-        let mut base = layout_math_node(node, font_size);
+        let mut base = layout_math_node(node, current_size);
 
         // Look ahead for ^/_ modifiers
         let mut has_sup = false;
@@ -83,12 +96,12 @@ pub fn layout_math(nodes: &[MathNode], font_size: f32) -> MathBox {
         while i + 1 < nodes.len() {
             match &nodes[i + 1] {
                 MathNode::Super(sup_nodes) if !has_sup => {
-                    sup_box = layout_math(sup_nodes, font_size * 0.7);
+                    sup_box = layout_math(sup_nodes, current_size * 0.7);
                     has_sup = true;
                     i += 1;
                 }
                 MathNode::Sub(sub_nodes) if !has_sub => {
-                    sub_box = layout_math(sub_nodes, font_size * 0.7);
+                    sub_box = layout_math(sub_nodes, current_size * 0.7);
                     has_sub = true;
                     i += 1;
                 }
@@ -99,7 +112,7 @@ pub fn layout_math(nodes: &[MathNode], font_size: f32) -> MathBox {
         if has_sup || has_sub {
             let combined = attach_scripts(&base, if has_sup { Some(&sup_box) } else { None },
                                            if has_sub { Some(&sub_box) } else { None },
-                                           font_size);
+                                           current_size);
             base = combined;
         }
 
@@ -119,15 +132,15 @@ pub fn layout_math(nodes: &[MathNode], font_size: f32) -> MathBox {
 
 fn layout_math_node(node: &MathNode, font_size: f32) -> MathBox {
     match node {
-        MathNode::Number(s) => layout_text(s, font_size, FontId::Helvetica),
+        MathNode::Number(s) => layout_text(s, font_size, FontId::TimesRoman),
         MathNode::Variable(c) => {
             let s = c.to_string();
-            layout_text(&s, font_size, FontId::HelveticaOblique)
+            layout_text(&s, font_size, FontId::TimesItalic)
         }
         MathNode::Operator(s) => layout_operator(s, font_size),
-        MathNode::Text(s) => layout_text(s, font_size, FontId::Helvetica),
+        MathNode::Text(s) => layout_text(s, font_size, FontId::TimesRoman),
         MathNode::Symbol(s) => layout_symbol(s, font_size),
-        MathNode::Function(name) => layout_text(name, font_size, FontId::Helvetica),
+        MathNode::Function(name) => layout_text(name, font_size, FontId::TimesRoman),
         MathNode::Space(pts) => {
             MathBox {
                 width: *pts,
@@ -160,8 +173,9 @@ fn layout_math_node(node: &MathNode, font_size: f32) -> MathBox {
         MathNode::Integral { lower, upper } => layout_large_op("\u{222B}", lower, upper, font_size),
         MathNode::Product { lower, upper } => layout_large_op("\u{220F}", lower, upper, font_size),
 
-        MathNode::Left(delim) => layout_delimiter(delim, font_size),
-        MathNode::Right(delim) => layout_delimiter(delim, font_size),
+        MathNode::Left(delim) => layout_delimiter(delim, font_size, font_size * 0.7, font_size * 0.2),
+        MathNode::Right(delim) => layout_delimiter(delim, font_size, font_size * 0.7, font_size * 0.2),
+        MathNode::DelimitedGroup { left, right, content } => layout_delimited_group(left, right, content, font_size),
 
         MathNode::Matrix { rows, style } => layout_matrix(rows, *style, font_size),
 
@@ -172,7 +186,7 @@ fn layout_math_node(node: &MathNode, font_size: f32) -> MathBox {
         MathNode::Binom { top, bottom } => layout_binom(top, bottom, font_size),
         MathNode::Overset { over, base } => layout_overset(over, base, font_size),
         MathNode::Underset { under, base } => layout_underset(under, base, font_size),
-        MathNode::OperatorName(name) => layout_text(name, font_size, FontId::Helvetica),
+        MathNode::OperatorName(name) => layout_text(name, font_size, FontId::TimesRoman),
         MathNode::MathFont { font, content } => layout_math_font(font, content, font_size),
         MathNode::AlignmentMark => MathBox { width: 10.0, height: 0.0, depth: 0.0, elements: Vec::new() },
         MathNode::NewLine => MathBox { width: 0.0, height: font_size * 1.2, depth: 0.0, elements: Vec::new() },
@@ -180,10 +194,231 @@ fn layout_math_node(node: &MathNode, font_size: f32) -> MathBox {
             let inner = layout_math(content, font_size);
             MathBox { width: inner.width, height: inner.height, depth: inner.depth, elements: Vec::new() }
         }
-        MathNode::StyleSwitch(_) => MathBox::empty(),
+        MathNode::LimitOp { name, lower, upper } => {
+            // Layout like a large operator but with text name
+            let name_box = layout_text(name, font_size, FontId::TimesRoman);
+            let mut result = MathBox { width: 0.0, height: 0.0, depth: 0.0, elements: Vec::new() };
+            let mut total_w = name_box.width;
+            let sub_size = font_size * 0.65;
+            let sub_box = lower.as_ref().map(|l| layout_math(l, sub_size));
+            let sup_box = upper.as_ref().map(|u| layout_math(u, sub_size));
+            if let Some(ref sb) = sub_box { total_w = total_w.max(sb.width); }
+            if let Some(ref sb) = sup_box { total_w = total_w.max(sb.width); }
+
+            let op_x = (total_w - name_box.width) * 0.5;
+            let mut shifted_name = name_box.clone();
+            shifted_name.translate(op_x, 0.0);
+
+            result.height = name_box.height;
+            result.depth = name_box.depth;
+            result.elements.extend(shifted_name.elements);
+
+            if let Some(mut sb) = sup_box {
+                let sx = (total_w - sb.width) * 0.5;
+                let sy = -(name_box.height + sb.depth + 1.0);
+                sb.translate(sx, sy);
+                result.height = name_box.height + sb.height + sb.depth + 1.0;
+                result.elements.extend(sb.elements);
+            }
+            if let Some(mut sb) = sub_box {
+                let sx = (total_w - sb.width) * 0.5;
+                let sy = name_box.depth + sb.height + 1.0;
+                sb.translate(sx, sy);
+                result.depth = name_box.depth + sb.height + sb.depth + 1.0;
+                result.elements.extend(sb.elements);
+            }
+            result.width = total_w;
+            result
+        }
+        MathNode::Boxed(content) => {
+            let inner = layout_math(content, font_size);
+            let pad = font_size * 0.15;
+            let bw = inner.width + 2.0 * pad;
+            let bh = inner.height + inner.depth + 2.0 * pad;
+            let mut result = MathBox {
+                width: bw,
+                height: inner.height + pad,
+                depth: inner.depth + pad,
+                elements: Vec::new(),
+            };
+            // Draw box frame (4 lines)
+            let x0 = 0.0;
+            let y_top = -(inner.height + pad);
+            let x1 = bw;
+            let y_bot = inner.depth + pad;
+            let lw = 0.4;
+            result.elements.push(MathElement::Line { x1: x0, y1: y_top, x2: x1, y2: y_top, width: lw, color: Color::BLACK }); // top
+            result.elements.push(MathElement::Line { x1: x0, y1: y_bot, x2: x1, y2: y_bot, width: lw, color: Color::BLACK }); // bottom
+            result.elements.push(MathElement::Line { x1: x0, y1: y_top, x2: x0, y2: y_bot, width: lw, color: Color::BLACK }); // left
+            result.elements.push(MathElement::Line { x1: x1, y1: y_top, x2: x1, y2: y_bot, width: lw, color: Color::BLACK }); // right
+            // Shift inner content by padding
+            let mut shifted = inner;
+            shifted.translate(pad, 0.0);
+            result.elements.extend(shifted.elements);
+            result
+        }
+        MathNode::StyledText(text, font_id) => layout_text(text, font_size, *font_id),
+        MathNode::Substack(rows) => {
+            // Vertically stacked lines, typically in subscript size
+            let sub_size = font_size * 0.7;
+            let line_h = sub_size * 1.3;
+            let mut max_w = 0.0f32;
+            let mut row_boxes: Vec<MathBox> = Vec::new();
+            for row in rows {
+                let mb = layout_math(row, sub_size);
+                max_w = max_w.max(mb.width);
+                row_boxes.push(mb);
+            }
+            let total_h = line_h * row_boxes.len() as f32;
+            let mut result = MathBox { width: max_w, height: total_h * 0.5, depth: total_h * 0.5, elements: Vec::new() };
+            let start_y = -total_h * 0.5 + sub_size;
+            for (i, mut mb) in row_boxes.into_iter().enumerate() {
+                let cx = (max_w - mb.width) / 2.0; // center each row
+                mb.translate(cx, start_y + i as f32 * line_h);
+                result.elements.extend(mb.elements);
+            }
+            result
+        }
+        MathNode::Label(_) => MathBox::empty(), // Labels are handled during prescan/layout
+        MathNode::StyleSwitch(_) | MathNode::NoTag | MathNode::Tag(_) | MathNode::Intertext(_) => MathBox::empty(),
         MathNode::BigDelim { delim, size } => {
             let ds = font_size * size;
-            layout_delimiter(delim, ds / 1.2) // undo the 1.2 in layout_delimiter
+            let h = ds * 0.7;
+            let d = ds * 0.2;
+            layout_delimiter(delim, ds, h, d)
+        }
+        MathNode::VPhantom(content) => {
+            let inner = layout_math(content, font_size);
+            MathBox { width: 0.0, height: inner.height, depth: inner.depth, elements: Vec::new() }
+        }
+        MathNode::HPhantom(content) => {
+            let inner = layout_math(content, font_size);
+            MathBox { width: inner.width, height: 0.0, depth: 0.0, elements: Vec::new() }
+        }
+        MathNode::Pmod(content) => {
+            // "(mod X)" with thin space before
+            let thin = font_size * 0.22;
+            let mut result = MathBox::empty();
+            let mut x = thin; // thin space before
+
+            // Opening paren
+            let lp = layout_text("(", font_size, FontId::TimesRoman);
+            let mut lp_shifted = lp.clone();
+            lp_shifted.translate(x, 0.0);
+            result.elements.extend(lp_shifted.elements);
+            x += lp.width;
+
+            // "mod" in upright
+            let mod_box = layout_text("mod", font_size, FontId::TimesRoman);
+            let mut mod_shifted = mod_box.clone();
+            mod_shifted.translate(x, 0.0);
+            result.elements.extend(mod_shifted.elements);
+            x += mod_box.width + font_size * 0.17; // thin space after "mod"
+
+            // Content
+            let content_box = layout_math(content, font_size);
+            let mut content_shifted = content_box.clone();
+            content_shifted.translate(x, 0.0);
+            result.height = result.height.max(content_box.height).max(mod_box.height);
+            result.depth = result.depth.max(content_box.depth).max(mod_box.depth);
+            result.elements.extend(content_shifted.elements);
+            x += content_box.width;
+
+            // Closing paren
+            let rp = layout_text(")", font_size, FontId::TimesRoman);
+            let mut rp_shifted = rp.clone();
+            rp_shifted.translate(x, 0.0);
+            result.elements.extend(rp_shifted.elements);
+            x += rp.width;
+
+            result.width = x;
+            result
+        }
+        MathNode::Pod(content) => {
+            // "(X)" with thin space before — like \pmod but no "mod"
+            let thin = font_size * 0.22;
+            let mut result = MathBox::empty();
+            let mut x = thin;
+
+            let lp = layout_text("(", font_size, FontId::TimesRoman);
+            let mut lp_s = lp.clone();
+            lp_s.translate(x, 0.0);
+            result.elements.extend(lp_s.elements);
+            x += lp.width;
+
+            let content_box = layout_math(content, font_size);
+            let mut c_s = content_box.clone();
+            c_s.translate(x, 0.0);
+            result.height = content_box.height.max(lp.height);
+            result.depth = content_box.depth.max(lp.depth);
+            result.elements.extend(c_s.elements);
+            x += content_box.width;
+
+            let rp = layout_text(")", font_size, FontId::TimesRoman);
+            let mut rp_s = rp.clone();
+            rp_s.translate(x, 0.0);
+            result.elements.extend(rp_s.elements);
+            x += rp.width;
+
+            result.width = x;
+            result
+        }
+        MathNode::Bmod => {
+            // "mod" as binary operator with medium space on each side
+            let med = font_size * 0.22;
+            let mod_box = layout_text("mod", font_size, FontId::TimesRoman);
+            let total = med + mod_box.width + med;
+            let mut shifted = mod_box.clone();
+            shifted.translate(med, 0.0);
+            MathBox {
+                width: total,
+                height: mod_box.height,
+                depth: mod_box.depth,
+                elements: shifted.elements,
+            }
+        }
+        MathNode::MathRel(content) => {
+            // Relation spacing: thick space on each side (5mu ≈ 0.28em)
+            let thick = font_size * 0.28;
+            let inner = layout_math(content, font_size);
+            let total = thick + inner.width + thick;
+            let mut shifted = inner;
+            shifted.translate(thick, 0.0);
+            MathBox { width: total, height: shifted.height, depth: shifted.depth, elements: shifted.elements }
+        }
+        MathNode::MathBin(content) => {
+            // Binary operator spacing: medium space on each side (4mu ≈ 0.22em)
+            let med = font_size * 0.22;
+            let inner = layout_math(content, font_size);
+            let total = med + inner.width + med;
+            let mut shifted = inner;
+            shifted.translate(med, 0.0);
+            MathBox { width: total, height: shifted.height, depth: shifted.depth, elements: shifted.elements }
+        }
+        MathNode::Rule { width, height } => {
+            if *width == 0.0 {
+                // Strut — invisible height spacer
+                MathBox { width: 0.0, height: *height, depth: 0.0, elements: Vec::new() }
+            } else {
+                // Filled rectangle
+                MathBox {
+                    width: *width,
+                    height: *height,
+                    depth: 0.0,
+                    elements: vec![MathElement::Line {
+                        x1: 0.0, y1: -height / 2.0,
+                        x2: *width, y2: -height / 2.0,
+                        width: *height,
+                        color: Color::BLACK,
+                    }],
+                }
+            }
+        }
+        MathNode::Middle(delim) => {
+            // Middle delimiter — render at current size
+            let h = font_size * 0.7;
+            let d = font_size * 0.2;
+            layout_delimiter(delim, font_size, h, d)
         }
     }
 }
@@ -235,12 +470,12 @@ fn layout_operator(op: &str, font_size: f32) -> MathBox {
     // ASCII operators — different spacing rules per TeX math classes
     match op {
         // Opening delimiters: no extra space
-        "(" | "[" => layout_text(op, font_size, FontId::Helvetica),
+        "(" | "[" => layout_text(op, font_size, FontId::TimesRoman),
         // Closing delimiters: no extra space
-        ")" | "]" => layout_text(op, font_size, FontId::Helvetica),
+        ")" | "]" => layout_text(op, font_size, FontId::TimesRoman),
         // Punctuation: thin space after only
         "," => {
-            let glyph = layout_text(op, font_size, FontId::Helvetica);
+            let glyph = layout_text(op, font_size, FontId::TimesRoman);
             MathBox {
                 width: glyph.width + font_size * 0.17,
                 height: glyph.height,
@@ -249,7 +484,7 @@ fn layout_operator(op: &str, font_size: f32) -> MathBox {
             }
         }
         ";" | ":" => {
-            let glyph = layout_text(op, font_size, FontId::Helvetica);
+            let glyph = layout_text(op, font_size, FontId::TimesRoman);
             MathBox {
                 width: glyph.width + font_size * 0.22,
                 height: glyph.height,
@@ -260,12 +495,56 @@ fn layout_operator(op: &str, font_size: f32) -> MathBox {
         // Binary/relation operators: thin space on both sides
         _ => {
             let op_text = format!(" {} ", op);
-            layout_text(&op_text, font_size, FontId::Helvetica)
+            layout_text(&op_text, font_size, FontId::TimesRoman)
         }
     }
 }
 
 fn layout_symbol(symbol: &str, font_size: f32) -> MathBox {
+    // Special handling for dot patterns (not in standard fonts)
+    if let Some(ch) = symbol.chars().next() {
+        match ch {
+            '\u{22EE}' => { // vdots — vertical dots
+                let dot = "\u{00B7}"; // middle dot
+                let dot_w = font::measure_text(dot, FontId::Helvetica, font_size);
+                let spacing = font_size * 0.35;
+                let mut elems = Vec::new();
+                for i in 0..3 {
+                    elems.push(MathElement::Text {
+                        x: 0.0, y: -spacing + i as f32 * spacing,
+                        text: dot.to_string(), font_size, font_id: FontId::Helvetica, color: Color::BLACK,
+                    });
+                }
+                return MathBox { width: dot_w.max(font_size * 0.3), height: font_size * 0.7, depth: font_size * 0.3, elements: elems };
+            }
+            '\u{22F1}' => { // ddots — diagonal dots (down-right)
+                let dot = "\u{00B7}";
+                let spacing = font_size * 0.35;
+                let mut elems = Vec::new();
+                for i in 0..3 {
+                    elems.push(MathElement::Text {
+                        x: i as f32 * spacing * 0.6, y: -spacing + i as f32 * spacing,
+                        text: dot.to_string(), font_size, font_id: FontId::Helvetica, color: Color::BLACK,
+                    });
+                }
+                return MathBox { width: spacing * 1.5, height: font_size * 0.7, depth: font_size * 0.3, elements: elems };
+            }
+            '\u{22F0}' => { // iddots — anti-diagonal dots (up-right)
+                let dot = "\u{00B7}";
+                let spacing = font_size * 0.35;
+                let mut elems = Vec::new();
+                for i in 0..3 {
+                    elems.push(MathElement::Text {
+                        x: i as f32 * spacing * 0.6, y: spacing - i as f32 * spacing,
+                        text: dot.to_string(), font_size, font_id: FontId::Helvetica, color: Color::BLACK,
+                    });
+                }
+                return MathBox { width: spacing * 1.5, height: font_size * 0.7, depth: font_size * 0.3, elements: elems };
+            }
+            _ => {}
+        }
+    }
+
     // Try to map Unicode symbol to PDF Symbol font encoding
     if let Some(ch) = symbol.chars().next() {
         if let Some(sym_byte) = font::unicode_to_symbol_byte(ch) {
@@ -286,9 +565,9 @@ fn layout_symbol(symbol: &str, font_size: f32) -> MathBox {
             };
         }
     }
-    // Fallback to Helvetica for unrecognized symbols
-    let width = font::measure_text(symbol, FontId::Helvetica, font_size);
-    let info = font::font_info(FontId::Helvetica);
+    // Fallback to Times-Roman for unrecognized symbols
+    let width = font::measure_text(symbol, FontId::TimesRoman, font_size);
+    let info = font::font_info(FontId::TimesRoman);
     MathBox {
         width: width.max(font_size * 0.5),
         height: info.ascent as f32 * font_size * 0.001,
@@ -298,44 +577,49 @@ fn layout_symbol(symbol: &str, font_size: f32) -> MathBox {
             y: 0.0,
             text: symbol.to_string(),
             font_size,
-            font_id: FontId::Helvetica,
+            font_id: FontId::TimesRoman,
             color: Color::BLACK,
         }],
     }
 }
 
 fn layout_fraction(numer: &[MathNode], denom: &[MathNode], font_size: f32) -> MathBox {
-    let frac_size = font_size * 0.85;
+    let frac_size = font_size * 0.8; // TeX \textstyle fraction uses ~80% of current size
     let mut num_box = layout_math(numer, frac_size);
     let mut den_box = layout_math(denom, frac_size);
 
-    let total_width = num_box.width.max(den_box.width) + font_size * 0.2;
-    let bar_y = font_size * 0.3; // fraction bar at ~x-height/2
-    let gap = font_size * 0.15;
-    let rule_thickness = font_size * 0.04;
+    let rule_thickness = (font_size * 0.04).max(0.4);
+    let padding = font_size * 0.15; // horizontal padding around content
+    let total_width = num_box.width.max(den_box.width) + padding * 2.0;
 
-    // Center numerator above bar
+    // TeX math axis: fraction bar sits at the math axis (~half x-height)
+    let axis = font_size * 0.25;
+    // Minimum gap between content and bar (TeX sigma8 / sigma11)
+    let num_gap = (font_size * 0.12).max(rule_thickness);
+    let den_gap = (font_size * 0.12).max(rule_thickness);
+
+    // Position numerator: bottom of numerator box should be at least num_gap above the bar
     let num_x = (total_width - num_box.width) / 2.0;
-    let num_y = -(bar_y + gap + num_box.depth);
-    num_box.translate(num_x, num_y);
+    let num_shift_up = axis + rule_thickness / 2.0 + num_gap + num_box.depth;
+    num_box.translate(num_x, -num_shift_up);
 
-    // Center denominator below bar
+    // Position denominator: top of denominator box should be at least den_gap below the bar
     let den_x = (total_width - den_box.width) / 2.0;
-    let den_y = -(bar_y - gap - den_box.height) + den_box.height;
-    den_box.translate(den_x, den_y);
+    let den_shift_down = -axis + rule_thickness / 2.0 + den_gap + den_box.height;
+    den_box.translate(den_x, den_shift_down);
 
-    let height = bar_y + gap + num_box.total_height();
-    let depth = gap + den_box.total_height() - bar_y + rule_thickness;
+    let height = num_shift_up + num_box.height;
+    let depth = den_shift_down + den_box.depth;
 
     let mut elements = Vec::with_capacity(num_box.elements.len() + den_box.elements.len() + 1);
     elements.extend(num_box.elements);
     elements.extend(den_box.elements);
-    // Fraction bar
+    // Fraction bar at math axis
     elements.push(MathElement::Line {
         x1: 0.0,
-        y1: -bar_y,
+        y1: -axis,
         x2: total_width,
-        y2: -bar_y,
+        y2: -axis,
         width: rule_thickness,
         color: Color::BLACK,
     });
@@ -345,41 +629,78 @@ fn layout_fraction(numer: &[MathNode], denom: &[MathNode], font_size: f32) -> Ma
 
 fn layout_sqrt(index: Option<&[MathNode]>, radicand: &[MathNode], font_size: f32) -> MathBox {
     let mut inner = layout_math(radicand, font_size);
-    let radical_width = font_size * 0.5;
+    let rule_thickness = (font_size * 0.04).max(0.4);
     let overline_gap = font_size * 0.1;
-    let rule_thickness = font_size * 0.04;
+    let overline_y = inner.height + overline_gap;
 
-    // Radical symbol — use Symbol font (byte 0xD6 = √)
-    let radical_height = inner.height + overline_gap;
+    // Scale radical sign to match content height
+    let content_total = inner.height + inner.depth;
+    // The radical glyph should be tall enough to cover the content
+    let radical_font_size = (content_total + overline_gap).max(font_size) * 1.1;
+    let radical_width = radical_font_size * 0.42; // proportional to radical size
 
     let mut elements = Vec::new();
-    // Radical sign using Symbol font encoding
-    elements.push(MathElement::Text {
-        x: 0.0,
-        y: 0.0,
-        text: String::from(0xD6 as char),
-        font_size: font_size * 1.2,
-        font_id: FontId::Symbol,
-        color: Color::BLACK,
-    });
 
-    // Overline
+    // For very tall content, draw the radical as lines instead of a glyph
+    if content_total > font_size * 2.0 {
+        // Extensible radical: diagonal line + vertical line
+        let bottom_y = inner.depth;
+        let top_y = -overline_y;
+        let tick_x = radical_width * 0.3;
+        let join_x = radical_width * 0.7;
+
+        // Small tick at bottom-left
+        elements.push(MathElement::Line {
+            x1: 0.0, y1: bottom_y - (bottom_y - top_y) * 0.3,
+            x2: tick_x, y2: bottom_y,
+            width: rule_thickness, color: Color::BLACK,
+        });
+        // Diagonal from tick bottom to top of radical
+        elements.push(MathElement::Line {
+            x1: tick_x, y1: bottom_y,
+            x2: join_x, y2: top_y,
+            width: rule_thickness * 1.5, color: Color::BLACK,
+        });
+        // Vertical connection to overline
+        elements.push(MathElement::Line {
+            x1: join_x, y1: top_y,
+            x2: radical_width, y2: top_y,
+            width: rule_thickness, color: Color::BLACK,
+        });
+    } else {
+        // Glyph-based radical using Symbol font (byte 0xD6 = √)
+        // Vertically center the radical glyph
+        let glyph_center_offset = radical_font_size * 0.15;
+        let target_center = (inner.height - inner.depth) / 2.0;
+        let y_shift = glyph_center_offset - target_center;
+        elements.push(MathElement::Text {
+            x: 0.0,
+            y: y_shift,
+            text: String::from(0xD6 as char),
+            font_size: radical_font_size,
+            font_id: FontId::Symbol,
+            color: Color::BLACK,
+        });
+    }
+
+    // Overline bar above content
     elements.push(MathElement::Line {
         x1: radical_width,
-        y1: -(inner.height + overline_gap),
+        y1: -overline_y,
         x2: radical_width + inner.width + font_size * 0.1,
-        y2: -(inner.height + overline_gap),
+        y2: -overline_y,
         width: rule_thickness,
         color: Color::BLACK,
     });
 
-    // Inner content
+    // Inner content shifted right past the radical
     inner.translate(radical_width, 0.0);
     elements.extend(inner.elements);
 
+    let total_width = radical_width + inner.width + font_size * 0.15;
     let mut result = MathBox {
-        width: radical_width + inner.width + font_size * 0.15,
-        height: radical_height + rule_thickness,
+        width: total_width,
+        height: overline_y + rule_thickness,
         depth: inner.depth,
         elements,
     };
@@ -387,8 +708,10 @@ fn layout_sqrt(index: Option<&[MathNode]>, radicand: &[MathNode], font_size: f32
     // Optional index (n-th root)
     if let Some(idx_nodes) = index {
         let mut idx = layout_math(idx_nodes, font_size * 0.5);
-        idx.translate(font_size * 0.05, -(radical_height * 0.5));
+        idx.translate(font_size * 0.05, -(overline_y * 0.5));
         result.elements.extend(idx.elements);
+        // Widen if index extends left
+        result.width = result.width.max(idx.width + radical_width);
     }
 
     result
@@ -430,6 +753,8 @@ fn layout_large_op(
     font_size: f32,
 ) -> MathBox {
     let op_size = font_size * 1.5;
+    let limit_size = font_size * 0.6;
+    let limit_gap = font_size * 0.08;
 
     // Use Symbol font for large operators
     let (op_text, op_font, op_width) = if let Some(ch) = symbol.chars().next() {
@@ -437,16 +762,27 @@ fn layout_large_op(
             let w = font::char_width_pt(FontId::Symbol, sym_byte, op_size).max(font_size * 0.8);
             (String::from(sym_byte as char), FontId::Symbol, w)
         } else {
-            let w = font::measure_text(symbol, FontId::Helvetica, op_size).max(font_size * 0.8);
-            (symbol.to_string(), FontId::Helvetica, w)
+            let w = font::measure_text(symbol, FontId::TimesRoman, op_size).max(font_size * 0.8);
+            (symbol.to_string(), FontId::TimesRoman, w)
         }
     } else {
         let w = font::measure_text(symbol, FontId::Helvetica, op_size).max(font_size * 0.8);
         (symbol.to_string(), FontId::Helvetica, w)
     };
 
+    // Compute the overall column width (max of operator, upper limit, lower limit)
+    let upper_box_opt = upper.as_ref().map(|u| layout_math(u, limit_size));
+    let lower_box_opt = lower.as_ref().map(|l| layout_math(l, limit_size));
+
+    let max_width = op_width
+        .max(upper_box_opt.as_ref().map_or(0.0, |b| b.width))
+        .max(lower_box_opt.as_ref().map_or(0.0, |b| b.width));
+
+    // Center the operator symbol in the column
+    let op_x = (max_width - op_width) / 2.0;
+
     let mut elements = vec![MathElement::Text {
-        x: 0.0,
+        x: op_x,
         y: 0.0,
         text: op_text,
         font_size: op_size,
@@ -454,43 +790,95 @@ fn layout_large_op(
         color: Color::BLACK,
     }];
 
-    let mut height = op_size * 0.7;
-    let mut depth = op_size * 0.2;
-    let mut width = op_width;
+    let op_ascent = op_size * 0.7;
+    let op_descent = op_size * 0.2;
+    let mut height = op_ascent;
+    let mut depth = op_descent;
 
-    // Upper limit
-    if let Some(upper_nodes) = upper {
-        let mut upper_box = layout_math(upper_nodes, font_size * 0.6);
-        let ux = (op_width - upper_box.width) / 2.0;
-        let uy = -(height + font_size * 0.1);
-        upper_box.translate(ux.max(0.0), uy);
-        height += upper_box.total_height() + font_size * 0.1;
-        width = width.max(upper_box.width);
+    // Upper limit: centered above the operator
+    if let Some(mut upper_box) = upper_box_opt {
+        let ux = (max_width - upper_box.width) / 2.0;
+        let uy = -(op_ascent + limit_gap + upper_box.depth);
+        upper_box.translate(ux, uy);
+        height = op_ascent + limit_gap + upper_box.total_height();
         elements.extend(upper_box.elements);
     }
 
-    // Lower limit
-    if let Some(lower_nodes) = lower {
-        let mut lower_box = layout_math(lower_nodes, font_size * 0.6);
-        let lx = (op_width - lower_box.width) / 2.0;
-        let ly = depth + font_size * 0.1 + lower_box.height;
-        lower_box.translate(lx.max(0.0), ly);
-        depth += lower_box.total_height() + font_size * 0.1;
-        width = width.max(lower_box.width);
+    // Lower limit: centered below the operator
+    if let Some(mut lower_box) = lower_box_opt {
+        let lx = (max_width - lower_box.width) / 2.0;
+        let ly = op_descent + limit_gap + lower_box.height;
+        lower_box.translate(lx, ly);
+        depth = op_descent + limit_gap + lower_box.total_height();
         elements.extend(lower_box.elements);
     }
 
     // Add spacing after operator
-    width += font_size * 0.2;
+    let width = max_width + font_size * 0.2;
 
     MathBox { width, height, depth, elements }
 }
 
-fn layout_delimiter(delim: &str, font_size: f32) -> MathBox {
+/// Layout a `\left...\right` delimited group: lay out content, measure its height,
+/// then scale delimiters to match.
+fn layout_delimited_group(left: &str, right: &str, content: &[MathNode], font_size: f32) -> MathBox {
+    let inner = layout_math(content, font_size);
+
+    // Minimum delimiter size is standard text height
+    let content_height = inner.height.max(font_size * 0.7);
+    let content_depth = inner.depth.max(font_size * 0.2);
+    let extra = font_size * 0.1; // slight extra clearance
+
+    let mut left_box = layout_delimiter(left, font_size, content_height + extra, content_depth + extra);
+    let mut right_box = layout_delimiter(right, font_size, content_height + extra, content_depth + extra);
+
+    // Position: left delimiter, then content, then right delimiter
+    let gap = font_size * 0.08;
+    let mut x = 0.0;
+    // Left delimiter is already at x=0
+    x += left_box.width + gap;
+
+    let mut inner_shifted = inner;
+    inner_shifted.translate(x, 0.0);
+    x += inner_shifted.width + gap;
+
+    right_box.translate(x, 0.0);
+    x += right_box.width;
+
+    let height = content_height.max(left_box.height).max(right_box.height);
+    let depth = content_depth.max(left_box.depth).max(right_box.depth);
+
+    let mut elements = Vec::with_capacity(
+        left_box.elements.len() + inner_shifted.elements.len() + right_box.elements.len(),
+    );
+    elements.extend(left_box.elements);
+    elements.extend(inner_shifted.elements);
+    elements.extend(right_box.elements);
+
+    MathBox { width: x, height, depth, elements }
+}
+
+/// Layout a delimiter glyph scaled to the given content height and depth.
+/// For tall content, delimiters are drawn with lines (extensible).
+fn layout_delimiter(delim: &str, font_size: f32, content_height: f32, content_depth: f32) -> MathBox {
     if delim == "." {
         // Invisible delimiter
-        return MathBox { width: 0.0, height: font_size * 0.7, depth: font_size * 0.2, elements: Vec::new() };
+        return MathBox { width: 0.0, height: content_height, depth: content_depth, elements: Vec::new() };
     }
+
+    let total_size = content_height + content_depth;
+
+    // Threshold: if content is taller than ~1.5x base font, draw extensible delimiters with lines
+    let use_extensible = total_size > font_size * 1.8;
+
+    if use_extensible {
+        return layout_extensible_delimiter(delim, font_size, content_height, content_depth);
+    }
+
+    // For normal-sized content, scale the glyph to fit
+    // The delimiter font size is chosen so the glyph covers content_height + content_depth
+    let target_size = total_size * 1.1; // slight scaling
+    let ds = target_size.max(font_size); // at least base font size
 
     // Check if delimiter maps to Symbol font
     let unicode_ch = match delim {
@@ -500,20 +888,23 @@ fn layout_delimiter(delim: &str, font_size: f32) -> MathBox {
         "\\rfloor" => Some('\u{230B}'),
         "\\lceil" => Some('\u{2308}'),
         "\\rceil" => Some('\u{2309}'),
+        "\\|" => Some('\u{2225}'), // double vertical bar
         _ => None,
     };
 
     if let Some(ch) = unicode_ch {
         if let Some(sym_byte) = font::unicode_to_symbol_byte(ch) {
-            let ds = font_size * 1.2;
             let width = font::char_width_pt(FontId::Symbol, sym_byte, ds);
-            let info = font::font_info(FontId::Symbol);
+            // Center vertically: shift so glyph center aligns with math axis
+            let glyph_center_offset = ds * 0.2; // approximate: glyph center is above baseline
+            let target_center = (content_height - content_depth) / 2.0;
+            let y_shift = glyph_center_offset - target_center;
             return MathBox {
                 width,
-                height: info.ascent as f32 * ds * 0.001,
-                depth: (-info.descent as f32) * ds * 0.001,
+                height: content_height,
+                depth: content_depth,
                 elements: vec![MathElement::Text {
-                    x: 0.0, y: 0.0,
+                    x: 0.0, y: y_shift,
                     text: String::from(sym_byte as char),
                     font_size: ds,
                     font_id: FontId::Symbol,
@@ -530,7 +921,193 @@ fn layout_delimiter(delim: &str, font_size: f32) -> MathBox {
         _ => delim.to_string(),
     };
 
-    layout_text(&text, font_size * 1.2, FontId::Helvetica)
+    let width = font::measure_text(&text, FontId::TimesRoman, ds);
+    let glyph_center_offset = ds * 0.2;
+    let target_center = (content_height - content_depth) / 2.0;
+    let y_shift = glyph_center_offset - target_center;
+
+    MathBox {
+        width,
+        height: content_height,
+        depth: content_depth,
+        elements: vec![MathElement::Text {
+            x: 0.0, y: y_shift,
+            text,
+            font_size: ds,
+            font_id: FontId::TimesRoman,
+            color: Color::BLACK,
+        }],
+    }
+}
+
+/// Draw an extensible delimiter using lines for tall content.
+/// Produces vertical lines + decorative caps for brackets/braces/parens.
+fn layout_extensible_delimiter(delim: &str, font_size: f32, content_height: f32, content_depth: f32) -> MathBox {
+    let top = -content_height;
+    let bottom = content_depth;
+    let line_w = font_size * 0.04;
+    let cap_len = font_size * 0.2;
+    let width = cap_len + font_size * 0.1;
+
+    let mut elements = Vec::new();
+
+    match delim {
+        "(" => {
+            // Left parenthesis: curved vertical line (approximate with straight + caps)
+            let mid_x = width * 0.6;
+            elements.push(MathElement::Line {
+                x1: mid_x, y1: top, x2: mid_x, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+            // Top curve cap
+            elements.push(MathElement::Line {
+                x1: mid_x, y1: top, x2: mid_x + cap_len * 0.5, y2: top, width: line_w, color: Color::BLACK,
+            });
+            // Bottom curve cap
+            elements.push(MathElement::Line {
+                x1: mid_x, y1: bottom, x2: mid_x + cap_len * 0.5, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+        }
+        ")" => {
+            let mid_x = width * 0.4;
+            elements.push(MathElement::Line {
+                x1: mid_x, y1: top, x2: mid_x, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: mid_x, y1: top, x2: mid_x - cap_len * 0.5, y2: top, width: line_w, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: mid_x, y1: bottom, x2: mid_x - cap_len * 0.5, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+        }
+        "[" | "\\lfloor" | "\\lceil" => {
+            // Left bracket: vertical line + horizontal caps
+            let x = width * 0.5;
+            elements.push(MathElement::Line {
+                x1: x, y1: top, x2: x, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+            if delim != "\\lfloor" {
+                elements.push(MathElement::Line {
+                    x1: x, y1: top, x2: x + cap_len, y2: top, width: line_w, color: Color::BLACK,
+                });
+            }
+            if delim != "\\lceil" {
+                elements.push(MathElement::Line {
+                    x1: x, y1: bottom, x2: x + cap_len, y2: bottom, width: line_w, color: Color::BLACK,
+                });
+            }
+        }
+        "]" | "\\rfloor" | "\\rceil" => {
+            let x = width * 0.5;
+            elements.push(MathElement::Line {
+                x1: x, y1: top, x2: x, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+            if delim != "\\rfloor" {
+                elements.push(MathElement::Line {
+                    x1: x, y1: top, x2: x - cap_len, y2: top, width: line_w, color: Color::BLACK,
+                });
+            }
+            if delim != "\\rceil" {
+                elements.push(MathElement::Line {
+                    x1: x, y1: bottom, x2: x - cap_len, y2: bottom, width: line_w, color: Color::BLACK,
+                });
+            }
+        }
+        "\\{" => {
+            // Left brace: vertical line + center point + caps
+            let x = width * 0.6;
+            let mid_y = (top + bottom) / 2.0;
+            elements.push(MathElement::Line {
+                x1: x, y1: top, x2: x, y2: mid_y - font_size * 0.1, width: line_w, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: x, y1: mid_y + font_size * 0.1, x2: x, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+            // Center cusp
+            elements.push(MathElement::Line {
+                x1: x, y1: mid_y - font_size * 0.1, x2: x - cap_len * 0.5, y2: mid_y, width: line_w, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: x - cap_len * 0.5, y1: mid_y, x2: x, y2: mid_y + font_size * 0.1, width: line_w, color: Color::BLACK,
+            });
+            // Top/bottom caps
+            elements.push(MathElement::Line {
+                x1: x, y1: top, x2: x + cap_len * 0.5, y2: top, width: line_w, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: x, y1: bottom, x2: x + cap_len * 0.5, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+        }
+        "\\}" => {
+            let x = width * 0.4;
+            let mid_y = (top + bottom) / 2.0;
+            elements.push(MathElement::Line {
+                x1: x, y1: top, x2: x, y2: mid_y - font_size * 0.1, width: line_w, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: x, y1: mid_y + font_size * 0.1, x2: x, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: x, y1: mid_y - font_size * 0.1, x2: x + cap_len * 0.5, y2: mid_y, width: line_w, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: x + cap_len * 0.5, y1: mid_y, x2: x, y2: mid_y + font_size * 0.1, width: line_w, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: x, y1: top, x2: x - cap_len * 0.5, y2: top, width: line_w, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: x, y1: bottom, x2: x - cap_len * 0.5, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+        }
+        "\\langle" => {
+            // Left angle bracket: two diagonal lines meeting at the left
+            let mid_y = (top + bottom) / 2.0;
+            let right_x = width * 0.8;
+            let left_x = width * 0.2;
+            elements.push(MathElement::Line {
+                x1: right_x, y1: top, x2: left_x, y2: mid_y, width: line_w, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: left_x, y1: mid_y, x2: right_x, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+        }
+        "\\rangle" => {
+            let mid_y = (top + bottom) / 2.0;
+            let left_x = width * 0.2;
+            let right_x = width * 0.8;
+            elements.push(MathElement::Line {
+                x1: left_x, y1: top, x2: right_x, y2: mid_y, width: line_w, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: right_x, y1: mid_y, x2: left_x, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+        }
+        "|" => {
+            let x = width * 0.5;
+            elements.push(MathElement::Line {
+                x1: x, y1: top, x2: x, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+        }
+        "\\|" => {
+            let x1 = width * 0.35;
+            let x2 = width * 0.65;
+            elements.push(MathElement::Line {
+                x1, y1: top, x2: x1, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+            elements.push(MathElement::Line {
+                x1: x2, y1: top, x2, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+        }
+        _ => {
+            // Fallback: just a vertical line
+            let x = width * 0.5;
+            elements.push(MathElement::Line {
+                x1: x, y1: top, x2: x, y2: bottom, width: line_w, color: Color::BLACK,
+            });
+        }
+    }
+
+    MathBox { width, height: content_height, depth: content_depth, elements }
 }
 
 fn layout_matrix(
@@ -715,9 +1292,18 @@ fn layout_accent(base: &[MathNode], accent_type: &AccentType, font_size: f32) ->
             x: base_box.width * 0.25, y: accent_y, text: "\u{00A8}".to_string(),
             font_size, font_id: FontId::Helvetica, color: Color::BLACK,
         },
-        AccentType::Breve => MathElement::Text {
-            x: base_box.width * 0.15, y: accent_y, text: "\u{00A8}".to_string(),
-            font_size: font_size * 0.6, font_id: FontId::Helvetica, color: Color::BLACK,
+        AccentType::Breve => {
+            // Draw breve as a small arc (3 line segments approximating a "⌣" shape)
+            let cx = base_box.width * 0.5;
+            let w = base_box.width * 0.5;
+            let h = font_size * 0.08;
+            let lw = font_size * 0.05;
+            let y0 = accent_y + font_size * 0.15;
+            base_box.elements.push(MathElement::Line { x1: cx - w * 0.5, y1: y0, x2: cx - w * 0.15, y2: y0 + h, width: lw, color: Color::BLACK });
+            base_box.elements.push(MathElement::Line { x1: cx - w * 0.15, y1: y0 + h, x2: cx + w * 0.15, y2: y0 + h, width: lw, color: Color::BLACK });
+            base_box.elements.push(MathElement::Line { x1: cx + w * 0.15, y1: y0 + h, x2: cx + w * 0.5, y2: y0, width: lw, color: Color::BLACK });
+            base_box.height += font_size * 0.2;
+            return base_box;
         },
         AccentType::Check => MathElement::Text {
             // Inverted hat / caron
@@ -952,11 +1538,11 @@ fn layout_underset(under: &[MathNode], base: &[MathNode], font_size: f32) -> Mat
 fn layout_math_font(font: &MathFontType, content: &[MathNode], font_size: f32) -> MathBox {
     // Map math fonts to closest available Standard 14 font
     let font_id = match font {
-        MathFontType::Blackboard => FontId::HelveticaBold,
-        MathFontType::Calligraphic | MathFontType::Script => FontId::HelveticaOblique,
-        MathFontType::Fraktur => FontId::HelveticaBoldOblique,
-        MathFontType::SansSerif => FontId::Helvetica,
-        MathFontType::BoldMath => FontId::HelveticaBold,
+        MathFontType::Blackboard => FontId::TimesBold,         // \mathbb — bold serif
+        MathFontType::Calligraphic | MathFontType::Script => FontId::TimesItalic, // \mathcal
+        MathFontType::Fraktur => FontId::TimesBold,            // \mathfrak approximation
+        MathFontType::SansSerif => FontId::Helvetica,          // \mathsf stays sans-serif
+        MathFontType::BoldMath => FontId::TimesBold,           // \mathbf
     };
 
     // Re-layout content with the target font

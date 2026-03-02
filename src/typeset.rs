@@ -12,6 +12,10 @@ pub enum FontStyle {
     Monospace,
     SmallCaps,
     Symbol,
+    TimesRoman,
+    TimesItalic,
+    TimesBold,
+    ZapfDingbats,
 }
 
 #[derive(Debug, Clone, Copy)]

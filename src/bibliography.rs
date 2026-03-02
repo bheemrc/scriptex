@@ -373,6 +373,31 @@ impl Bibliography {
         }
     }
 
+    /// Get (author_short, year) for all entries — for natbib-style citations.
+    /// Returns map from key to (short_author, year).
+    pub fn author_year_map(&self) -> HashMap<String, (String, String)> {
+        let mut map = HashMap::new();
+        for entry in &self.entries {
+            let author = if !entry.authors.is_empty() {
+                let first = &entry.authors[0];
+                let last_name = first.split_whitespace().last().unwrap_or(first);
+                if entry.authors.len() > 2 {
+                    format!("{} et al.", last_name)
+                } else if entry.authors.len() == 2 {
+                    let second = entry.authors[1].split_whitespace().last()
+                        .unwrap_or(&entry.authors[1]);
+                    format!("{} and {}", last_name, second)
+                } else {
+                    last_name.to_string()
+                }
+            } else {
+                "Unknown".to_string()
+            };
+            map.insert(entry.key.clone(), (author, entry.year.clone()));
+        }
+        map
+    }
+
     /// Format a bibliography entry for the references section
     pub fn format_entry(&self, entry: &BibEntry) -> String {
         let mut result = String::with_capacity(256);

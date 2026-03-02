@@ -55,9 +55,10 @@ pub(super) fn layout_theorem(thm: &TheoremData, state: &mut LayoutState, doc: &D
     let font_size = state.current_font_size;
     state.ensure_space(font_size * 1.2);
     state.current_x = state.text_left();
+    let header_w = font::measure_text(&header, font::style_to_font_id(label_style), font_size);
     state.emit_text(&header, font_size, label_style, Color::BLACK);
-    state.current_y += font_size * 1.2;
-    state.current_x = state.text_left();
+    // Continue body on same line after header
+    state.current_x = state.text_left() + header_w + font_size * 0.25;
     state.suppress_next_indent = true;
 
     let saved_style = state.current_font_style;
@@ -69,24 +70,128 @@ pub(super) fn layout_theorem(thm: &TheoremData, state: &mut LayoutState, doc: &D
     Ok(())
 }
 
-pub(super) fn layout_proof(content: &[Node], state: &mut LayoutState, doc: &Document, source: &str) -> Result<()> {
+pub(super) fn layout_proof(header: Option<&str>, content: &[Node], state: &mut LayoutState, doc: &Document, source: &str) -> Result<()> {
     state.add_vertical_space(8.0);
     let font_size = state.current_font_size;
-    let header = "Proof.";
+    let header_text = match header {
+        Some(h) => format!("{}.", h),
+        None => "Proof.".to_string(),
+    };
     state.ensure_space(font_size * 1.2);
     state.current_x = state.text_left();
-    state.emit_text(header, font_size, FontStyle::Italic, Color::BLACK);
-    state.current_y += font_size * 1.2;
-    state.current_x = state.text_left();
+    let header_w = font::measure_text(&header_text, FontId::TimesItalic, font_size);
+    state.emit_text(&header_text, font_size, FontStyle::Italic, Color::BLACK);
+    // Continue body on same line after header
+    state.current_x = state.text_left() + header_w + font_size * 0.25;
     state.suppress_next_indent = true;
 
     super::layout_nodes(content, state, doc, source)?;
 
-    let sq = font_size * 0.5;
+    // QED square — filled rectangle flush right
+    let sq = font_size * 0.45;
     let qed_x = state.text_left() + state.text_width() - sq;
-    let qed_y = state.current_y - sq * 0.7;
-    state.emit_line(qed_x, qed_y, qed_x + sq, qed_y, sq, Color::BLACK);
+    let qed_y = state.current_y - sq;
+    state.emit_rect(qed_x, qed_y, sq, sq, Some(Color::BLACK), None);
     state.add_vertical_space(8.0);
+    Ok(())
+}
+
+pub(super) fn layout_algorithm(
+    caption: &Option<String>,
+    label: &Option<String>,
+    lines: &[AlgoLine],
+    line_numbered: bool,
+    state: &mut LayoutState,
+    doc: &Document,
+) -> Result<()> {
+    state.add_vertical_space(12.0);
+    let font_size = state.current_font_size;
+    let line_height = font_size * 1.4;
+    let indent_unit = font_size * 1.2;
+    let left = state.text_left();
+    let width = state.text_width();
+
+    // Line number gutter width (enough for "00:")
+    let num_gutter = if line_numbered { font_size * 2.0 } else { 0.0 };
+
+    // Algorithm counter + caption
+    state.figure_counter += 1;
+    let algo_num = state.figure_counter;
+
+    // Top rule
+    state.ensure_space(line_height * 2.0);
+    state.emit_line(left, state.current_y, left + width, state.current_y, 0.8, Color::BLACK);
+    state.current_y += line_height * 0.3;
+
+    // Caption header: "Algorithm N: caption text"
+    if let Some(cap) = caption {
+        let header = format!("Algorithm {}: {}", algo_num, cap);
+        state.current_x = left;
+        state.emit_text(&header, font_size, FontStyle::Bold, Color::BLACK);
+        state.current_y += line_height;
+    } else {
+        let header = format!("Algorithm {}", algo_num);
+        state.current_x = left;
+        state.emit_text(&header, font_size, FontStyle::Bold, Color::BLACK);
+        state.current_y += line_height;
+    }
+
+    // Store label
+    if let Some(ref lbl) = label {
+        state.label_map.insert(lbl.clone(), algo_num.to_string());
+        state.label_types.insert(lbl.clone(), "algorithm".to_string());
+    }
+
+    // Mid rule
+    state.emit_line(left, state.current_y - line_height * 0.3, left + width, state.current_y - line_height * 0.3, 0.4, Color::BLACK);
+
+    // Render algorithm lines
+    let mut line_num: u32 = 0;
+    let num_font_size = font_size * 0.85;
+    let mut ibuf = itoa::Buffer::new();
+
+    for line in lines {
+        state.ensure_space(line_height);
+        line_num += 1;
+
+        let x = left + num_gutter + indent_unit * line.indent as f32 + 4.0;
+
+        // Emit line number in the gutter
+        if line_numbered {
+            let num_str = ibuf.format(line_num);
+            let num_w = font::measure_text(num_str, FontId::Helvetica, num_font_size);
+            // Right-align in gutter
+            state.current_x = left + num_gutter - num_w - 4.0;
+            state.emit_text(num_str, num_font_size, FontStyle::Regular, Color::GRAY);
+        }
+
+        state.current_x = x;
+
+        for token in &line.content {
+            match token {
+                AlgoToken::Keyword(kw) => {
+                    let w = font::measure_text(kw, FontId::HelveticaBold, font_size);
+                    state.emit_text(kw, font_size, FontStyle::Bold, Color::BLACK);
+                    state.current_x += w;
+                }
+                AlgoToken::Text(t) => {
+                    let w = font::measure_text(t, FontId::Helvetica, font_size);
+                    state.emit_text(t, font_size, FontStyle::Regular, Color::BLACK);
+                    state.current_x += w;
+                }
+                AlgoToken::Math(math) => {
+                    let math_box = crate::math_layout::layout_math(math, font_size);
+                    super::math::emit_math_elements(&math_box, state.current_x, state.current_y, state);
+                    state.current_x += math_box.width;
+                }
+            }
+        }
+        state.current_y += line_height;
+    }
+
+    // Bottom rule
+    state.emit_line(left, state.current_y - line_height * 0.5, left + width, state.current_y - line_height * 0.5, 0.8, Color::BLACK);
+    state.add_vertical_space(12.0);
     Ok(())
 }
 
