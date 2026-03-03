@@ -57,6 +57,28 @@ pub fn compile_latex_project(source: &str, files_json: &str) -> Result<js_sys::U
     Ok(js_sys::Uint8Array::from(pdf_bytes.as_slice()))
 }
 
+/// Extract compiler-verified document structure as JSON.
+/// Runs parsing + prescans but skips layout and PDF generation (~1ms).
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn compile_latex_structure(source: &str) -> Result<String, JsValue> {
+    crate::compile_latex_structure(source)
+        .map_err(|e| JsValue::from_str(&format!("Structure extraction error: {}", e)))
+}
+
+/// Extract structure from a multi-file project as JSON.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn compile_latex_project_structure(source: &str, files_json: &str) -> Result<String, JsValue> {
+    let mut project = crate::ProjectFiles::new();
+    if !files_json.is_empty() {
+        parse_project_files(files_json, &mut project)
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse project files: {}", e)))?;
+    }
+    crate::compile_latex_project_structure(source, &project)
+        .map_err(|e| JsValue::from_str(&format!("Structure extraction error: {}", e)))
+}
+
 /// Parse a simple JSON object of filename→content into ProjectFiles.
 /// We do minimal JSON parsing to avoid pulling in serde_json for WASM size.
 #[cfg(feature = "wasm")]

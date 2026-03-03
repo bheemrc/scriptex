@@ -15,8 +15,8 @@ mod tables;
 mod environments;
 
 pub use types::*;
+pub use prescans::{collect_labels, collect_toc_entries, TocEntry};
 use state::{LayoutState, PageStyle};
-use prescans::{collect_labels, collect_toc_entries};
 use text::{layout_paragraph, layout_text_content, layout_text_content_source, layout_text_line, node_to_text, resolve_citations};
 
 use math::layout_display_math_data;

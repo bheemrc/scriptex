@@ -31,6 +31,8 @@ pub mod image_embed;
 #[allow(dead_code)]
 pub mod font_embed;
 
+pub mod structure;
+
 #[cfg(feature = "wasm")]
 pub mod wasm_api;
 
@@ -598,4 +600,69 @@ fn resolve_bibliography(doc: &mut crate::document::Document, source: &str, proje
     }
 
     ay_map
+}
+
+// ============================================================
+// Structure extraction (no layout or PDF generation)
+// ============================================================
+
+/// Extract compiler-verified document structure as JSON.
+/// Runs steps 1-5b + prescans but skips layout and PDF generation.
+pub fn compile_latex_structure(source: &str) -> Result<String> {
+    compile_latex_project_structure(source, &ProjectFiles::new())
+}
+
+/// Extract structure from a multi-file project.
+pub fn compile_latex_project_structure(source: &str, project: &ProjectFiles) -> Result<String> {
+    // Steps 1-3: resolve inputs, styles, macros (same as compile_latex_project)
+    let resolved;
+    let source_after_includes: &str = if source.contains("\\input") || source.contains("\\include{") {
+        resolved = resolve_inputs_from_project(source, project, 0);
+        &resolved
+    } else {
+        source
+    };
+
+    let with_styles;
+    let source_with_styles: &str = if !project.tex_files.is_empty() {
+        let style_defs = extract_style_definitions(source_after_includes, project);
+        if !style_defs.is_empty() {
+            with_styles = inject_style_definitions(source_after_includes, &style_defs);
+            &with_styles
+        } else {
+            source_after_includes
+        }
+    } else {
+        source_after_includes
+    };
+
+    let expanded;
+    let effective_source: &str = if macro_expand::MacroEngine::has_macros(source_with_styles) {
+        expanded = macro_expand::expand(source_with_styles);
+        &expanded
+    } else {
+        source_with_styles
+    };
+
+    // Step 4-5: Lex + Parse
+    let tokens = lexer::tokenize_parallel(effective_source);
+    let mut parser = Parser::new(tokens, effective_source);
+    let mut doc = parser.parse()?;
+
+    // Step 5b: Bibliography resolution
+    let _author_year_map = if !project.bib_files.is_empty() || has_bibliography_command(effective_source) {
+        resolve_bibliography(&mut doc, effective_source, project)
+    } else {
+        HashMap::new()
+    };
+
+    // Prescans (same as layout entry, but without running layout)
+    let (label_map, citation_map, label_types) = layout::collect_labels(&doc.body, &doc);
+    let toc_entries = layout::collect_toc_entries(&doc.body, effective_source);
+
+    // Serialize to JSON
+    Ok(structure::extract_structure_json(
+        &doc, effective_source,
+        &label_map, &label_types, &citation_map, &toc_entries,
+    ))
 }

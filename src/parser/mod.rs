@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use crate::lexer::{Token, TokenKind, cmd_id};
 use crate::document::*;
 use crate::color::Color;

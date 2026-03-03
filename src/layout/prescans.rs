@@ -5,7 +5,7 @@ use crate::document::*;
 use super::text::node_to_text;
 
 /// Pre-scan AST to collect label→display-number mappings for \ref resolution.
-pub(super) struct LabelCollector<'a> {
+pub struct LabelCollector<'a> {
     pub labels: HashMap<String, String>,
     pub label_types: HashMap<String, String>,
     pub citations: HashMap<String, u32>,
@@ -21,7 +21,7 @@ pub(super) struct LabelCollector<'a> {
     theorem_defs: &'a [TheoremDef],
 }
 
-pub(super) fn collect_labels(nodes: &[Node], doc: &Document) -> (HashMap<String, String>, HashMap<String, u32>, HashMap<String, String>) {
+pub fn collect_labels(nodes: &[Node], doc: &Document) -> (HashMap<String, String>, HashMap<String, u32>, HashMap<String, String>) {
     let mut ctx = LabelCollector {
         labels: HashMap::new(),
         label_types: HashMap::new(),
@@ -228,7 +228,7 @@ fn collect_labels_inner(nodes: &[Node], ctx: &mut LabelCollector) {
 }
 
 /// Table of contents entry
-pub(super) struct TocEntry {
+pub struct TocEntry {
     pub level: SectionLevel,
     pub number: String,
     pub title: String,
@@ -236,14 +236,14 @@ pub(super) struct TocEntry {
 }
 
 /// TOC fixup: position where a page number should be stamped after layout
-pub(super) struct TocFixup {
+pub struct TocFixup {
     pub elem_idx: u32,
     pub text_offset: u32,
     pub toc_idx: u32,
 }
 
 /// Pre-scan AST to collect section entries for table of contents
-pub(super) fn collect_toc_entries(nodes: &[Node], source: &str) -> Vec<TocEntry> {
+pub fn collect_toc_entries(nodes: &[Node], source: &str) -> Vec<TocEntry> {
     let mut entries = Vec::new();
     let mut counters = [0u32; 7];
     let mut appendix = false;
