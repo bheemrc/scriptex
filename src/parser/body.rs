@@ -246,8 +246,8 @@ impl<'a> Parser<'a> {
                 }
                 cmd_id::CENTERING => Ok(None),
                 cmd_id::HLINE => { self.skip_command_args(); Ok(Some(Node::HRule)) }
-                cmd_id::LABEL => { let l = self.read_braced_text()?; Ok(Some(Node::Label(l))) }
-                cmd_id::REF => { let l = self.read_braced_text()?; Ok(Some(Node::Ref(l))) }
+                cmd_id::LABEL => { match self.try_read_braced_text() { Some(l) => Ok(Some(Node::Label(l))), None => Ok(None) } }
+                cmd_id::REF => { match self.try_read_braced_text() { Some(l) => Ok(Some(Node::Ref(l))), None => Ok(None) } }
                 cmd_id::CITE => {
                     let opt1 = self.try_read_optional_arg();
                     let opt2 = self.try_read_optional_arg();
@@ -748,21 +748,18 @@ impl<'a> Parser<'a> {
             }
 
             // Cross-references (variants not in cmd_id)
+            // Use try_read_braced_text so incomplete \ref{} during live editing doesn't crash
             "\\eqref" => {
-                let label = self.read_braced_text()?;
-                Ok(Some(Node::EqRef(label)))
+                match self.try_read_braced_text() { Some(l) => Ok(Some(Node::EqRef(l))), None => Ok(None) }
             }
             "\\cref" => {
-                let label = self.read_braced_text()?;
-                Ok(Some(Node::Cref(label, false)))
+                match self.try_read_braced_text() { Some(l) => Ok(Some(Node::Cref(l, false))), None => Ok(None) }
             }
             "\\Cref" => {
-                let label = self.read_braced_text()?;
-                Ok(Some(Node::Cref(label, true)))
+                match self.try_read_braced_text() { Some(l) => Ok(Some(Node::Cref(l, true))), None => Ok(None) }
             }
             "\\pageref" | "\\autoref" | "\\nameref" => {
-                let label = self.read_braced_text()?;
-                Ok(Some(Node::Ref(label)))
+                match self.try_read_braced_text() { Some(l) => Ok(Some(Node::Ref(l))), None => Ok(None) }
             }
             "\\citep" | "\\Citep" => {
                 let opt = self.try_read_optional_arg();

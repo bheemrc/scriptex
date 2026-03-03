@@ -183,6 +183,17 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Like read_braced_text but returns None if no opening brace is found
+    /// (instead of erroring). Used for commands like \ref, \label, \cite
+    /// that should degrade gracefully during live editing.
+    pub(super) fn try_read_braced_text(&mut self) -> Option<String> {
+        self.skip_whitespace_and_comments();
+        if self.current().kind != TokenKind::OpenBrace {
+            return None;
+        }
+        self.read_braced_text().ok()
+    }
+
     pub(super) fn read_braced_text(&mut self) -> Result<String> {
         self.expect_open_brace()?;
 
