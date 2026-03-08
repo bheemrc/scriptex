@@ -806,7 +806,12 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
 
         // Group containing block elements (e.g. from \resizebox wrapping a table)
         Node::Group(children) if !is_inline_node(node) => {
+            // Save and restore scoped state (alignment, font size, color declarations)
+            let saved_alignment = state.alignment_mode;
+            let saved_font_size = state.current_font_size;
             layout_nodes(children, state, doc, source)?;
+            state.alignment_mode = saved_alignment;
+            state.current_font_size = saved_font_size;
         }
 
         Node::Figure(fig) => {
