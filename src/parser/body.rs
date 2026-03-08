@@ -357,14 +357,15 @@ impl<'a> Parser<'a> {
             "\\underline" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Underline(n))) }
             "\\sout" | "\\st" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Strikethrough(n))) }
             "\\textrm" | "\\textnormal" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Group(n))) }
-            "\\textsf" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Group(n))) }
+            "\\textsf" => { let n = self.read_braced_nodes()?; Ok(Some(Node::SansSerif(n))) }
             "\\textsl" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Italic(n))) }
 
             // Style switches — change font for subsequent text in scope
             "\\bf" | "\\bfseries" => Ok(Some(Node::FontStyleDecl(FontDeclType::Bold))),
             "\\it" | "\\itshape" | "\\sl" | "\\slshape" => Ok(Some(Node::FontStyleDecl(FontDeclType::Italic))),
             "\\tt" | "\\ttfamily" => Ok(Some(Node::FontStyleDecl(FontDeclType::Monospace))),
-            "\\rm" | "\\rmfamily" | "\\sf" | "\\sffamily" | "\\normalfont" => Ok(Some(Node::FontStyleDecl(FontDeclType::Regular))),
+            "\\rm" | "\\rmfamily" | "\\normalfont" => Ok(Some(Node::FontStyleDecl(FontDeclType::Regular))),
+            "\\sf" | "\\sffamily" => Ok(Some(Node::FontStyleDecl(FontDeclType::SansSerif))),
             "\\sc" | "\\scshape" => Ok(Some(Node::FontStyleDecl(FontDeclType::SmallCaps))),
 
             // Font sizes
@@ -1187,7 +1188,7 @@ fn node_to_plain_text(node: &Node, out: &mut String, source: &str) {
             out.push_str(s.trim());
         }
         Node::Bold(children) | Node::Italic(children) | Node::Emph(children)
-        | Node::Monospace(children) | Node::SmallCaps(children)
+        | Node::Monospace(children) | Node::SansSerif(children) | Node::SmallCaps(children)
         | Node::Underline(children) | Node::Group(children)
         | Node::Paragraph(children) => {
             for child in children {

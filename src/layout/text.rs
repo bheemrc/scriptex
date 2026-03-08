@@ -24,42 +24,21 @@ pub(super) fn justify_line(line: &[u8], available_width: f32, avg_width: f32, fo
 }
 
 pub(super) fn justify_line_ext(line: &[u8], available_width: f32, avg_width: f32, font_size: f32, is_last_line: bool, font_id: crate::font::FontId) -> i16 {
+    justify_line_with_width(line, available_width, avg_width, font_size, is_last_line, font_id, None)
+}
+
+/// Justify a line, optionally using a pre-computed pixel width to avoid re-measuring.
+#[inline]
+fn justify_line_with_width(line: &[u8], available_width: f32, avg_width: f32, font_size: f32, is_last_line: bool, font_id: crate::font::FontId, precomputed_width: Option<f32>) -> i16 {
     if is_last_line { return 0; }
     let num_spaces = memchr::memchr_iter(b' ', line).count();
     if num_spaces == 0 { return 0; }
 
-    // Use per-glyph font metrics when line is close to full width
-    // (where justification accuracy matters most)
-    let natural_width = {
-        let est_width = line.len() as f32 * avg_width;
-        let est_slack = (available_width - est_width).abs();
-        if est_slack < font_size * 2.0 && line.len() <= 200 {
-            let widths = crate::font::font_widths(font_id);
-            let scale = font_size / 1000.0;
-            let mut w = 0.0f32;
-            // Ligature-aware width measurement with kerning
-            let mut prev: u8 = 0;
-            let mut i = 0;
-            while i < line.len() {
-                let cur;
-                if line[i] == b'f' {
-                    // Only fi/fl are standard ligatures
-                    if i + 1 < line.len() && line[i + 1] == b'i' { cur = crate::font::LIG_FI; w += widths[cur as usize] as f32 * scale; i += 2; }
-                    else if i + 1 < line.len() && line[i + 1] == b'l' { cur = crate::font::LIG_FL; w += widths[cur as usize] as f32 * scale; i += 2; }
-                    else { cur = b'f'; w += widths[b'f' as usize] as f32 * scale; i += 1; }
-                } else {
-                    cur = line[i];
-                    w += widths[cur as usize] as f32 * scale;
-                    i += 1;
-                }
-                if prev != 0 {
-                    w += crate::font::kern_pair(font_id, prev, cur) as f32 * scale;
-                }
-                prev = cur;
-            }
-            w
-        } else {
-            est_width
+    let natural_width = match precomputed_width {
+        Some(w) => w,
+        None => {
+            // Fallback: estimate from char count (used by rich paragraph path)
+            line.len() as f32 * avg_width
         }
     };
 
@@ -69,59 +48,91 @@ pub(super) fn justify_line_ext(line: &[u8], available_width: f32, avg_width: f32
     if extra > available_width * 0.45 { return 0; }
     if extra < -font_size * 1.5 { return 0; }
     let ws = extra / num_spaces as f32;
-    // TeX-like spacing limits: allow compression (-1pt) and generous stretch (+6pt)
-    let ws_clamped = ws.max(-1.0).min(6.0);
+    // TeX-like spacing limits: allow compression (-1pt) and moderate stretch (+4pt)
+    // Tighter than +6pt for more even text color / grayness
+    let ws_clamped = ws.max(-1.0).min(4.0);
     (ws_clamped * 50.0).min(i16::MAX as f32) as i16
 }
 
-/// Find the optimal line break point using pixel-accurate measurement.
-/// Given text bytes starting at `line_start`, find the last space position where
-/// the text from line_start fits within `max_width` pixels.
-fn find_pixel_break(bytes: &[u8], line_start: usize, char_target: usize, max_width: f32,
-                    font_id: crate::font::FontId, font_size: f32) -> (usize, usize) {
-    let len = bytes.len();
-    let target = (line_start + char_target).min(len);
+/// Measure a byte span's pixel width using font glyph widths (ligature-aware, no kerning).
+#[inline(always)]
+fn span_width(bytes: &[u8], start: usize, end: usize, widths: &[u16], scale: f32) -> f32 {
+    let slice = &bytes[start..end];
+    let has_f = memchr::memchr(b'f', slice).is_some();
+    let mut total: i32 = 0;
+    if !has_f {
+        for &b in slice {
+            total += widths[b as usize] as i32;
+        }
+    } else {
+        let mut i = 0;
+        while i < slice.len() {
+            if slice[i] == b'f' && i + 1 < slice.len() {
+                if slice[i + 1] == b'i' { total += widths[crate::font::LIG_FI as usize] as i32; i += 2; continue; }
+                if slice[i + 1] == b'l' { total += widths[crate::font::LIG_FL as usize] as i32; i += 2; continue; }
+            }
+            total += widths[slice[i] as usize] as i32;
+            i += 1;
+        }
+    }
+    total as f32 * scale
+}
 
+/// Find line break position using char-count heuristic with pixel refinement.
+/// Returns (line_end, next_pos, line_width).
+fn find_pixel_break(bytes: &[u8], line_start: usize, char_target: usize, max_width: f32,
+                    font_id: crate::font::FontId, font_size: f32) -> (usize, usize, f32) {
+    let len = bytes.len();
+    let widths = crate::font::font_widths(font_id);
+    let scale = font_size / 1000.0;
+
+    // Fast path: remaining text fits within char estimate
+    let target = (line_start + char_target).min(len);
     if target >= len {
-        return (len, len);
+        let mut end = len;
+        while end > line_start && bytes[end - 1] <= b' ' { end -= 1; }
+        let w = span_width(bytes, line_start, end, widths, scale);
+        return (end, len, w);
     }
 
-    // First: find break via backward search from wide target
-    let (mut line_end, next_pos) = match memchr::memrchr2(b' ', b'\n', &bytes[line_start..target]) {
+    // Find candidate break point near char_target using memrchr
+    let (cand_end, cand_next) = match memchr::memrchr(b' ', &bytes[line_start..target]) {
         Some(offset) => (line_start + offset, line_start + offset + 1),
-        None => match memchr::memchr2(b' ', b'\n', &bytes[target..]) {
+        None => match memchr::memchr(b' ', &bytes[target..len]) {
             Some(offset) => (target + offset, target + offset + 1),
-            None => return (len, len),
+            None => {
+                let mut end = len;
+                while end > line_start && bytes[end - 1] <= b' ' { end -= 1; }
+                let w = span_width(bytes, line_start, end, widths, scale);
+                return (end, len, w);
+            }
         }
     };
 
-    // Trim trailing whitespace
+    // Trim trailing whitespace from line end
+    let mut line_end = cand_end;
     while line_end > line_start && bytes[line_end - 1] <= b' ' { line_end -= 1; }
-
-    // Skip pixel refinement for very long lines (performance: large docs)
-    let line_chars = line_end - line_start;
-    if line_chars > 200 {
-        return (line_end, next_pos);
+    if line_end <= line_start {
+        return (cand_end, cand_next, 0.0);
     }
 
     // Measure actual pixel width
-    let line_text = std::str::from_utf8(&bytes[line_start..line_end]).unwrap_or("");
-    let actual_width = crate::font::measure_text(line_text, font_id, font_size);
+    let actual_w = span_width(bytes, line_start, line_end, widths, scale);
 
-    if actual_width > max_width + 1.0 {
-        // Line is too wide — search backward for a shorter break
+    if actual_w > max_width + 1.0 {
+        // Too wide — binary search backward: measure progressively shorter spans
+        // Use incremental subtraction: remove last word's width each step
         let mut scan = line_end;
         while scan > line_start {
-            match memchr::memrchr2(b' ', b'\n', &bytes[line_start..scan]) {
+            match memchr::memrchr(b' ', &bytes[line_start..scan]) {
                 Some(offset) => {
                     let try_end = line_start + offset;
                     let mut te = try_end;
                     while te > line_start && bytes[te - 1] <= b' ' { te -= 1; }
                     if te > line_start {
-                        let try_text = std::str::from_utf8(&bytes[line_start..te]).unwrap_or("");
-                        let w = crate::font::measure_text(try_text, font_id, font_size);
+                        let w = span_width(bytes, line_start, te, widths, scale);
                         if w <= max_width + 1.0 {
-                            return (te, try_end + 1);
+                            return (te, try_end + 1, w);
                         }
                     }
                     scan = try_end;
@@ -129,37 +140,35 @@ fn find_pixel_break(bytes: &[u8], line_start: usize, char_target: usize, max_wid
                 None => break,
             }
         }
-        // Fall through to original break if nothing works
-    } else if actual_width < max_width * 0.85 && next_pos < len {
-        // Line is too short — try extending forward word-by-word
-        let mut ext_end = line_end;
-        let mut ext_next = next_pos;
-        let mut scan = next_pos;
+        (line_end, cand_next, actual_w)
+    } else if actual_w < max_width * 0.82 && cand_next < len {
+        // Too short — extend forward word by word using incremental width
+        let mut cur_w = actual_w;
+        let mut best_end = line_end;
+        let mut best_next = cand_next;
+        let mut best_w = actual_w;
+        let mut scan = cand_next;
+        let space_w = widths[b' ' as usize] as f32 * scale;
         while scan < len && bytes[scan] <= b' ' { scan += 1; }
         while scan < len {
-            // Find end of next word
             let mut word_end = scan;
             while word_end < len && bytes[word_end] > b' ' { word_end += 1; }
-            // Measure with this word included
-            let try_text = std::str::from_utf8(&bytes[line_start..word_end]).unwrap_or("");
-            let w = crate::font::measure_text(try_text, font_id, font_size);
-            if w > max_width + 1.0 {
-                break; // This word doesn't fit
-            }
-            ext_end = word_end;
-            ext_next = word_end;
-            // Skip spaces after this word
-            while ext_next < len && bytes[ext_next] <= b' ' { ext_next += 1; }
-            scan = ext_next;
+            let word_w = span_width(bytes, scan, word_end, widths, scale);
+            let new_w = cur_w + space_w + word_w;
+            if new_w > max_width + 1.0 { break; }
+            cur_w = new_w;
+            best_end = word_end;
+            best_w = cur_w;
+            let mut after = word_end;
+            while after < len && bytes[after] <= b' ' { after += 1; }
+            best_next = after;
+            scan = after;
         }
-        if ext_end > line_end {
-            // Trim trailing whitespace from extended line
-            while ext_end > line_start && bytes[ext_end - 1] <= b' ' { ext_end -= 1; }
-            return (ext_end, ext_next);
-        }
+        while best_end > line_start && bytes[best_end - 1] <= b' ' { best_end -= 1; }
+        (best_end, best_next, best_w)
+    } else {
+        (line_end, cand_next, actual_w)
     }
-
-    (line_end, next_pos)
 }
 
 /// Core word-wrapping and text layout.
@@ -190,6 +199,10 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
         let mut pos = 0;
         while pos < len && bytes[pos] <= b' ' { pos += 1; }
 
+        let widths = crate::font::font_widths(font_id);
+        let scale = font_size / 1000.0;
+        let space_w = widths[b' ' as usize] as f32 * scale;
+
         let x_first = state.text_left() + inline_offset;
         let x_rest = state.text_left();
         let first_line_width = full_text_width - inline_offset;
@@ -214,7 +227,7 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
         // First line
         if pos < len {
             let line_start = pos;
-            let (line_end, next_pos) = find_pixel_break(bytes, line_start, max_chars_first, first_line_width, font_id, font_size);
+            let (line_end, next_pos, line_w) = find_pixel_break(bytes, line_start, max_chars_first, first_line_width, font_id, font_size);
 
             if line_end > line_start {
                 if lines_until_break <= 0 {
@@ -225,7 +238,7 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
                     lines_until_break = ((state.cached_max_y - state.cached_start_y - line_height) / step) as i32 + 1;
                 }
                 let is_last = next_pos >= len;
-                let ws = justify_line_ext(&bytes[line_start..line_end], first_line_width, avg_width, font_size, is_last, font_id);
+                let ws = justify_line_with_width(&bytes[line_start..line_end], first_line_width, avg_width, font_size, is_last, font_id, Some(line_w));
                 state.all_elements.push(PageElement::Text {
                     x: x_first, y: state.current_y,
                     text_offset: (buf_push_pos + line_start - push_start) as u32,
@@ -243,7 +256,7 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
         // Remaining lines
         while pos < len {
             let line_start = pos;
-            let (line_end, next_pos) = find_pixel_break(bytes, line_start, max_chars_rest, full_text_width, font_id, font_size);
+            let (line_end, next_pos, line_w) = find_pixel_break(bytes, line_start, max_chars_rest, full_text_width, font_id, font_size);
 
             if line_end > line_start {
                 if lines_until_break <= 0 {
@@ -255,9 +268,7 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
                 }
 
                 // Hyphenation: check if next word can be partially pulled in
-                let actual_w = crate::font::measure_text(
-                    std::str::from_utf8(&bytes[line_start..line_end]).unwrap_or(""), font_id, font_size);
-                let slack_px = full_text_width - actual_w;
+                let slack_px = full_text_width - line_w;
                 if slack_px > font_size * 1.5 && next_pos < len {
                     let mut ws_skip = next_pos;
                     while ws_skip < len && bytes[ws_skip] <= b' ' { ws_skip += 1; }
@@ -266,11 +277,14 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
                         while we < len && bytes[we] > b' ' { we += 1; }
                         let next_word = &bytes[ws_skip..we];
                         if next_word.len() >= 5 {
-                            let hyphen_w = crate::font::measure_text("-", font_id, font_size);
-                            let space_w = crate::font::measure_text(" ", font_id, font_size);
+                            let hyphen_w = widths[b'-' as usize] as f32 * scale;
                             let max_prefix_px = slack_px - hyphen_w - space_w;
                             let max_prefix = (max_prefix_px / avg_width).max(0.0) as usize;
                             if let Some(bp) = crate::hyphenate::best_break(next_word, max_prefix) {
+                                // Compute actual width of hyphenated line
+                                let prefix_w = span_width(bytes, ws_skip, ws_skip + bp, widths, scale);
+                                let hyph_line_w = line_w + space_w + prefix_w + hyphen_w;
+
                                 let hyph_off = (state.all_text.len() - state.current_page_text_start as usize) as u32;
                                 state.all_text.push_str(&text[line_start..line_end]);
                                 state.all_text.push(' ');
@@ -278,10 +292,9 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
                                 state.all_text.push('-');
                                 let hyph_len = (line_end - line_start) + 1 + bp + 1;
 
-                                let hyph_bytes_start = state.current_page_text_start as usize + hyph_off as usize;
-                                let ws = justify_line_ext(
-                                    &state.all_text.as_bytes()[hyph_bytes_start..hyph_bytes_start + hyph_len],
-                                    full_text_width, avg_width, font_size, false, font_id,
+                                let ws = justify_line_with_width(
+                                    &state.all_text.as_bytes()[state.current_page_text_start as usize + hyph_off as usize..state.current_page_text_start as usize + hyph_off as usize + hyph_len],
+                                    full_text_width, avg_width, font_size, false, font_id, Some(hyph_line_w),
                                 );
                                 state.all_elements.push(PageElement::Text {
                                     x: x_rest, y: state.current_y, text_offset: hyph_off,
@@ -300,7 +313,7 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
                 }
 
                 let is_last = next_pos >= len;
-                let ws = justify_line_ext(&bytes[line_start..line_end], full_text_width, avg_width, font_size, is_last, font_id);
+                let ws = justify_line_with_width(&bytes[line_start..line_end], full_text_width, avg_width, font_size, is_last, font_id, Some(line_w));
                 state.all_elements.push(PageElement::Text {
                     x: x_rest, y: state.current_y,
                     text_offset: (buf_push_pos + line_start - push_start) as u32,
@@ -357,7 +370,7 @@ pub(super) fn layout_text_content_source(text: &str, state: &mut LayoutState, sr
         // First line
         if pos < len {
             let line_start = pos;
-            let (line_end, next_pos) = find_pixel_break(bytes, line_start, max_chars_first, para_width, font_id, font_size);
+            let (line_end, next_pos, line_w) = find_pixel_break(bytes, line_start, max_chars_first, para_width, font_id, font_size);
 
             if line_end > line_start {
                 if lines_until_break <= 0 {
@@ -365,7 +378,7 @@ pub(super) fn layout_text_content_source(text: &str, state: &mut LayoutState, sr
                     lines_until_break = ((state.cached_max_y - state.cached_start_y - line_height) / step) as i32 + 1;
                 }
                 let is_last = next_pos >= len;
-                let ws = justify_line_ext(&bytes[line_start..line_end], para_width, avg_width, font_size, is_last, font_id);
+                let ws = justify_line_with_width(&bytes[line_start..line_end], para_width, avg_width, font_size, is_last, font_id, Some(line_w));
                 state.all_elements.push(PageElement::Text {
                     x: x_first, y: state.current_y,
                     text_offset: (src_off + line_start as u32) | SOURCE_REF_FLAG,
@@ -383,7 +396,7 @@ pub(super) fn layout_text_content_source(text: &str, state: &mut LayoutState, sr
         // Remaining lines
         while pos < len {
             let line_start = pos;
-            let (line_end, next_pos) = find_pixel_break(bytes, line_start, max_chars_rest, full_text_width, font_id, font_size);
+            let (line_end, next_pos, line_w) = find_pixel_break(bytes, line_start, max_chars_rest, full_text_width, font_id, font_size);
 
             if line_end > line_start {
                 if lines_until_break <= 0 {
@@ -391,7 +404,7 @@ pub(super) fn layout_text_content_source(text: &str, state: &mut LayoutState, sr
                     lines_until_break = ((state.cached_max_y - state.cached_start_y - line_height) / step) as i32 + 1;
                 }
                 let is_last = next_pos >= len;
-                let ws = justify_line_ext(&bytes[line_start..line_end], full_text_width, avg_width, font_size, is_last, font_id);
+                let ws = justify_line_with_width(&bytes[line_start..line_end], full_text_width, avg_width, font_size, is_last, font_id, Some(line_w));
                 state.all_elements.push(PageElement::Text {
                     x: x_rest, y: state.current_y,
                     text_offset: (src_off + line_start as u32) | SOURCE_REF_FLAG,
@@ -481,7 +494,7 @@ fn node_to_text_ext(node: &Node, out: &mut String, source: &str, labels: Option<
             out.truncate(start);
             out.push_str(&collected);
         }
-        Node::Bold(children) | Node::Italic(children) | Node::Monospace(children)
+        Node::Bold(children) | Node::Italic(children) | Node::Monospace(children) | Node::SansSerif(children)
         | Node::Underline(children) | Node::Emph(children)
         | Node::Strikethrough(children) | Node::Superscript(children)
         | Node::Subscript(children) | Node::Group(children) => {

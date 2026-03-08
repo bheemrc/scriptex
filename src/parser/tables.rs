@@ -30,8 +30,17 @@ impl<'a> Parser<'a> {
                         if self.current().kind == TokenKind::OpenBrace {
                             let name = self.read_braced_text()?;
                             if name == env_name {
-                                // Finish current cell/row
-                                if !current_cell_content.is_empty() || !current_cells.is_empty() {
+                                // Check if pending content is only whitespace (e.g. between \hline and \end)
+                                let has_real_content = current_cell_content.iter().any(|n| match n {
+                                    Node::Text(s) => !s.trim().is_empty(),
+                                    Node::TextRef(off, len) => {
+                                        let src = &self.source[*off as usize..(*off as usize + *len as usize)];
+                                        !src.trim().is_empty()
+                                    }
+                                    _ => true,
+                                });
+                                // Finish current cell/row (skip whitespace-only trailing rows)
+                                if has_real_content || !current_cells.is_empty() {
                                     current_cells.push(TableCell {
                                         content: std::mem::take(&mut current_cell_content),
                                         colspan: 1,
@@ -197,6 +206,13 @@ impl<'a> Parser<'a> {
                         current_cell_content.push(node);
                     }
                 }
+            }
+        }
+
+        // If a trailing \hline was pending (no row after it), apply to last row
+        if hline_before_next {
+            if let Some(last_row) = rows.last_mut() {
+                last_row.hline_after = true;
             }
         }
 

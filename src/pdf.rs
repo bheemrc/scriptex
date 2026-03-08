@@ -537,6 +537,10 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                     FontStyle::TimesItalic => 8,
                     FontStyle::TimesBold => 9,
                     FontStyle::ZapfDingbats => 10,
+                    FontStyle::SansSerif => 1,          // Helvetica
+                    FontStyle::SansSerifBold => 2,      // Helvetica-Bold
+                    FontStyle::SansSerifItalic => 3,    // Helvetica-Oblique
+                    FontStyle::SansSerifBoldItalic => 4, // Helvetica-BoldOblique
                 };
 
                 let pdf_y = height - y;

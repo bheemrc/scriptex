@@ -462,7 +462,7 @@ fn collect_citation_keys(nodes: &[Node], keys: &mut Vec<String>) {
             }
             // Recurse into containers
             Node::Paragraph(c) | Node::Bold(c) | Node::Italic(c)
-            | Node::Monospace(c) | Node::SmallCaps(c) | Node::Underline(c)
+            | Node::Monospace(c) | Node::SansSerif(c) | Node::SmallCaps(c) | Node::Underline(c)
             | Node::Strikethrough(c) | Node::Superscript(c) | Node::Subscript(c)
             | Node::Emph(c) | Node::Quote(c) | Node::Quotation(c)
             | Node::Abstract(c) | Node::Center(c) | Node::FlushLeft(c)

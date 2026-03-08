@@ -378,7 +378,7 @@ fn collect_refs_inner(nodes: &[Node], refs: &mut Vec<String>, seen: &mut HashSet
             }
             // Recurse into containers
             Node::Paragraph(c) | Node::Bold(c) | Node::Italic(c)
-            | Node::Monospace(c) | Node::SmallCaps(c) | Node::Underline(c)
+            | Node::Monospace(c) | Node::SansSerif(c) | Node::SmallCaps(c) | Node::Underline(c)
             | Node::Strikethrough(c) | Node::Superscript(c) | Node::Subscript(c)
             | Node::Emph(c) | Node::Quote(c) | Node::Quotation(c)
             | Node::Abstract(c) | Node::Center(c) | Node::FlushLeft(c)
@@ -456,7 +456,7 @@ fn collect_cite_keys_inner(nodes: &[Node], keys: &mut Vec<String>, seen: &mut Ha
             }
             // Recurse into containers
             Node::Paragraph(c) | Node::Bold(c) | Node::Italic(c)
-            | Node::Monospace(c) | Node::SmallCaps(c) | Node::Underline(c)
+            | Node::Monospace(c) | Node::SansSerif(c) | Node::SmallCaps(c) | Node::Underline(c)
             | Node::Strikethrough(c) | Node::Superscript(c) | Node::Subscript(c)
             | Node::Emph(c) | Node::Quote(c) | Node::Quotation(c)
             | Node::Abstract(c) | Node::Center(c) | Node::FlushLeft(c)
@@ -702,7 +702,7 @@ fn node_to_plain_text(node: &Node, source: &str, out: &mut String) {
                 out.push_str(&source[start..end]);
             }
         }
-        Node::Bold(c) | Node::Italic(c) | Node::Monospace(c)
+        Node::Bold(c) | Node::Italic(c) | Node::Monospace(c) | Node::SansSerif(c)
         | Node::SmallCaps(c) | Node::Underline(c) | Node::Emph(c)
         | Node::Strikethrough(c) | Node::Superscript(c) | Node::Subscript(c)
         | Node::Group(c) | Node::Paragraph(c) => {

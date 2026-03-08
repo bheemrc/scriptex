@@ -221,6 +221,7 @@ pub enum Node {
     Italic(Vec<Node>),
     Monospace(Vec<Node>),
     SmallCaps(Vec<Node>),
+    SansSerif(Vec<Node>),
     Underline(Vec<Node>),
     Strikethrough(Vec<Node>),
     Superscript(Vec<Node>),
@@ -545,7 +546,7 @@ impl SectionLevel {
             SectionLevel::Chapter => base * 1.728,
             SectionLevel::Section => base * 1.44,
             SectionLevel::Subsection => base * 1.2,
-            SectionLevel::Subsubsection => base * 1.1,
+            SectionLevel::Subsubsection => base,
             SectionLevel::Paragraph => base,
             SectionLevel::Subparagraph => base,
         }
@@ -583,6 +584,7 @@ pub enum FontDeclType {
     Monospace,
     Regular,
     SmallCaps,
+    SansSerif,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

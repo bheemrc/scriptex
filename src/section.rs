@@ -419,6 +419,7 @@ fn extract_text_node(node: &Node, source: &str, out: &mut String) {
         | Node::Bold(c)
         | Node::Italic(c)
         | Node::Monospace(c)
+        | Node::SansSerif(c)
         | Node::SmallCaps(c)
         | Node::Underline(c)
         | Node::Strikethrough(c)

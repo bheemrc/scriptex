@@ -265,7 +265,7 @@ fn collect_citation_keys_recursive(nodes: &[sonicspeedlatex::document::Node], ke
                 }
             }
             Node::Paragraph(c) | Node::Bold(c) | Node::Italic(c)
-            | Node::Monospace(c) | Node::SmallCaps(c) | Node::Underline(c)
+            | Node::Monospace(c) | Node::SansSerif(c) | Node::SmallCaps(c) | Node::Underline(c)
             | Node::Strikethrough(c) | Node::Superscript(c) | Node::Subscript(c)
             | Node::Emph(c) | Node::Quote(c) | Node::Quotation(c)
             | Node::Abstract(c) | Node::Center(c) | Node::FlushLeft(c)

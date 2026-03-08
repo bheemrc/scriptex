@@ -14,6 +14,10 @@ pub enum FontStyle {
     TimesItalic,
     TimesBold,
     ZapfDingbats,
+    SansSerif,
+    SansSerifBold,
+    SansSerifItalic,
+    SansSerifBoldItalic,
 }
 
 #[derive(Debug, Clone, Copy)]
