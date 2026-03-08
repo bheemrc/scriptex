@@ -376,7 +376,11 @@ impl LayoutState {
         // Convert footnote nodes to styled spans for rich rendering
         let source = self.source_str() as *const str;
         let source_ref = unsafe { &*source };
-        let text_indent = fn_size * 1.2; // indent for wrapped lines (past the number)
+        // Hanging indent: measure widest footnote number for proper alignment
+        let max_num = fn_start_num + footnotes.len() as u32;
+        let mut ibuf_pre = itoa::Buffer::new();
+        let num_w = font::measure_text(ibuf_pre.format(max_num), FontId::TimesRoman, fn_size * 0.75);
+        let text_indent = num_w + fn_size * 0.4; // number width + small gap
         let usable_width = fn_width - text_indent;
 
         // Build span lists and estimate heights

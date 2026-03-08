@@ -50,9 +50,17 @@ fn is_math_break_point(node: &MathNode) -> bool {
     }
 }
 
+fn display_math_skip(state: &LayoutState) -> f32 {
+    // LaTeX \abovedisplayskip: ~10-12pt for 10pt base, reduced in narrow columns
+    if state.text_width() < 300.0 {
+        state.current_font_size * 0.7 // two-column or narrow layout
+    } else {
+        state.current_font_size * 1.0
+    }
+}
+
 fn layout_display_math_simple(math_nodes: &[MathNode], numbered: bool, state: &mut LayoutState) -> Result<()> {
-    // LaTeX \abovedisplayskip ≈ 10-12pt for 10pt base
-    state.add_vertical_space(state.current_font_size * 1.0);
+    state.add_vertical_space(display_math_skip(state));
 
     let filtered: Vec<&MathNode> = math_nodes.iter()
         .filter(|n| !matches!(n, MathNode::AlignmentMark | MathNode::NewLine))
@@ -133,8 +141,7 @@ fn layout_display_math_simple(math_nodes: &[MathNode], numbered: bool, state: &m
         }
     }
 
-    // LaTeX \belowdisplayskip ≈ 10-12pt for 10pt base
-    state.add_vertical_space(state.current_font_size * 1.0);
+    state.add_vertical_space(display_math_skip(state));
     state.current_x = state.text_left();
     state.suppress_next_indent = true;
     Ok(())
@@ -142,7 +149,7 @@ fn layout_display_math_simple(math_nodes: &[MathNode], numbered: bool, state: &m
 
 /// Layout multline environment: first line left-aligned, last line right-aligned, middle centered.
 fn layout_multline_math(math_nodes: &[MathNode], numbered: bool, state: &mut LayoutState) -> Result<()> {
-    state.add_vertical_space(state.current_font_size * 1.0);
+    state.add_vertical_space(display_math_skip(state));
 
     // Split into lines at NewLine nodes
     let mut lines: Vec<Vec<MathNode>> = vec![vec![]];
@@ -203,14 +210,14 @@ fn layout_multline_math(math_nodes: &[MathNode], numbered: bool, state: &mut Lay
         state.current_y += step;
     }
 
-    state.add_vertical_space(state.current_font_size * 1.0);
+    state.add_vertical_space(display_math_skip(state));
     state.current_x = state.text_left();
     state.suppress_next_indent = true;
     Ok(())
 }
 
 fn layout_aligned_math(math_nodes: &[MathNode], numbered: bool, state: &mut LayoutState) -> Result<()> {
-    state.add_vertical_space(state.current_font_size * 1.0);
+    state.add_vertical_space(display_math_skip(state));
 
     let mut rows: Vec<Vec<Vec<MathNode>>> = Vec::new();
     let mut current_row: Vec<Vec<MathNode>> = Vec::new();
@@ -339,7 +346,7 @@ fn layout_aligned_math(math_nodes: &[MathNode], numbered: bool, state: &mut Layo
         state.current_y += row_spacing;
     }
 
-    state.add_vertical_space(state.current_font_size * 1.0);
+    state.add_vertical_space(display_math_skip(state));
     state.current_x = state.text_left();
     state.suppress_next_indent = true;
     Ok(())
