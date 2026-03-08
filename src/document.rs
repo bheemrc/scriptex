@@ -200,6 +200,8 @@ pub enum Node {
     VSpace(f32),
     /// Set paragraph indent
     SetParIndent(f32),
+    /// Set paragraph skip (\parskip)
+    SetParSkip(f32),
 
     /// Section heading
     Section {

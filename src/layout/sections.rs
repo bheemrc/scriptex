@@ -268,9 +268,6 @@ pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
     let mut dot_leader = String::with_capacity(max_dots * 2);
     for _ in 0..max_dots { dot_leader.push('.'); dot_leader.push(' '); }
 
-    let avg_width_bold = base * 0.52;
-    let avg_width_reg = base * 0.48;
-
     for (toc_idx, entry) in entries.iter().enumerate() {
         let depth = entry.level.depth();
         let indent = match depth { d if d <= 1 => 0.0, 2 => 15.0, 3 => 30.0, _ => 45.0 };
@@ -290,8 +287,8 @@ pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
         state.text_buf.push_str(&entry.title);
 
         let text: &str = unsafe { &*(state.text_buf.as_str() as *const str) };
-        let avg_w = if depth <= 1 { avg_width_bold } else { avg_width_reg };
-        let text_w = text.len() as f32 * avg_w * (font_size / base);
+        let measure_font = if depth <= 1 { FontId::TimesBold } else { FontId::TimesRoman };
+        let text_w = font::measure_text(text, measure_font, font_size);
         let available = state.text_width() - indent;
 
         state.current_x = x;

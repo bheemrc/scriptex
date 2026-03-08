@@ -816,7 +816,7 @@ impl<'a> Parser<'a> {
                 if let Some(pts) = self.parse_dimension(&val) {
                     match len_name {
                         "parindent" => return Ok(Some(Node::SetParIndent(pts))),
-                        "parskip" => return Ok(Some(Node::VSpace(pts))),
+                        "parskip" => return Ok(Some(Node::SetParSkip(pts))),
                         _ => {}
                     }
                 }

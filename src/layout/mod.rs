@@ -75,8 +75,9 @@ pub fn layout_document_inner(
     if let Some(pi) = doc.preamble.paragraph_indent {
         state.paragraph_indent = pi;
     }
-    // paragraph_skip is handled as extra vertical space between paragraphs
-    // (stored in state for use in layout_text_content)
+    if let Some(ps) = doc.preamble.paragraph_skip {
+        state.paragraph_skip = ps;
+    }
 
     for opt in &doc.class.options {
         match opt.as_str() {
@@ -908,6 +909,10 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
 
         Node::SetParIndent(pts) => {
             state.paragraph_indent = *pts;
+        }
+
+        Node::SetParSkip(pts) => {
+            state.paragraph_skip = *pts;
         }
 
         Node::PageBreak => {

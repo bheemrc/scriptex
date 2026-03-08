@@ -347,6 +347,11 @@ fn inline_math_node_to_spans(node: &MathNode, color: Color, font_size: f32, out:
 
 /// Layout a paragraph with rich inline formatting (bold, italic, etc.).
 pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, source: &str, with_indent: bool) -> Result<()> {
+    // Apply \parskip between paragraphs (only when starting a new paragraph, not continuation)
+    if state.paragraph_skip > 0.0 && with_indent {
+        state.add_vertical_space(state.paragraph_skip);
+    }
+
     let has_formatting = children.iter().any(|n| matches!(n,
         Node::Bold(_) | Node::Italic(_) | Node::Emph(_) | Node::Monospace(_)
         | Node::Colored { .. } | Node::Code(_) | Node::SmallCaps(_)
@@ -639,15 +644,15 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
             }
             if space_count > 0 {
                 let slack = available - content_w;
-                // Justify if line is at least 70% full (TeX badness ~200 equivalent)
-                if slack > 0.0 && slack < available * 0.30 {
+                // Justify if line is at least 55% full (TeX justifies aggressively)
+                if slack > 0.0 && slack < available * 0.45 {
                     extra_per_space = slack / space_count as f32;
-                    // Allow up to 0.4em stretch per space to avoid rivers
-                    extra_per_space = extra_per_space.min(font_size * 0.4);
+                    // Allow up to 0.5em stretch per space (TeX default ~0.5em)
+                    extra_per_space = extra_per_space.min(font_size * 0.5);
                 } else if slack < 0.0 && slack > -font_size * 1.5 {
                     // Allow slight compression for overfull lines
                     extra_per_space = slack / space_count as f32;
-                    extra_per_space = extra_per_space.max(-font_size * 0.1);
+                    extra_per_space = extra_per_space.max(-font_size * 0.15);
                 }
             }
         }

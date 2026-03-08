@@ -83,6 +83,7 @@ pub(super) struct LayoutState {
     pub indent: f32,
     pub right_indent: f32,
     pub paragraph_indent: f32,
+    pub paragraph_skip: f32,
     pub line_spacing: f32,
     pub section_counters: [u32; 7],
     pub figure_counter: u32,
@@ -197,6 +198,7 @@ impl LayoutState {
             indent: 0.0,
             right_indent: 0.0,
             paragraph_indent: 15.0,  // 1.5em (LaTeX default for 10pt)
+            paragraph_skip: 0.0,     // \parskip default is 0pt (set by parskip package)
             line_spacing,
             section_counters: [0; 7],
             figure_counter: 0,
