@@ -1102,27 +1102,13 @@ pub fn measure_text(text: &str, font: FontId, font_size: f32) -> f32 {
                 prev = b;
             }
         } else {
-            // Ligature-aware path with kerning
+            // Ligature-aware path with kerning (only fi/fl are standard ligatures)
             let mut prev: u8 = 0;
             let mut i = 0;
             while i < bytes.len() {
                 let cur;
                 if bytes[i] == b'f' {
-                    if i + 2 < bytes.len() && bytes[i + 1] == b'f' {
-                        if bytes[i + 2] == b'i' {
-                            cur = LIG_FFI;
-                            total += widths[cur as usize] as i32;
-                            i += 3;
-                        } else if bytes[i + 2] == b'l' {
-                            cur = LIG_FFL;
-                            total += widths[cur as usize] as i32;
-                            i += 3;
-                        } else {
-                            cur = LIG_FF;
-                            total += widths[cur as usize] as i32;
-                            i += 2;
-                        }
-                    } else if i + 1 < bytes.len() && bytes[i + 1] == b'i' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'i' {
                         cur = LIG_FI;
                         total += widths[cur as usize] as i32;
                         i += 2;
@@ -1140,7 +1126,6 @@ pub fn measure_text(text: &str, font: FontId, font_size: f32) -> f32 {
                     total += widths[cur as usize] as i32;
                     i += 1;
                 }
-                // Kern between previous output glyph and current
                 if do_kern && prev != 0 {
                     total += kern_pair(font, prev, cur) as i32;
                 }
@@ -1209,11 +1194,7 @@ pub fn measure_text_1000(text: &str, font: FontId) -> u32 {
         let mut i = 0;
         while i < bytes.len() {
             if bytes[i] == b'f' {
-                if i + 2 < bytes.len() && bytes[i + 1] == b'f' {
-                    if bytes[i + 2] == b'i' { total += widths[LIG_FFI as usize] as u32; i += 3; continue; }
-                    if bytes[i + 2] == b'l' { total += widths[LIG_FFL as usize] as u32; i += 3; continue; }
-                    total += widths[LIG_FF as usize] as u32; i += 2; continue;
-                }
+                // Only fi/fl are standard ligatures in PDF Standard 14 fonts
                 if i + 1 < bytes.len() && bytes[i + 1] == b'i' { total += widths[LIG_FI as usize] as u32; i += 2; continue; }
                 if i + 1 < bytes.len() && bytes[i + 1] == b'l' { total += widths[LIG_FL as usize] as u32; i += 2; continue; }
             }

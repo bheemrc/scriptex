@@ -43,11 +43,8 @@ pub(super) fn justify_line_ext(line: &[u8], available_width: f32, avg_width: f32
             while i < line.len() {
                 let cur;
                 if line[i] == b'f' {
-                    if i + 2 < line.len() && line[i + 1] == b'f' {
-                        if line[i + 2] == b'i' { cur = crate::font::LIG_FFI; w += widths[cur as usize] as f32 * scale; i += 3; }
-                        else if line[i + 2] == b'l' { cur = crate::font::LIG_FFL; w += widths[cur as usize] as f32 * scale; i += 3; }
-                        else { cur = crate::font::LIG_FF; w += widths[cur as usize] as f32 * scale; i += 2; }
-                    } else if i + 1 < line.len() && line[i + 1] == b'i' { cur = crate::font::LIG_FI; w += widths[cur as usize] as f32 * scale; i += 2; }
+                    // Only fi/fl are standard ligatures
+                    if i + 1 < line.len() && line[i + 1] == b'i' { cur = crate::font::LIG_FI; w += widths[cur as usize] as f32 * scale; i += 2; }
                     else if i + 1 < line.len() && line[i + 1] == b'l' { cur = crate::font::LIG_FL; w += widths[cur as usize] as f32 * scale; i += 2; }
                     else { cur = b'f'; w += widths[b'f' as usize] as f32 * scale; i += 1; }
                 } else {

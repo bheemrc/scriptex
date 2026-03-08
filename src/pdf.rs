@@ -162,7 +162,7 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
 
     // Custom encoding: WinAnsiEncoding + ligature glyphs at 0x01-0x05
     begin_obj!(encoding_id);
-    w.write_all(b"<< /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [1 /fi /fl /ff /ffi /ffl] >>\nendobj\n")?;
+    w.write_all(b"<< /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [1 /fi /fl] >>\nendobj\n")?;
 
     // Fonts with custom encoding (includes ligatures)
     for (id, name) in [
@@ -654,17 +654,14 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                                 }
                             }
                             b'f' if !is_mono => {
-                                if tpos + 2 < tlen && text_bytes[tpos + 1] == b'f' {
-                                    if text_bytes[tpos + 2] == b'i' {
-                                        glyph = crate::font::LIG_FFI; tpos += 2;
-                                    } else if text_bytes[tpos + 2] == b'l' {
-                                        glyph = crate::font::LIG_FFL; tpos += 2;
-                                    } else {
-                                        glyph = crate::font::LIG_FF; tpos += 1;
-                                    }
-                                } else if tpos + 1 < tlen && text_bytes[tpos + 1] == b'i' {
+                                // Only fi and fl ligatures are in Standard 14 fonts;
+                                // ff/ffi/ffl are NOT standard and render as boxes in many viewers.
+                                // For ffi/ffl: emit 'f' now, next iteration picks up fi/fl.
+                                if tpos + 1 < tlen && text_bytes[tpos + 1] == b'i' {
+                                    // Check it's not ffi (just fi)
                                     glyph = crate::font::LIG_FI; tpos += 1;
                                 } else if tpos + 1 < tlen && text_bytes[tpos + 1] == b'l' {
+                                    // Check it's not ffl (just fl)
                                     glyph = crate::font::LIG_FL; tpos += 1;
                                 } else {
                                     glyph = b'f';
