@@ -296,6 +296,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
         state.ensure_space(row_height);
         if extra > 0.0 { state.current_y += extra; }
         let y = state.current_y;
+        let rule_sep = if row.hline_before { font_size * 0.9 } else { 0.0 };
 
         let mut col_x = table_x;
         for (cell_idx, cell_lines) in wrapped_cells[row_idx].iter().enumerate() {
@@ -336,7 +337,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
                     ColumnSpec::Right => cx + cell_content_width - display_w,
                     _ => cx,
                 };
-                let text_y = y + cell_padding + multirow_y_offset;
+                let text_y = y + cell_padding + rule_sep + multirow_y_offset;
                 emit_math_elements(math_box, text_x, text_y + math_box.height, state);
             } else {
                 for (line_idx, line_text) in cell_lines.iter().enumerate() {
@@ -346,7 +347,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
                         ColumnSpec::Right => cx + cell_content_width - display_w,
                         _ => cx,
                     };
-                    let text_y = y + cell_padding + line_idx as f32 * line_h + multirow_y_offset;
+                    let text_y = y + cell_padding + rule_sep + line_idx as f32 * line_h + multirow_y_offset;
                     state.current_x = text_x;
                     state.current_y = text_y;
                     state.emit_text(line_text, state.current_font_size, style, Color::BLACK);
