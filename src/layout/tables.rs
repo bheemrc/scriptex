@@ -2,12 +2,13 @@
 
 use crate::color::Color;
 use crate::document::*;
-use crate::typeset::{FontMetrics, FontStyle};
+use crate::typeset::FontStyle;
 use crate::font::{self, FontId};
 use crate::math_layout;
 use super::state::LayoutState;
-use super::text::{node_to_text_resolved, node_to_text};
+use super::text::node_to_text_resolved;
 use super::math::emit_math_elements;
+use super::spans;
 
 use anyhow::Result;
 
@@ -221,7 +222,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     }
 
     let total_row_height: f32 = row_heights.iter().take(num_data_rows).sum();
-    let caption_height = if table.caption.is_some() { state.current_font_size * 0.9 * 1.2 + 4.0 } else { 0.0 };
+    let caption_height = if table.caption.is_some() { state.current_font_size * 1.2 + 10.0 } else { 0.0 };
     let total_table_height = total_row_height + caption_height + 8.0;
 
     let remaining_space = state.cached_max_y - state.current_y;
@@ -229,20 +230,37 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     if total_table_height > remaining_space && total_table_height <= full_page_height { state.new_page(); }
 
     if let Some(caption) = &table.caption {
-        state.text_buf.clear();
-        state.text_buf.push_str("Table ");
+        let cap_font_size = state.current_font_size;
+        state.current_y += 6.0;
+
+        // Bold "Table N: " prefix
         let mut ibuf = itoa::Buffer::new();
-        state.text_buf.push_str(ibuf.format(tbl_num));
-        state.text_buf.push_str(": ");
-        for node in caption { node_to_text(node, &mut state.text_buf, source); }
-        let full: &str = unsafe { &*(state.text_buf.as_str() as *const str) };
-        let cap_font_size = state.current_font_size * 0.9;
-        let cap_metrics = FontMetrics::new(cap_font_size, FontStyle::Regular);
-        let tw = cap_metrics.measure_text(full);
-        let cx = state.text_left() + (state.text_width() - tw) / 2.0;
-        state.current_x = cx;
-        state.emit_text(full, cap_font_size, FontStyle::Regular, Color::DARK_GRAY);
-        state.current_y += cap_metrics.line_height() + 4.0;
+        let prefix = format!("Table {}: ", ibuf.format(tbl_num));
+        let prefix_width = font::measure_text(&prefix, FontId::TimesBold, cap_font_size);
+
+        // Pre-measure caption text to decide centering
+        state.text_buf.clear();
+        let label_map: &std::collections::HashMap<String, String> = unsafe { &*(&state.label_map as *const _) };
+        for node in caption.iter() { node_to_text_resolved(node, &mut state.text_buf, source, label_map); }
+        let cap_text_width = font::measure_text(state.text_buf.as_str(), FontId::TimesRoman, cap_font_size);
+        let total_width = prefix_width + cap_text_width;
+
+        // Center if caption fits on one line
+        if total_width <= state.text_width() {
+            let cx = state.text_left() + (state.text_width() - total_width) / 2.0;
+            state.current_x = cx;
+        } else {
+            state.current_x = state.text_left();
+        }
+
+        state.emit_text(&prefix, cap_font_size, FontStyle::Bold, Color::BLACK);
+        state.current_x += prefix_width;
+
+        // Rich paragraph layout for caption body (supports bold, italic, math, etc.)
+        let saved_para_indent = state.paragraph_indent;
+        state.paragraph_indent = 0.0;
+        spans::layout_rich_paragraph(caption, state, source, false)?;
+        state.paragraph_indent = saved_para_indent;
     }
 
     for row_idx in 0..num_data_rows {

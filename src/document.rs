@@ -344,6 +344,10 @@ pub enum Node {
     /// ZapfDingbats character (byte code in ZapfDingbats encoding)
     Dingbat(u8),
 
+    /// Typeset logos
+    LaTeXLogo,
+    TeXLogo,
+
     /// Special characters
     NonBreakingSpace,
     EnDash,

@@ -504,6 +504,8 @@ fn node_to_text_ext(node: &Node, out: &mut String, source: &str, labels: Option<
             if let Some(o) = opt { out.push_str(", "); out.push_str(o); }
             out.push(']');
         }
+        Node::LaTeXLogo => out.push_str("LaTeX"),
+        Node::TeXLogo => out.push_str("TeX"),
         Node::Dingbat(code) => out.push(char::from(*code)),
         Node::Label(_) | Node::BibItem(_) => {}
         Node::Code(s) => out.push_str(s),

@@ -26,7 +26,21 @@ impl<'a> Parser<'a> {
                         // Glue component — stop at main dimension
                         break;
                     } else {
-                        break;
+                        // Check for combined number+unit tokens like "0.3in", "10pt"
+                        let units = ["pt", "mm", "cm", "in", "em", "ex", "sp", "bp", "dd", "pc"];
+                        let mut matched = false;
+                        for unit in &units {
+                            if t.ends_with(unit) {
+                                let prefix = &t[..t.len() - unit.len()];
+                                if prefix.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c == '+') {
+                                    text.push_str(t);
+                                    self.advance();
+                                    matched = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if !matched { break; }
                     }
                 }
                 TokenKind::Space => {

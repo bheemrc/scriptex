@@ -410,17 +410,18 @@ impl LayoutState {
             return;
         }
 
-        // Separator rule (LaTeX default: black, 0.4pt, ~1/3 text width)
+        // Separator rule (LaTeX default: 0.4pt thick, 1/3 text width, with 2pt gap above)
+        let rule_y = fn_y_start + 2.0;
         self.emit_line(
             fn_left,
-            fn_y_start,
-            fn_left + fn_width * 0.33,
-            fn_y_start,
+            rule_y,
+            fn_left + fn_width * 0.4,
+            rule_y,
             0.4,
             Color::BLACK,
         );
 
-        let mut y = fn_y_start + 6.0;
+        let mut y = rule_y + 5.0;
         for (i, spans) in fn_span_lists.iter().enumerate() {
             let num = fn_start_num + i as u32;
             let mut ibuf = itoa::Buffer::new();
@@ -744,7 +745,8 @@ impl LayoutState {
 
     fn emit_page_number_centered(&mut self) {
         let center_x = self.page_setup.width / 2.0;
-        let y = self.page_setup.height - self.page_setup.margin_bottom + 14.0;
+        // Center page number in the bottom margin area
+        let y = self.page_setup.height - self.page_setup.margin_bottom / 2.0;
         let mut num_str = String::new();
         self.format_page_number(&mut num_str);
         let page_num_size = 10.0; // LaTeX default: same as body text
@@ -917,6 +919,54 @@ impl LayoutState {
                 self.current_x += w;
             }
         }
+    }
+
+    /// Emit the TeX logo with proper kerning and baseline shifts
+    /// Returns the total width consumed
+    pub fn emit_tex_logo(&mut self, font_size: f32, style: FontStyle, color: Color) -> f32 {
+        let fid = font::style_to_font_id(style);
+        let x0 = self.current_x;
+        let y0 = self.current_y;
+        // T
+        let t_w = font::measure_text("T", fid, font_size);
+        self.emit_text("T", font_size, style, color);
+        self.current_x = x0 + t_w - font_size * 0.17;
+        // E (lowered by ~0.5ex)
+        self.current_y = y0 + font_size * 0.22;
+        let e_w = font::measure_text("E", fid, font_size);
+        self.emit_text("E", font_size, style, color);
+        self.current_y = y0;
+        self.current_x = x0 + t_w - font_size * 0.17 + e_w - font_size * 0.12;
+        // X
+        let x_w = font::measure_text("X", fid, font_size);
+        self.emit_text("X", font_size, style, color);
+        let total = t_w - font_size * 0.17 + e_w - font_size * 0.12 + x_w;
+        self.current_x = x0 + total;
+        total
+    }
+
+    /// Emit the LaTeX logo with proper kerning and baseline shifts
+    /// Returns the total width consumed
+    pub fn emit_latex_logo(&mut self, font_size: f32, style: FontStyle, color: Color) -> f32 {
+        let fid = font::style_to_font_id(style);
+        let x0 = self.current_x;
+        let y0 = self.current_y;
+        // L
+        let l_w = font::measure_text("L", fid, font_size);
+        self.emit_text("L", font_size, style, color);
+        self.current_x = x0 + l_w - font_size * 0.04;
+        // A (raised and smaller: ~70% size, shifted up ~0.25ex)
+        let a_size = font_size * 0.7;
+        self.current_y = y0 - font_size * 0.25;
+        let a_w = font::measure_text("A", fid, a_size);
+        self.emit_text("A", a_size, style, color);
+        self.current_y = y0;
+        self.current_x = x0 + l_w - font_size * 0.04 + a_w - font_size * 0.02;
+        // TeX
+        let tex_w = self.emit_tex_logo(font_size, style, color);
+        let total = l_w - font_size * 0.04 + a_w - font_size * 0.02 + tex_w;
+        self.current_x = x0 + total;
+        total
     }
 
     pub fn emit_header_text(&mut self, text: &str, x: f32, y: f32, font_size: f32, base_style: FontStyle) {

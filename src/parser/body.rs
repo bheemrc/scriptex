@@ -532,7 +532,8 @@ impl<'a> Parser<'a> {
             }
 
             // Special characters
-            "\\LaTeX" | "\\TeX" => Ok(Some(Node::Text(cmd.trim_start_matches('\\').to_string()))),
+            "\\LaTeX" => Ok(Some(Node::LaTeXLogo)),
+            "\\TeX" => Ok(Some(Node::TeXLogo)),
             "\\ldots" | "\\dots" | "\\textellipsis" => Ok(Some(Node::Ellipsis)),
             "\\textendash" => Ok(Some(Node::EnDash)),
             "\\textemdash" => Ok(Some(Node::EmDash)),

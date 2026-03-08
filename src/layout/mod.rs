@@ -17,7 +17,7 @@ mod environments;
 pub use types::*;
 pub use prescans::{collect_labels, collect_toc_entries, TocEntry};
 use state::{LayoutState, PageStyle};
-use text::{layout_paragraph, layout_text_content, layout_text_content_source, layout_text_line, node_to_text, resolve_citations};
+use text::{layout_paragraph, layout_text_content, layout_text_content_source, resolve_citations};
 
 use math::layout_display_math_data;
 use images::{load_image_for_pdf, layout_tikz_diagram};
@@ -288,6 +288,7 @@ fn is_inline_node(node: &Node) -> bool {
             | Node::LeftQuote | Node::RightQuote | Node::LeftDoubleQuote | Node::RightDoubleQuote
             | Node::Ampersand | Node::Percent | Node::Dollar | Node::Hash | Node::Underscore
             | Node::Tilde | Node::Caret | Node::LeftBrace | Node::RightBrace
+            | Node::LaTeXLogo | Node::TeXLogo
         ),
     }
 }
@@ -678,27 +679,35 @@ fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Documen
         state.figure_counter += 1;
         let fig_num = state.figure_counter;
         state.current_y += 6.0;
-        state.current_x = state.text_left();
-        state.text_buf.clear();
-        state.text_buf.push_str("Figure ");
-        let mut ibuf = itoa::Buffer::new();
-        state.text_buf.push_str(ibuf.format(fig_num));
-        state.text_buf.push_str(": ");
-        let prefix_len = state.text_buf.len();
 
-        for node in cap {
-            node_to_text(node, &mut state.text_buf, source);
+        // Build "Figure N: " prefix
+        let mut ibuf = itoa::Buffer::new();
+        let prefix = format!("Figure {}: ", ibuf.format(fig_num));
+        let prefix_width = font::measure_text(&prefix, FontId::TimesBold, state.current_font_size);
+
+        // Pre-measure caption text to decide centering
+        state.text_buf.clear();
+        let labels: &std::collections::HashMap<String, String> = unsafe { &*(&state.label_map as *const _) };
+        for node in cap.iter() { text::node_to_text_resolved(node, &mut state.text_buf, source, labels); }
+        let cap_text_width = font::measure_text(state.text_buf.as_str(), FontId::TimesRoman, state.current_font_size);
+        let total_width = prefix_width + cap_text_width;
+
+        // Center if caption fits on one line
+        if total_width <= state.text_width() {
+            let cx = state.text_left() + (state.text_width() - total_width) / 2.0;
+            state.current_x = cx;
+        } else {
+            state.current_x = state.text_left();
         }
-        let prefix: &str = unsafe { &*(state.text_buf[..prefix_len].as_ref() as *const str) };
-        let prefix_width = font::measure_text(prefix, FontId::TimesBold, state.current_font_size);
-        state.emit_text(prefix, state.current_font_size, FontStyle::Bold, Color::BLACK);
+
+        state.emit_text(&prefix, state.current_font_size, FontStyle::Bold, Color::BLACK);
         state.current_x += prefix_width;
 
-        let cap_text: &str = unsafe { &*(state.text_buf[prefix_len..].as_ref() as *const str) };
-        if !cap_text.is_empty() {
-            layout_text_line(cap_text, state);
-        }
-        state.current_y += state.current_font_size * 1.2;
+        // Use rich paragraph layout for caption content (supports bold, italic, math, etc.)
+        let saved_para_indent = state.paragraph_indent;
+        state.paragraph_indent = 0.0;
+        spans::layout_rich_paragraph(cap, state, source, false)?;
+        state.paragraph_indent = saved_para_indent;
     }
     state.set_indent(saved_indent);
     state.current_font_size = saved_font_size;
@@ -921,6 +930,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
 
         Node::DisplayMath(math_data) => {
             layout_display_math_data(math_data, state)?;
+            state.suppress_next_indent = true; // LaTeX: no indent after display math
         }
 
         Node::Quote(content) => {
@@ -1113,7 +1123,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 state.current_font_style = FontStyle::Regular;
                 state.figure_counter += 1;
                 let fig_num = state.figure_counter;
-                let mut cap_text = format!("Figure {}: ", fig_num);
+                let cap_text = format!("Figure {}: ", fig_num);
                 if let Some(ref l) = label {
                     state.label_map.insert(l.clone(), fig_num.to_string());
                 }
@@ -1134,7 +1144,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             let sub_w = if *width <= 1.0 && *width > 0.0 { *width * text_w } else if *width > 1.0 { *width } else { text_w * 0.45 };
 
             // Save state for side-by-side layout
-            let saved_x = state.current_x;
+            let _saved_x = state.current_x;
             let saved_y = state.current_y;
             let saved_indent = state.indent;
             let saved_right_indent = state.right_indent;
@@ -1181,7 +1191,8 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
         | Node::InlineMath(_) | Node::Group(_) | Node::Colored { .. }
         | Node::FontSize { .. } | Node::Superscript(_) | Node::Subscript(_)
         | Node::NonBreakingSpace | Node::HSpace(_) | Node::LineBreak
-        | Node::Code(_) | Node::Strikethrough(_) => {
+        | Node::Code(_) | Node::Strikethrough(_)
+        | Node::LaTeXLogo | Node::TeXLogo => {
             layout_paragraph(&[node.clone()], state, doc, source)?;
         }
 

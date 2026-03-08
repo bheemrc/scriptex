@@ -158,6 +158,12 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
             Node::NonBreakingSpace | Node::HSpace(_) => {
                 out.push(StyledSpan { text: " ".to_string(), style, color, font_size, underline: false, strikethrough: false });
             }
+            Node::LaTeXLogo => {
+                out.push(StyledSpan { text: "LaTeX".to_string(), style, color, font_size, underline: false, strikethrough: false });
+            }
+            Node::TeXLogo => {
+                out.push(StyledSpan { text: "TeX".to_string(), style, color, font_size, underline: false, strikethrough: false });
+            }
             Node::HFill => {
                 // Sentinel marker — handled in layout_rich_paragraph
                 out.push(StyledSpan { text: "\x01HFILL\x01".to_string(), style, color, font_size, underline: false, strikethrough: false });
