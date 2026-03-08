@@ -21,9 +21,17 @@ pub enum FontId {
 
 /// Helvetica character widths (WinAnsi encoding, indices 0-255)
 /// Source: Helvetica AFM from Adobe
+/// Ligature byte positions in our custom encoding extension:
+/// 0x01=fi, 0x02=fl, 0x03=ff, 0x04=ffi, 0x05=ffl
+pub const LIG_FI: u8 = 0x01;
+pub const LIG_FL: u8 = 0x02;
+pub const LIG_FF: u8 = 0x03;
+pub const LIG_FFI: u8 = 0x04;
+pub const LIG_FFL: u8 = 0x05;
+
 static HELVETICA_WIDTHS: [u16; 256] = [
-    // 0x00-0x1F: control chars (use 0)
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    // 0x00-0x1F: control chars (0x01-0x05 used for ligatures fi/fl/ff/ffi/ffl)
+    0,500,500,500,750,750,0,0,0,0,0,0,0,0,0,0,
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
     // 0x20 space through 0x7E tilde
     278, // space
@@ -200,7 +208,8 @@ static HELVETICA_WIDTHS: [u16; 256] = [
 
 /// Helvetica-Bold character widths
 static HELVETICA_BOLD_WIDTHS: [u16; 256] = [
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    // 0x01-0x05: ligatures fi/fl/ff/ffi/ffl
+    0,556,556,556,833,833,0,0,0,0,0,0,0,0,0,0,
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
     278, // space
     333, // !
@@ -438,8 +447,8 @@ static SYMBOL_WIDTHS: [u16; 256] = {
 /// Source: Adobe Times-Roman AFM file (tecnickcom/tc-font-core14-afms)
 /// FontInfo: ascent=683, descent=-217, cap_height=662, x_height=450
 static TIMES_ROMAN_WIDTHS: [u16; 256] = [
-    // 0x00-0x1F: control chars
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    // 0x00-0x1F: control chars (0x01-0x05: ligatures fi/fl/ff/ffi/ffl)
+    0,556,556,556,833,833,0,0,0,0,0,0,0,0,0,0,
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
     // 0x20-0x7E: ASCII printable
     250, // 0x20 space
@@ -619,8 +628,8 @@ static TIMES_ROMAN_WIDTHS: [u16; 256] = [
 /// Source: Adobe Times-Italic AFM file (tecnickcom/tc-font-core14-afms)
 /// FontInfo: ascent=683, descent=-217, cap_height=653, x_height=441
 static TIMES_ITALIC_WIDTHS: [u16; 256] = [
-    // 0x00-0x1F: control chars
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    // 0x00-0x1F: control chars (0x01-0x05: ligatures fi/fl/ff/ffi/ffl)
+    0,500,500,500,750,750,0,0,0,0,0,0,0,0,0,0,
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
     // 0x20-0x7E: ASCII printable
     250, // 0x20 space
@@ -800,8 +809,8 @@ static TIMES_ITALIC_WIDTHS: [u16; 256] = [
 /// Source: Adobe Times-Bold AFM file (tecnickcom/tc-font-core14-afms)
 /// FontInfo: ascent=683, descent=-217, cap_height=676, x_height=461
 static TIMES_BOLD_WIDTHS: [u16; 256] = [
-    // 0x00-0x1F: control chars
-    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    // 0x00-0x1F: control chars (0x01-0x05: ligatures fi/fl/ff/ffi/ffl)
+    0,556,556,556,833,833,0,0,0,0,0,0,0,0,0,0,
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
     // 0x20-0x7E: ASCII printable
     250, // 0x20 space
@@ -1077,21 +1086,52 @@ pub fn measure_text(text: &str, font: FontId, font_size: f32) -> f32 {
 
     // Check if text is pure ASCII (common fast path)
     if bytes.iter().all(|&b| b < 0x80) {
-        // Process 4 bytes at a time for better throughput
-        let chunks = bytes.len() / 4;
-        let mut i = 0;
-        for _ in 0..chunks {
-            unsafe {
-                total += *widths.get_unchecked(*bytes.get_unchecked(i) as usize) as u32;
-                total += *widths.get_unchecked(*bytes.get_unchecked(i + 1) as usize) as u32;
-                total += *widths.get_unchecked(*bytes.get_unchecked(i + 2) as usize) as u32;
-                total += *widths.get_unchecked(*bytes.get_unchecked(i + 3) as usize) as u32;
+        // Ligature-aware measurement: account for fi/fl/ff/ffi/ffl substitutions
+        let has_f = memchr::memchr(b'f', bytes).is_some();
+        if !has_f {
+            // No ligatures possible — fast 4-at-a-time loop
+            let chunks = bytes.len() / 4;
+            let mut i = 0;
+            for _ in 0..chunks {
+                unsafe {
+                    total += *widths.get_unchecked(*bytes.get_unchecked(i) as usize) as u32;
+                    total += *widths.get_unchecked(*bytes.get_unchecked(i + 1) as usize) as u32;
+                    total += *widths.get_unchecked(*bytes.get_unchecked(i + 2) as usize) as u32;
+                    total += *widths.get_unchecked(*bytes.get_unchecked(i + 3) as usize) as u32;
+                }
+                i += 4;
             }
-            i += 4;
-        }
-        while i < bytes.len() {
-            total += widths[bytes[i] as usize] as u32;
-            i += 1;
+            while i < bytes.len() {
+                total += widths[bytes[i] as usize] as u32;
+                i += 1;
+            }
+        } else {
+            // Ligature-aware path
+            let mut i = 0;
+            while i < bytes.len() {
+                if bytes[i] == b'f' {
+                    if i + 2 < bytes.len() && bytes[i + 1] == b'f' {
+                        if bytes[i + 2] == b'i' {
+                            total += widths[LIG_FFI as usize] as u32;
+                            i += 3; continue;
+                        } else if bytes[i + 2] == b'l' {
+                            total += widths[LIG_FFL as usize] as u32;
+                            i += 3; continue;
+                        } else {
+                            total += widths[LIG_FF as usize] as u32;
+                            i += 2; continue;
+                        }
+                    } else if i + 1 < bytes.len() && bytes[i + 1] == b'i' {
+                        total += widths[LIG_FI as usize] as u32;
+                        i += 2; continue;
+                    } else if i + 1 < bytes.len() && bytes[i + 1] == b'l' {
+                        total += widths[LIG_FL as usize] as u32;
+                        i += 2; continue;
+                    }
+                }
+                total += widths[bytes[i] as usize] as u32;
+                i += 1;
+            }
         }
     } else {
         // Slow path: decode UTF-8 chars and map to WinAnsi byte positions
@@ -1151,8 +1191,20 @@ pub fn measure_text_1000(text: &str, font: FontId) -> u32 {
     let bytes = text.as_bytes();
     let mut total: u32 = 0;
     if bytes.iter().all(|&b| b < 0x80) {
-        for &b in bytes {
-            total += widths[b as usize] as u32;
+        // Ligature-aware measurement
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'f' {
+                if i + 2 < bytes.len() && bytes[i + 1] == b'f' {
+                    if bytes[i + 2] == b'i' { total += widths[LIG_FFI as usize] as u32; i += 3; continue; }
+                    if bytes[i + 2] == b'l' { total += widths[LIG_FFL as usize] as u32; i += 3; continue; }
+                    total += widths[LIG_FF as usize] as u32; i += 2; continue;
+                }
+                if i + 1 < bytes.len() && bytes[i + 1] == b'i' { total += widths[LIG_FI as usize] as u32; i += 2; continue; }
+                if i + 1 < bytes.len() && bytes[i + 1] == b'l' { total += widths[LIG_FL as usize] as u32; i += 2; continue; }
+            }
+            total += widths[bytes[i] as usize] as u32;
+            i += 1;
         }
     } else {
         let mut i = 0;

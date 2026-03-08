@@ -102,8 +102,18 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
                 let s = match style { FontStyle::Italic => FontStyle::BoldItalic, _ => FontStyle::Bold };
                 nodes_to_spans_sc(children, s, color, font_size, base_size, smallcaps, out, source, labels, citations);
             }
-            Node::Italic(children) | Node::Emph(children) => {
+            Node::Italic(children) => {
                 let s = match style { FontStyle::Bold => FontStyle::BoldItalic, _ => FontStyle::Italic };
+                nodes_to_spans_sc(children, s, color, font_size, base_size, smallcaps, out, source, labels, citations);
+            }
+            Node::Emph(children) => {
+                // \emph toggles: italic→upright, upright→italic (LaTeX convention)
+                let s = match style {
+                    FontStyle::Italic => FontStyle::Regular,
+                    FontStyle::BoldItalic => FontStyle::Bold,
+                    FontStyle::Bold => FontStyle::BoldItalic,
+                    _ => FontStyle::Italic,
+                };
                 nodes_to_spans_sc(children, s, color, font_size, base_size, smallcaps, out, source, labels, citations);
             }
             Node::Monospace(children) => {
@@ -558,14 +568,33 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         lines.push(LineInfo { start: line_start, end: words.len(), max_above: line_max_above, max_below: line_max_below, hyphen: None });
     }
 
-    // Orphan control: prevent single line stranded at page bottom
-    // (LaTeX \clubpenalty=150 equivalent)
+    // Orphan/widow control (LaTeX \clubpenalty/\widowpenalty equivalent)
     if lines.len() >= 2 {
         let remaining_space = state.cached_max_y - state.current_y;
         let first_line_h = lines[0].max_above + lines[0].max_below;
-        // Fire only if exactly one line fits (not two or more)
+        // Orphan: prevent single line stranded at page bottom
         if remaining_space >= first_line_h && remaining_space < first_line_h + step {
             state.ensure_space(remaining_space + 1.0); // force page break
+        } else {
+            // Widow: prevent single last line stranded at top of new page
+            // Estimate how many lines fit on the current page
+            let mut space_left = remaining_space;
+            let mut lines_fitting = 0usize;
+            for li in &lines {
+                let line_h = li.max_above + li.max_below;
+                if space_left >= line_h {
+                    space_left -= line_h.max(step);
+                    lines_fitting += 1;
+                } else {
+                    break;
+                }
+            }
+            // If all but the last line fit, push the second-to-last to next page too
+            if lines_fitting == lines.len() - 1 && lines.len() >= 3 {
+                // Force page break before the penultimate line by reducing remaining space
+                let penultimate_h = lines[lines_fitting - 1].max_above + lines[lines_fitting - 1].max_below;
+                state.ensure_space(remaining_space - penultimate_h.max(step) + 1.0);
+            }
         }
     }
 

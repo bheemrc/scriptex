@@ -358,6 +358,27 @@ impl<'a> Parser<'a> {
                         setup.margin_left = points;
                         setup.margin_right = points;
                     }
+                    "hmargin" => {
+                        setup.margin_left = points;
+                        setup.margin_right = points;
+                    }
+                    "vmargin" => {
+                        setup.margin_top = points;
+                        setup.margin_bottom = points;
+                    }
+                    "textwidth" => {
+                        let total = points + setup.margin_left + setup.margin_right;
+                        // Adjust margins symmetrically to achieve desired text width
+                        let margin = (setup.width - points) / 2.0;
+                        setup.margin_left = margin;
+                        setup.margin_right = margin;
+                        let _ = total; // suppress warning
+                    }
+                    "textheight" => {
+                        let margin = (setup.height - points) / 2.0;
+                        setup.margin_top = margin;
+                        setup.margin_bottom = margin;
+                    }
                     "paperwidth" => setup.width = points,
                     "paperheight" => setup.height = points,
                     "headheight" | "headsep" => setup.header_height = points,

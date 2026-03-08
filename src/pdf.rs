@@ -79,6 +79,7 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     let font_times_bold_id = alloc_obj();
     let font_times_bolditalic_id = alloc_obj();
     let font_dingbats_id = alloc_obj();
+    let encoding_id = alloc_obj(); // Custom encoding with ligatures
     let resource_id = alloc_obj();
 
     let mut page_ids = Vec::with_capacity(num_pages);
@@ -159,7 +160,11 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     w.write_all(itoa_obj.format(num_pages).as_bytes())?;
     w.write_all(b" >>\nendobj\n")?;
 
-    // Fonts (WinAnsi encoding for text fonts)
+    // Custom encoding: WinAnsiEncoding + ligature glyphs at 0x01-0x05
+    begin_obj!(encoding_id);
+    w.write_all(b"<< /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [1 /fi /fl /ff /ffi /ffl] >>\nendobj\n")?;
+
+    // Fonts with custom encoding (includes ligatures)
     for (id, name) in [
         (font_regular_id, "Helvetica"),
         (font_bold_id, "Helvetica-Bold"),
@@ -170,13 +175,15 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
         begin_obj!(id);
         w.write_all(b"<< /Type /Font /Subtype /Type1 /BaseFont /")?;
         w.write_all(name.as_bytes())?;
-        w.write_all(b" /Encoding /WinAnsiEncoding >>\nendobj\n")?;
+        w.write_all(b" /Encoding ")?;
+        w.write_all(itoa_obj.format(encoding_id).as_bytes())?;
+        w.write_all(b" 0 R >>\nendobj\n")?;
     }
     // Symbol font uses its own encoding (not WinAnsi)
     begin_obj!(font_symbol_id);
     w.write_all(b"<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>\nendobj\n")?;
 
-    // Times fonts (WinAnsi encoding) — for math rendering
+    // Times fonts with custom encoding (includes ligatures)
     for (id, name) in [
         (font_times_roman_id, "Times-Roman"),
         (font_times_italic_id, "Times-Italic"),
@@ -186,7 +193,9 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
         begin_obj!(id);
         w.write_all(b"<< /Type /Font /Subtype /Type1 /BaseFont /")?;
         w.write_all(name.as_bytes())?;
-        w.write_all(b" /Encoding /WinAnsiEncoding >>\nendobj\n")?;
+        w.write_all(b" /Encoding ")?;
+        w.write_all(itoa_obj.format(encoding_id).as_bytes())?;
+        w.write_all(b" 0 R >>\nendobj\n")?;
     }
 
     // ZapfDingbats font uses its own encoding (not WinAnsi)
@@ -583,54 +592,30 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                         }
                     }
                 } else {
-                // WinAnsiEncoding conversion
-                // Also handles LaTeX quote ligatures: `` → left dquote, '' → right dquote
+                // WinAnsiEncoding conversion with ligature substitution
+                // Handles: fi/fl/ff/ffi/ffl ligatures, `` → left dquote, '' → right dquote, --/--- → en/em-dash
+                let is_mono = font_id == 5; // Courier: no ligatures for monospace
                 let mut tpos = 0;
                 while tpos < tlen {
                     // Fast ASCII scan: find next byte needing special handling
-                    // Special bytes: ( ) \ ` (escaping), \n \r (→space), >= 0x80 (non-ASCII)
+                    // Break on: ( ) \ ` \n \r f (ligatures) ' - (quote/dash ligatures) >= 0x80 (non-ASCII)
                     let scan_start = tpos;
                     while tpos < tlen {
                         let b = text_bytes[tpos];
-                        if b == b'(' || b == b')' || b == b'\\' || b == b'`' || b == b'\n' || b == b'\r' || b >= 0x80 {
+                        if b == b'(' || b == b')' || b == b'\\' || b == b'`' || b == b'\n' || b == b'\r'
+                            || (!is_mono && b == b'f') || b == b'\'' || b == b'-' || b >= 0x80 {
                             break;
                         }
                         tpos += 1;
                     }
-                    // Emit safe ASCII run, converting '' to right double quote and --/--- to en/em-dash
+                    // Emit safe ASCII run (no special chars)
                     if tpos > scan_start {
-                        let run = &text_bytes[scan_start..tpos];
-                        // Check if run contains ligature chars (' or -)
-                        let has_quote = memchr::memchr(b'\'', run).is_some();
-                        let has_dash = memchr::memchr(b'-', run).is_some();
-                        if has_quote || has_dash {
-                            let mut rpos = 0;
-                            while rpos < run.len() {
-                                if run[rpos] == b'\'' && rpos + 1 < run.len() && run[rpos + 1] == b'\'' {
-                                    c.push(0x94); // WinAnsi right double quote
-                                    rpos += 2;
-                                } else if run[rpos] == b'-' && rpos + 1 < run.len() && run[rpos + 1] == b'-' {
-                                    if rpos + 2 < run.len() && run[rpos + 2] == b'-' {
-                                        c.push(0x97); // WinAnsi em-dash (---)
-                                        rpos += 3;
-                                    } else {
-                                        c.push(0x96); // WinAnsi en-dash (--)
-                                        rpos += 2;
-                                    }
-                                } else {
-                                    c.push(run[rpos]);
-                                    rpos += 1;
-                                }
-                            }
-                        } else {
-                            c.extend_from_slice(run);
-                        }
+                        c.extend_from_slice(&text_bytes[scan_start..tpos]);
                     }
                     if tpos >= tlen { break; }
 
                     let b = text_bytes[tpos];
                     if b < 0x80 {
-                        // ASCII special char + LaTeX quote ligatures
                         match b {
                             b'\n' | b'\r' => c.push(b' '), // newlines → space
                             b'(' => c.extend_from_slice(b"\\("),
@@ -650,6 +635,42 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                                     tpos += 1;
                                 } else {
                                     c.push(b);
+                                }
+                            }
+                            b'-' => {
+                                if tpos + 1 < tlen && text_bytes[tpos + 1] == b'-' {
+                                    if tpos + 2 < tlen && text_bytes[tpos + 2] == b'-' {
+                                        c.push(0x97); // WinAnsi em-dash (---)
+                                        tpos += 2;
+                                    } else {
+                                        c.push(0x96); // WinAnsi en-dash (--)
+                                        tpos += 1;
+                                    }
+                                } else {
+                                    c.push(b'-');
+                                }
+                            }
+                            b'f' if !is_mono => {
+                                // Font ligature substitution: ffi, ffl, fi, fl, ff
+                                if tpos + 2 < tlen && text_bytes[tpos + 1] == b'f' {
+                                    if text_bytes[tpos + 2] == b'i' {
+                                        c.push(crate::font::LIG_FFI); // ffi ligature
+                                        tpos += 2;
+                                    } else if text_bytes[tpos + 2] == b'l' {
+                                        c.push(crate::font::LIG_FFL); // ffl ligature
+                                        tpos += 2;
+                                    } else {
+                                        c.push(crate::font::LIG_FF); // ff ligature
+                                        tpos += 1;
+                                    }
+                                } else if tpos + 1 < tlen && text_bytes[tpos + 1] == b'i' {
+                                    c.push(crate::font::LIG_FI); // fi ligature
+                                    tpos += 1;
+                                } else if tpos + 1 < tlen && text_bytes[tpos + 1] == b'l' {
+                                    c.push(crate::font::LIG_FL); // fl ligature
+                                    tpos += 1;
+                                } else {
+                                    c.push(b'f');
                                 }
                             }
                             _ => c.push(b),

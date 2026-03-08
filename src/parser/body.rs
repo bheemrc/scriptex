@@ -801,7 +801,9 @@ impl<'a> Parser<'a> {
             "\\nobreak" | "\\allowbreak" | "\\relax" | "\\protect"
             | "\\sloppy" | "\\fussy" | "\\raggedright" | "\\raggedleft"
             | "\\selectfont" | "\\frenchspacing"
-            | "\\nonfrenchspacing" | "\\newblock" => Ok(None),
+            | "\\nonfrenchspacing" | "\\newblock"
+            | "\\/" | "\\-" | "\\ignorespaces" | "\\leavevmode"
+            | "\\unskip" | "\\strut" | "\\null" => Ok(None),
 
             // \input and \include are resolved during pre-processing (main.rs)
             // If they reach the parser, just consume the argument

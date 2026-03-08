@@ -37,8 +37,20 @@ pub(super) fn justify_line_ext(line: &[u8], available_width: f32, avg_width: f32
             let widths = crate::font::font_widths(font_id);
             let scale = font_size / 1000.0;
             let mut w = 0.0f32;
-            for &b in line {
-                w += widths[b as usize] as f32 * scale;
+            // Ligature-aware width measurement
+            let mut i = 0;
+            while i < line.len() {
+                if line[i] == b'f' {
+                    if i + 2 < line.len() && line[i + 1] == b'f' {
+                        if line[i + 2] == b'i' { w += widths[crate::font::LIG_FFI as usize] as f32 * scale; i += 3; continue; }
+                        if line[i + 2] == b'l' { w += widths[crate::font::LIG_FFL as usize] as f32 * scale; i += 3; continue; }
+                        w += widths[crate::font::LIG_FF as usize] as f32 * scale; i += 2; continue;
+                    }
+                    if i + 1 < line.len() && line[i + 1] == b'i' { w += widths[crate::font::LIG_FI as usize] as f32 * scale; i += 2; continue; }
+                    if i + 1 < line.len() && line[i + 1] == b'l' { w += widths[crate::font::LIG_FL as usize] as f32 * scale; i += 2; continue; }
+                }
+                w += widths[line[i] as usize] as f32 * scale;
+                i += 1;
             }
             w
         } else {
