@@ -85,6 +85,8 @@ pub(super) struct LayoutState {
     pub paragraph_indent: f32,
     pub paragraph_skip: f32,
     pub line_spacing: f32,
+    pub baseline_skip_override: Option<f32>,
+    pub alignment_mode: AlignmentMode,
     pub section_counters: [u32; 7],
     pub figure_counter: u32,
     pub table_counter: u32,
@@ -200,6 +202,8 @@ impl LayoutState {
             paragraph_indent: 15.0,  // 1.5em (LaTeX default for 10pt)
             paragraph_skip: 0.0,     // \parskip default is 0pt (set by parskip package)
             line_spacing,
+            baseline_skip_override: None,
+            alignment_mode: AlignmentMode::Justify,
             section_counters: [0; 7],
             figure_counter: 0,
             table_counter: 0,

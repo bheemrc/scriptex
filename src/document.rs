@@ -202,6 +202,10 @@ pub enum Node {
     SetParIndent(f32),
     /// Set paragraph skip (\parskip)
     SetParSkip(f32),
+    /// Set baseline skip (\baselineskip)
+    SetBaselineSkip(f32),
+    /// Alignment declaration (\centering, \raggedright, \raggedleft)
+    AlignmentDecl(AlignmentMode),
 
     /// Section heading
     Section {
@@ -577,6 +581,14 @@ pub enum FontDeclType {
     Monospace,
     Regular,
     SmallCaps,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AlignmentMode {
+    Justify,
+    Center,
+    FlushLeft,  // \raggedright
+    FlushRight, // \raggedleft
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

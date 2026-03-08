@@ -924,6 +924,14 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             state.paragraph_skip = *pts;
         }
 
+        Node::SetBaselineSkip(pts) => {
+            state.baseline_skip_override = Some(*pts);
+        }
+
+        Node::AlignmentDecl(mode) => {
+            state.alignment_mode = *mode;
+        }
+
         Node::PageBreak => {
             state.new_page();
         }

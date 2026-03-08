@@ -392,7 +392,11 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
 
     let font_size = state.current_font_size;
     let base_font_size = state.base_font_size;
-    let line_height = font_size * baselineskip_factor(base_font_size);
+    let line_height = if let Some(bsk) = state.baseline_skip_override {
+        bsk
+    } else {
+        font_size * baselineskip_factor(base_font_size)
+    };
     let step = line_height * state.line_spacing;
     let space_width = crate::font::measure_text(" ", crate::font::FontId::TimesRoman, font_size);
     let text_width = state.text_width();
@@ -648,26 +652,27 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         let is_last_line = line_idx == total_lines - 1;
         let available = if first_line { text_width - first_line_used } else { text_width };
         let mut extra_per_space = 0.0f32;
-        if !is_last_line {
-            let mut content_w = 0.0f32;
-            let mut space_count = 0u32;
-            for wi in line.start..line.end {
-                let word = &words[wi];
-                if word.text == " " {
-                    space_count += 1;
-                    content_w += word.width;
-                } else if let Some((prev_wi, prev_bp)) = prev_hyphen {
-                    if wi == prev_wi {
-                        // Use suffix width, not full word width
-                        let fid = crate::font::style_to_font_id(word.style);
-                        content_w += crate::font::measure_text(&word.text[prev_bp..], fid, word.font_size);
-                    } else {
-                        content_w += word.width;
-                    }
+        let align = state.alignment_mode;
+        // Compute content width (needed for centering/right-align and justification)
+        let mut content_w = 0.0f32;
+        let mut space_count = 0u32;
+        for wi in line.start..line.end {
+            let word = &words[wi];
+            if word.text == " " {
+                space_count += 1;
+                content_w += word.width;
+            } else if let Some((prev_wi, prev_bp)) = prev_hyphen {
+                if wi == prev_wi {
+                    let fid = crate::font::style_to_font_id(word.style);
+                    content_w += crate::font::measure_text(&word.text[prev_bp..], fid, word.font_size);
                 } else {
                     content_w += word.width;
                 }
+            } else {
+                content_w += word.width;
             }
+        }
+        if align == crate::document::AlignmentMode::Justify && !is_last_line {
             if space_count > 0 {
                 let slack = available - content_w;
                 // Justify if line is at least 55% full (TeX justifies aggressively)
@@ -681,6 +686,18 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                     extra_per_space = extra_per_space.max(-font_size * 0.15);
                 }
             }
+        }
+        // Adjust starting x for non-justified alignment modes
+        match align {
+            crate::document::AlignmentMode::Center => {
+                let slack = available - content_w;
+                if slack > 0.0 { line_x += slack * 0.5; }
+            }
+            crate::document::AlignmentMode::FlushRight => {
+                let slack = available - content_w;
+                if slack > 0.0 { line_x += slack; }
+            }
+            _ => {}
         }
 
         for wi in line.start..line.end {

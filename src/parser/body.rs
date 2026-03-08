@@ -244,7 +244,7 @@ impl<'a> Parser<'a> {
                     self.body_title = Some(title_text.trim().to_string());
                     Ok(Some(Node::MakeTitle))
                 }
-                cmd_id::CENTERING => Ok(None),
+                cmd_id::CENTERING => Ok(Some(Node::AlignmentDecl(AlignmentMode::Center))),
                 cmd_id::HLINE => { self.skip_command_args(); Ok(Some(Node::HRule)) }
                 cmd_id::LABEL => { match self.try_read_braced_text() { Some(l) => Ok(Some(Node::Label(l))), None => Ok(None) } }
                 cmd_id::REF => { match self.try_read_braced_text() { Some(l) => Ok(Some(Node::Ref(l))), None => Ok(None) } }
@@ -805,9 +805,13 @@ impl<'a> Parser<'a> {
                 }
             }
 
+            // Alignment declarations
+            "\\raggedright" => Ok(Some(Node::AlignmentDecl(AlignmentMode::FlushLeft))),
+            "\\raggedleft" => Ok(Some(Node::AlignmentDecl(AlignmentMode::FlushRight))),
+
             // No-ops
             "\\nobreak" | "\\allowbreak" | "\\relax" | "\\protect"
-            | "\\sloppy" | "\\fussy" | "\\raggedright" | "\\raggedleft"
+            | "\\sloppy" | "\\fussy"
             | "\\selectfont" | "\\frenchspacing"
             | "\\nonfrenchspacing" | "\\newblock"
             | "\\/" | "\\-" | "\\ignorespaces" | "\\leavevmode"
@@ -825,6 +829,7 @@ impl<'a> Parser<'a> {
                     match len_name {
                         "parindent" => return Ok(Some(Node::SetParIndent(pts))),
                         "parskip" => return Ok(Some(Node::SetParSkip(pts))),
+                        "baselineskip" => return Ok(Some(Node::SetBaselineSkip(pts))),
                         _ => {}
                     }
                 }
