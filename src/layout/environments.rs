@@ -159,7 +159,7 @@ pub(super) fn layout_algorithm(
         // Emit line number in the gutter
         if line_numbered {
             let num_str = ibuf.format(line_num);
-            let num_w = font::measure_text(num_str, FontId::Helvetica, num_font_size);
+            let num_w = font::measure_text(num_str, FontId::TimesRoman, num_font_size);
             // Right-align in gutter
             state.current_x = left + num_gutter - num_w - 4.0;
             state.emit_text(num_str, num_font_size, FontStyle::Regular, Color::GRAY);
@@ -170,12 +170,12 @@ pub(super) fn layout_algorithm(
         for token in &line.content {
             match token {
                 AlgoToken::Keyword(kw) => {
-                    let w = font::measure_text(kw, FontId::HelveticaBold, font_size);
+                    let w = font::measure_text(kw, FontId::TimesBold, font_size);
                     state.emit_text(kw, font_size, FontStyle::Bold, Color::BLACK);
                     state.current_x += w;
                 }
                 AlgoToken::Text(t) => {
-                    let w = font::measure_text(t, FontId::Helvetica, font_size);
+                    let w = font::measure_text(t, FontId::TimesRoman, font_size);
                     state.emit_text(t, font_size, FontStyle::Regular, Color::BLACK);
                     state.current_x += w;
                 }

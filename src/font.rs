@@ -1216,10 +1216,10 @@ pub fn space_width_1000(font: FontId) -> u16 {
 pub fn style_to_font_id(style: crate::typeset::FontStyle) -> FontId {
     use crate::typeset::FontStyle;
     match style {
-        FontStyle::Regular | FontStyle::SmallCaps => FontId::Helvetica,
-        FontStyle::Bold => FontId::HelveticaBold,
-        FontStyle::Italic => FontId::HelveticaOblique,
-        FontStyle::BoldItalic => FontId::HelveticaBoldOblique,
+        FontStyle::Regular | FontStyle::SmallCaps => FontId::TimesRoman,
+        FontStyle::Bold => FontId::TimesBold,
+        FontStyle::Italic => FontId::TimesItalic,
+        FontStyle::BoldItalic => FontId::TimesBold, // TODO: add Times-BoldItalic
         FontStyle::Monospace => FontId::Courier,
         FontStyle::Symbol => FontId::Symbol,
         FontStyle::TimesRoman => FontId::TimesRoman,

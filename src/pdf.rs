@@ -482,10 +482,10 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                 };
 
                 let font_id = match font_style {
-                    FontStyle::Regular | FontStyle::SmallCaps => 1u8,
-                    FontStyle::Bold => 2,
-                    FontStyle::Italic => 3,
-                    FontStyle::BoldItalic => 4,
+                    FontStyle::Regular | FontStyle::SmallCaps => 7u8, // Times-Roman (serif body)
+                    FontStyle::Bold => 9,                              // Times-Bold
+                    FontStyle::Italic => 8,                            // Times-Italic
+                    FontStyle::BoldItalic => 9,                        // Times-Bold (TODO: Times-BoldItalic)
                     FontStyle::Monospace => 5,
                     FontStyle::Symbol => 6,
                     FontStyle::TimesRoman => 7,
@@ -819,13 +819,13 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
     c
 }
 
-/// Fast f32 formatting - avoids the overhead of write!() formatting
+/// Fast f32 formatting with 3 decimal places for sub-point accuracy
 #[inline]
 fn write_f32_fast(buf: &mut Vec<u8>, val: f32) {
     let negative = val < 0.0;
     let val = if negative { -val } else { val };
     let int_part = val as u32;
-    let frac_100 = ((val - int_part as f32) * 100.0 + 0.5) as u32;
+    let frac_1000 = ((val - int_part as f32) * 1000.0 + 0.5) as u32;
 
     if negative { buf.push(b'-'); }
 
@@ -844,14 +844,18 @@ fn write_f32_fast(buf: &mut Vec<u8>, val: f32) {
         buf.extend_from_slice(&tmp[pos..10]);
     }
 
-    // Write fractional part (2 decimal places)
-    if frac_100 > 0 {
+    // Write fractional part (3 decimal places, trailing zeros stripped)
+    if frac_1000 > 0 {
         buf.push(b'.');
-        let f = frac_100.min(99);
-        buf.push(b'0' + (f / 10) as u8);
-        let last = (f % 10) as u8;
-        if last > 0 {
-            buf.push(b'0' + last);
+        let f = frac_1000.min(999);
+        buf.push(b'0' + (f / 100) as u8);
+        let tens = ((f / 10) % 10) as u8;
+        let ones = (f % 10) as u8;
+        if ones > 0 {
+            buf.push(b'0' + tens);
+            buf.push(b'0' + ones);
+        } else if tens > 0 {
+            buf.push(b'0' + tens);
         }
     }
 }

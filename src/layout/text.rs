@@ -20,7 +20,7 @@ pub(super) fn layout_paragraph(children: &[Node], state: &mut LayoutState, _doc:
 /// Calculate word spacing for justified text.
 #[inline]
 pub(super) fn justify_line(line: &[u8], available_width: f32, avg_width: f32, font_size: f32, is_last_line: bool) -> i16 {
-    justify_line_ext(line, available_width, avg_width, font_size, is_last_line, crate::font::FontId::Helvetica)
+    justify_line_ext(line, available_width, avg_width, font_size, is_last_line, crate::font::FontId::TimesRoman)
 }
 
 pub(super) fn justify_line_ext(line: &[u8], available_width: f32, avg_width: f32, font_size: f32, is_last_line: bool, font_id: crate::font::FontId) -> i16 {
@@ -28,33 +28,27 @@ pub(super) fn justify_line_ext(line: &[u8], available_width: f32, avg_width: f32
     let num_spaces = memchr::memchr_iter(b' ', line).count();
     if num_spaces == 0 { return 0; }
 
-    // Use per-glyph font metrics for accurate width — but only for
-    // lines where char-count estimation would be noticeably wrong
-    let natural_width = {
-        let est_width = line.len() as f32 * avg_width;
-        let est_slack = (available_width - est_width).abs();
-        // Only use accurate metrics if the estimated slack is small
-        // (i.e., the line is close to full width where justification matters)
-        if est_slack < font_size * 2.0 && line.len() <= 200 {
-            let widths = crate::font::font_widths(font_id);
-            let scale = font_size / 1000.0;
-            let mut w = 0.0f32;
-            for &b in line {
-                w += widths[b as usize] as f32 * scale;
-            }
-            w
-        } else {
-            est_width
+    // Always use per-glyph font metrics for accurate justification
+    let natural_width = if line.len() <= 500 {
+        let widths = crate::font::font_widths(font_id);
+        let scale = font_size / 1000.0;
+        let mut w = 0.0f32;
+        for &b in line {
+            w += widths[b as usize] as f32 * scale;
         }
+        w
+    } else {
+        line.len() as f32 * avg_width
     };
 
     let extra = available_width - natural_width;
-    // Skip justification if line is way too short (< 70% full) or way too long
-    if extra > available_width * 0.3 { return 0; }
-    if extra < -font_size * 1.0 { return 0; }
+    // Skip justification only if line is very short (< 55% full)
+    // TeX justifies aggressively — we should too for professional output
+    if extra > available_width * 0.45 { return 0; }
+    if extra < -font_size * 1.5 { return 0; }
     let ws = extra / num_spaces as f32;
-    // Clamp: allow slight compression (-0.5pt) and moderate stretch (+4pt per space)
-    let ws_clamped = ws.max(-0.5).min(4.0);
+    // TeX-like spacing limits: allow compression (-1pt) and generous stretch (+6pt)
+    let ws_clamped = ws.max(-1.0).min(6.0);
     (ws_clamped * 50.0).min(i16::MAX as f32) as i16
 }
 

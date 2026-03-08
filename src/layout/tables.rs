@@ -90,7 +90,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
             for node in &cell.content { node_to_text_resolved(node, &mut text, source, &state.label_map); }
             let trimmed = text.trim().to_string();
             let style = detect_cell_style(&cell.content);
-            let fid = if style == FontStyle::Bold { FontId::HelveticaBold } else { FontId::Helvetica };
+            let fid = if style == FontStyle::Bold { FontId::TimesBold } else { FontId::TimesRoman };
             // For cells with math, compute math box for accurate width
             let (w, math_box) = if has_math {
                 let mb = layout_cell_with_math(&cell.content, font_size, source, &state.label_map);
@@ -188,7 +188,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
                 (logical_col..logical_col + span).map(|c| col_widths.get(c as usize).copied().unwrap_or(0.0)).sum::<f32>()
             } else { col_widths.get(logical_col as usize).copied().unwrap_or(100.0) };
             let content_w = col_w - cell_padding * 2.0;
-            let fid = if cell_styles[row_idx][col_idx] == FontStyle::Bold { FontId::HelveticaBold } else { FontId::Helvetica };
+            let fid = if cell_styles[row_idx][col_idx] == FontStyle::Bold { FontId::TimesBold } else { FontId::TimesRoman };
             let text_w = font::measure_text(text, fid, font_size);
             if text_w <= content_w + 1.0 || content_w < 20.0 {
                 row_wrapped.push(vec![text.clone()]);
@@ -269,7 +269,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
                 else if (logical_col as usize) < data_cols.len() { data_cols[logical_col as usize] }
                 else { &ColumnSpec::Left };
             let style = cell_styles[row_idx].get(cell_idx).copied().unwrap_or(FontStyle::Regular);
-            let fid = if style == FontStyle::Bold { FontId::HelveticaBold } else { FontId::Helvetica };
+            let fid = if style == FontStyle::Bold { FontId::TimesBold } else { FontId::TimesRoman };
 
             // Use pre-computed math box if available (for cells with inline math/dingbats)
             if let Some(Some(ref math_box)) = cell_math.get(row_idx).and_then(|r| r.get(cell_idx)) {
@@ -375,9 +375,9 @@ fn layout_cell_nodes(result: &mut math_layout::MathBox, x: &mut f32, nodes: &[No
                 node_to_text_resolved(node, &mut text, source, label_map);
                 let text = text.trim_matches(|c: char| c == '\n').to_string();
                 if !text.is_empty() {
-                    let tw = font::measure_text(&text, FontId::Helvetica, font_size);
+                    let tw = font::measure_text(&text, FontId::TimesRoman, font_size);
                     result.elements.push(math_layout::MathElement::Text {
-                        x: *x, y: 0.0, text, font_size, font_id: FontId::Helvetica, color: Color::BLACK,
+                        x: *x, y: 0.0, text, font_size, font_id: FontId::TimesRoman, color: Color::BLACK,
                     });
                     *x += tw;
                 }

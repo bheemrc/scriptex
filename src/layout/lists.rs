@@ -115,7 +115,7 @@ pub(super) fn layout_description_list(
             state.text_buf.clear();
             for node in label { node_to_text(node, &mut state.text_buf, source); }
             let label_text: &str = unsafe { &*(state.text_buf.as_str() as *const str) };
-            let label_w = font::measure_text(label_text, FontId::HelveticaBold, state.current_font_size);
+            let label_w = font::measure_text(label_text, FontId::TimesBold, state.current_font_size);
             state.emit_text(label_text, state.current_font_size, FontStyle::Bold, Color::BLACK);
             state.current_x += label_w + state.current_font_size * 0.5;
         }
@@ -152,7 +152,7 @@ pub(super) fn layout_bibliography(nodes: &[Node], state: &mut LayoutState, doc: 
     if state.is_amsart {
         let heading = "References";
         let heading_size = state.current_font_size * 1.2;
-        let heading_w = font::measure_text(heading, FontId::Helvetica, heading_size);
+        let heading_w = font::measure_text(heading, FontId::TimesRoman, heading_size);
         state.current_x = state.text_left() + (state.text_width() - heading_w) * 0.5;
         state.emit_text(heading, heading_size, FontStyle::SmallCaps, Color::BLACK);
         state.current_y += heading_size * 1.2 + 8.0;
@@ -192,7 +192,7 @@ fn layout_bib_entry(num: u32, nodes: &[&Node], state: &mut LayoutState, doc: &Do
 
     let mut ibuf = itoa::Buffer::new();
     let marker = format!("[{}]", ibuf.format(num));
-    let marker_w = font::measure_text(&marker, FontId::Helvetica, font_size);
+    let marker_w = font::measure_text(&marker, FontId::TimesRoman, font_size);
     let marker_x = state.text_left() + indent - marker_w - 4.0;
     state.current_x = marker_x.max(state.text_left());
     state.emit_text(&marker, font_size, FontStyle::Regular, Color::BLACK);

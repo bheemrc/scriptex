@@ -153,7 +153,7 @@ pub(super) fn layout_tikz_diagram(tikz_source: &str, state: &mut LayoutState, _d
         let x = state.text_left() + (state.text_width() - 300.0) / 2.0;
         state.emit_rect(x, state.current_y, 300.0, box_h,
             Some(Color::rgb(0.95, 0.95, 0.98)), Some(Color::rgb(0.6, 0.6, 0.8)));
-        let tw = font::measure_text(placeholder, FontId::Helvetica, 10.0);
+        let tw = font::measure_text(placeholder, FontId::TimesRoman, 10.0);
         state.current_x = x + (300.0 - tw) / 2.0;
         state.emit_text(placeholder, 10.0, FontStyle::Italic, Color::GRAY);
         state.current_y += box_h + 10.0;
@@ -233,7 +233,7 @@ pub(super) fn layout_pgfplot_elements(elems: &[crate::pgfplots::PlotElement], to
             }
             PlotElement::Text { x, y, text, font_size, color, anchor, rotation } => {
                 let fs = font_size * scale;
-                let tw = font::measure_text(text, FontId::Helvetica, fs);
+                let tw = font::measure_text(text, FontId::TimesRoman, fs);
                 let abs_x = base_x + x * scale;
                 let abs_y = base_y + y * scale;
                 let (tx, ty) = match anchor {

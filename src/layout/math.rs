@@ -362,9 +362,8 @@ pub(super) fn emit_math_elements(math_box: &math_layout::MathBox, cx: f32, basel
         match elem {
             math_layout::MathElement::Text { x, y, text, font_size, font_id, color } => {
                 let style = match font_id {
-                    FontId::HelveticaOblique => FontStyle::Italic,
-                    FontId::HelveticaBold => FontStyle::Bold,
-                    FontId::HelveticaBoldOblique => FontStyle::BoldItalic,
+                    FontId::TimesItalic => FontStyle::Italic,
+                    FontId::TimesBold => FontStyle::Bold,
                     FontId::Courier => FontStyle::Monospace,
                     FontId::Symbol => FontStyle::Symbol,
                     FontId::TimesRoman => FontStyle::TimesRoman,

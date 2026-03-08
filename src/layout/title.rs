@@ -124,7 +124,7 @@ fn layout_title_amsart(state: &mut LayoutState, doc: &Document, source: &str) ->
                 let abs_size = state.base_font_size * 0.9;
                 state.current_font_size = abs_size;
                 let prefix = "Abstract. ";
-                let prefix_w = font::measure_text(prefix, FontId::HelveticaBold, abs_size);
+                let prefix_w = font::measure_text(prefix, FontId::TimesBold, abs_size);
                 state.emit_text(prefix, abs_size, FontStyle::SmallCaps, Color::BLACK);
                 state.current_x += prefix_w;
                 super::layout_nodes(content, state, doc, source)?;

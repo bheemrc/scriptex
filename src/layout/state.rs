@@ -156,7 +156,7 @@ impl LayoutState {
         let max_y = page_setup.height - page_setup.margin_bottom - page_setup.footer_height;
         let start_y = page_setup.margin_top + page_setup.header_height;
         let text_w = page_setup.text_width();
-        let avg_w = font_size * 0.48;
+        let avg_w = font_size * 0.47;
         let lh = font_size * baselineskip_factor(font_size);
         let st = lh * line_spacing;
         let para_w = text_w - 17.0;
@@ -262,8 +262,8 @@ impl LayoutState {
             let fs = self.current_font_size;
             self.cached_avg_width = fs * match self.current_font_style {
                 FontStyle::Monospace => 0.6,
-                FontStyle::Bold | FontStyle::BoldItalic => 0.52,
-                _ => 0.48,
+                FontStyle::Bold | FontStyle::BoldItalic => 0.50,
+                _ => 0.47,
             };
             self.cached_line_height = fs * baselineskip_factor(self.base_font_size);
             self.cached_step = self.cached_line_height * self.line_spacing;
@@ -499,7 +499,7 @@ impl LayoutState {
                         if !self.amsart_header_author.is_empty() {
                             let author: &str = unsafe { &*(self.amsart_header_author.as_str() as *const str) };
                             let author_len = author.len().min(u16::MAX as usize);
-                            let author_w = font::measure_text(&author[..author_len], FontId::Helvetica, header_font_size);
+                            let author_w = font::measure_text(&author[..author_len], FontId::TimesRoman, header_font_size);
                             let author_offset = (self.all_text.len() - self.current_page_text_start as usize) as u32;
                             self.all_text.push_str(&author[..author_len]);
                             self.all_elements.push(PageElement::Text {
@@ -588,7 +588,7 @@ impl LayoutState {
                 if !self.fancy_head_center.is_empty() {
                     let tmpl: String = unsafe { &*(self.fancy_head_center.as_str() as *const str) }.to_string();
                     let text = resolve(&tmpl, self);
-                    let w = font::measure_text(&text, FontId::Helvetica, header_font_size);
+                    let w = font::measure_text(&text, FontId::TimesRoman, header_font_size);
                     let cx = (left_x + right_x - w) / 2.0;
                     self.emit_header_text(&text, cx, header_y, header_font_size, FontStyle::Regular);
                 }
@@ -596,7 +596,7 @@ impl LayoutState {
                 if !self.fancy_head_right.is_empty() {
                     let tmpl: String = unsafe { &*(self.fancy_head_right.as_str() as *const str) }.to_string();
                     let text = resolve(&tmpl, self);
-                    let w = font::measure_text(&text, FontId::Helvetica, header_font_size);
+                    let w = font::measure_text(&text, FontId::TimesRoman, header_font_size);
                     self.emit_header_text(&text, right_x - w, header_y, header_font_size, FontStyle::Regular);
                 }
                 // Header rule
@@ -628,7 +628,7 @@ impl LayoutState {
                 if !self.fancy_foot_center.is_empty() {
                     let tmpl: String = unsafe { &*(self.fancy_foot_center.as_str() as *const str) }.to_string();
                     let text = resolve(&tmpl, self);
-                    let w = font::measure_text(&text, FontId::Helvetica, header_font_size);
+                    let w = font::measure_text(&text, FontId::TimesRoman, header_font_size);
                     let cx = (left_x + right_x - w) / 2.0;
                     self.emit_header_text(&text, cx, footer_y, header_font_size, FontStyle::Regular);
                 }
@@ -636,7 +636,7 @@ impl LayoutState {
                 if !self.fancy_foot_right.is_empty() {
                     let tmpl: String = unsafe { &*(self.fancy_foot_right.as_str() as *const str) }.to_string();
                     let text = resolve(&tmpl, self);
-                    let w = font::measure_text(&text, FontId::Helvetica, header_font_size);
+                    let w = font::measure_text(&text, FontId::TimesRoman, header_font_size);
                     self.emit_header_text(&text, right_x - w, footer_y, header_font_size, FontStyle::Regular);
                 }
             }
@@ -876,13 +876,13 @@ impl LayoutState {
                 let seg = &text[seg_start..i];
                 if seg_is_upper {
                     // Uppercase/spaces/digits: emit at normal size
-                    let w = font::measure_text(seg, FontId::Helvetica, font_size);
+                    let w = font::measure_text(seg, FontId::TimesRoman, font_size);
                     self.emit_text(seg, font_size, FontStyle::Regular, color);
                     self.current_x += w;
                 } else {
                     // Lowercase: convert to uppercase, emit at small size
                     let upper: String = seg.to_uppercase();
-                    let w = font::measure_text(&upper, FontId::Helvetica, small_size);
+                    let w = font::measure_text(&upper, FontId::TimesRoman, small_size);
                     self.emit_text(&upper, small_size, FontStyle::Regular, color);
                     self.current_x += w;
                 }
@@ -894,12 +894,12 @@ impl LayoutState {
         if seg_start < text.len() {
             let seg = &text[seg_start..];
             if seg_is_upper {
-                let w = font::measure_text(seg, FontId::Helvetica, font_size);
+                let w = font::measure_text(seg, FontId::TimesRoman, font_size);
                 self.emit_text(seg, font_size, FontStyle::Regular, color);
                 self.current_x += w;
             } else {
                 let upper: String = seg.to_uppercase();
-                let w = font::measure_text(&upper, FontId::Helvetica, small_size);
+                let w = font::measure_text(&upper, FontId::TimesRoman, small_size);
                 self.emit_text(&upper, small_size, FontStyle::Regular, color);
                 self.current_x += w;
             }
@@ -926,7 +926,7 @@ impl LayoutState {
                         let seg = &text[seg_start..i];
                         let offset = (self.all_text.len() - self.current_page_text_start as usize) as u32;
                         self.all_text.push_str(seg);
-                        let w = font::measure_text(seg, FontId::Helvetica, font_size);
+                        let w = font::measure_text(seg, FontId::TimesRoman, font_size);
                         self.all_elements.push(PageElement::Text {
                             x: cur_x, y, text_offset: offset, text_len: seg.len().min(65535) as u16,
                             font_size_100, font_style: base_style, color: Color::BLACK, word_spacing_50: 0,

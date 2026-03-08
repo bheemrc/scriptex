@@ -131,14 +131,14 @@ pub(super) fn layout_section(
         let estimated_width = full_text.len() as f32 * avg_width;
 
         if run_in {
-            let text_w = font::measure_text(full_text, FontId::HelveticaBold, font_size);
+            let text_w = font::measure_text(full_text, FontId::TimesBold, font_size);
             state.emit_text(full_text, font_size, style, Color::BLACK);
             state.current_x += text_w + font_size * 0.5;
         } else if centered {
             let font_id = match style {
-                FontStyle::SmallCaps | FontStyle::Bold => FontId::HelveticaBold,
-                FontStyle::Italic => FontId::HelveticaOblique,
-                _ => FontId::Helvetica,
+                FontStyle::SmallCaps | FontStyle::Bold => FontId::TimesBold,
+                FontStyle::Italic => FontId::TimesItalic,
+                _ => FontId::TimesRoman,
             };
             let text_w = font::measure_text(full_text, font_id, font_size);
             let cx = state.text_left() + (state.text_width() - text_w) / 2.0;
@@ -156,8 +156,8 @@ pub(super) fn layout_section(
             for line in &lines {
                 if centered {
                     let font_id = match style {
-                        FontStyle::SmallCaps | FontStyle::Bold => FontId::HelveticaBold,
-                        _ => FontId::Helvetica,
+                        FontStyle::SmallCaps | FontStyle::Bold => FontId::TimesBold,
+                        _ => FontId::TimesRoman,
                     };
                     let tw = font::measure_text(line, font_id, font_size);
                     state.current_x = state.text_left() + (state.text_width() - tw) / 2.0;
@@ -182,9 +182,9 @@ fn layout_section_with_math(
     line_height: f32, centered: bool, state: &mut LayoutState, source: &str,
 ) {
     let base_font_id = match style {
-        FontStyle::SmallCaps | FontStyle::Bold => FontId::HelveticaBold,
-        FontStyle::Italic => FontId::HelveticaOblique,
-        _ => FontId::Helvetica,
+        FontStyle::SmallCaps | FontStyle::Bold => FontId::TimesBold,
+        FontStyle::Italic => FontId::TimesItalic,
+        _ => FontId::TimesRoman,
     };
     struct Seg { text: String, sym: bool }
     let mut segs: Vec<Seg> = Vec::new();
@@ -253,8 +253,8 @@ pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
 
     let entries = std::mem::take(&mut state.toc_entries);
     let dot_char = ". ";
-    let dot_width = font::measure_text(dot_char, FontId::Helvetica, base);
-    let page_num_width = font::measure_text("000", FontId::Helvetica, base);
+    let dot_width = font::measure_text(dot_char, FontId::TimesRoman, base);
+    let page_num_width = font::measure_text("000", FontId::TimesRoman, base);
 
     let max_dots = 200;
     let mut dot_leader = String::with_capacity(max_dots * 2);

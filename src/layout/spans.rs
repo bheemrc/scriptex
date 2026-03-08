@@ -385,7 +385,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 let num = state.footnote_counter;
                 let num_str = format!("{}", num);
                 let sup_size = font_size * 0.65;
-                let w = font::measure_text(&num_str, FontId::Helvetica, sup_size);
+                let w = font::measure_text(&num_str, FontId::TimesRoman, sup_size);
                 words.push(StyledWord { text: num_str, style: FontStyle::Regular, color: state.current_color, font_size, width: w, math: None, superscript: true, underline: false, strikethrough: false });
                 state.footnotes.push(content.clone());
             }
@@ -425,7 +425,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 } else {
                     format!("{}\u{00A0}{}", prefix, num)
                 };
-                let w = font::measure_text(&ref_text, FontId::Helvetica, font_size);
+                let w = font::measure_text(&ref_text, FontId::TimesRoman, font_size);
                 words.push(StyledWord { text: ref_text, style: state.current_font_style, color: state.current_color, font_size, width: w, math: None, superscript: false, underline: false, strikethrough: false });
             }
             _ => {
@@ -444,12 +444,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                         words.push(StyledWord { text: "\x01HFILL\x01".to_string(), style: span.style, color: span.color, font_size: sf, width: 0.0, math: None, superscript: false, underline: false, strikethrough: false });
                         continue;
                     }
-                    let font_id = match span.style {
-                        FontStyle::Bold | FontStyle::BoldItalic => FontId::HelveticaBold,
-                        FontStyle::Monospace => FontId::Courier,
-                        FontStyle::Symbol => FontId::Symbol,
-                        _ => FontId::Helvetica,
-                    };
+                    let font_id = font::style_to_font_id(span.style);
                     let parts: Vec<&str> = span.text.split_whitespace().collect();
                     let starts_with_space = span.text.starts_with(char::is_whitespace);
                     let ends_with_space = span.text.ends_with(char::is_whitespace);
@@ -581,10 +576,15 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
             }
             if space_count > 0 {
                 let slack = available - content_w;
-                if slack > 0.0 && slack < available * 0.3 {
+                // Justify if line is at least 55% full (TeX-like threshold)
+                if slack > 0.0 && slack < available * 0.45 {
                     extra_per_space = slack / space_count as f32;
-                    // Clamp to avoid visually bad gaps
-                    extra_per_space = extra_per_space.min(font_size * 0.4);
+                    // Allow up to 0.6em stretch per space for professional justification
+                    extra_per_space = extra_per_space.min(font_size * 0.6);
+                } else if slack < 0.0 && slack > -font_size * 1.5 {
+                    // Allow slight compression for overfull lines
+                    extra_per_space = slack / space_count as f32;
+                    extra_per_space = extra_per_space.max(-font_size * 0.1);
                 }
             }
         }

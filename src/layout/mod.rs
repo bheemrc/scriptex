@@ -675,7 +675,7 @@ fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Documen
             node_to_text(node, &mut state.text_buf, source);
         }
         let prefix: &str = unsafe { &*(state.text_buf[..prefix_len].as_ref() as *const str) };
-        let prefix_width = font::measure_text(prefix, FontId::HelveticaBold, state.current_font_size);
+        let prefix_width = font::measure_text(prefix, FontId::TimesBold, state.current_font_size);
         state.emit_text(prefix, state.current_font_size, FontStyle::Bold, Color::BLACK);
         state.current_x += prefix_width;
 
@@ -869,7 +869,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 state.emit_rect(x, state.current_y, img_w, img_h,
                     Some(Color::rgb(0.95, 0.95, 0.95)), Some(Color::LIGHT_GRAY));
                 let label = format!("[Image: {}]", img.path);
-                let tw = font::measure_text(&label, FontId::Helvetica, 8.0);
+                let tw = font::measure_text(&label, FontId::TimesRoman, 8.0);
                 let cx = x + (img_w - tw) / 2.0;
                 state.current_x = cx;
                 state.emit_text(&label, 8.0, FontStyle::Italic, Color::GRAY);
@@ -1038,7 +1038,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             state.current_y -= state.current_font_size * 0.35;
             state.emit_text(&num_str, sup_size, FontStyle::Regular, Color::BLACK);
             state.current_y = saved_y;
-            state.current_x += font::measure_text(&num_str, FontId::Helvetica, sup_size);
+            state.current_x += font::measure_text(&num_str, FontId::TimesRoman, sup_size);
             state.footnotes.push(content.clone());
             state.reserve_footnote_space();
         }
@@ -1063,7 +1063,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 }
                 state.current_x = state.text_left();
                 state.emit_text(&cap_text, state.current_font_size * 0.9, FontStyle::Bold, Color::BLACK);
-                state.current_x += font::measure_text(&cap_text, FontId::HelveticaBold, state.current_font_size * 0.9);
+                state.current_x += font::measure_text(&cap_text, FontId::TimesBold, state.current_font_size * 0.9);
                 for cn in cap { layout_node(cn, state, doc, source)?; }
                 state.current_y += state.current_font_size * 1.2;
                 state.current_font_style = saved_style;
@@ -1132,7 +1132,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
         Node::Citation(key, opt, style) => {
             let cite_text = resolve_citations(key, opt.as_deref(), &state.citation_map, *style, &state.author_year_map);
             state.emit_text(&cite_text, state.current_font_size, FontStyle::Regular, Color::BLACK);
-            state.current_x += font::measure_text(&cite_text, FontId::Helvetica, state.current_font_size);
+            state.current_x += font::measure_text(&cite_text, FontId::TimesRoman, state.current_font_size);
         }
 
         Node::Ref(label) => {
@@ -1142,7 +1142,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 "??".to_string()
             };
             state.emit_text(&ref_text, state.current_font_size, FontStyle::Regular, Color::BLACK);
-            state.current_x += font::measure_text(&ref_text, FontId::Helvetica, state.current_font_size);
+            state.current_x += font::measure_text(&ref_text, FontId::TimesRoman, state.current_font_size);
         }
 
         Node::EqRef(label) => {
@@ -1152,7 +1152,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 "(??)".to_string()
             };
             state.emit_text(&ref_text, state.current_font_size, FontStyle::Regular, Color::BLACK);
-            state.current_x += font::measure_text(&ref_text, FontId::Helvetica, state.current_font_size);
+            state.current_x += font::measure_text(&ref_text, FontId::TimesRoman, state.current_font_size);
         }
 
         Node::Cref(label, capitalize) => {
@@ -1182,7 +1182,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 format!("{}~{}", prefix, num)
             };
             state.emit_text(&ref_text, state.current_font_size, FontStyle::Regular, Color::BLACK);
-            state.current_x += font::measure_text(&ref_text, FontId::Helvetica, state.current_font_size);
+            state.current_x += font::measure_text(&ref_text, FontId::TimesRoman, state.current_font_size);
         }
 
         Node::Href { url, content } => {
