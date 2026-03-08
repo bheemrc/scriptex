@@ -83,6 +83,16 @@ pub(super) fn layout_list(
             let marker_w = font::measure_text(marker, FontId::TimesRoman, fs);
             state.current_x = state.text_left() - marker_gap - marker_w;
             state.emit_text(marker, fs, FontStyle::Regular, Color::BLACK);
+        } else if let Some(ref custom_label) = item.label {
+            // Custom label via \item[label] in itemize
+            state.text_buf.clear();
+            for node in custom_label {
+                super::text::node_to_text(node, &mut state.text_buf, source);
+            }
+            let marker: &str = unsafe { &*(state.text_buf.as_str() as *const str) };
+            let marker_w = font::measure_text(marker, FontId::TimesRoman, fs);
+            state.current_x = state.text_left() - marker_gap - marker_w;
+            state.emit_text(marker, fs, FontStyle::Regular, Color::BLACK);
         } else {
             // LaTeX itemize bullets: level 0 = filled circle (textbullet),
             // level 1 = en-dash, level 2 = filled small triangle, level 3+ = centered dot

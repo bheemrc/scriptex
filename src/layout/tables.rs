@@ -259,8 +259,9 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
             }
         }
         let extra = table.rows[row_idx].extra_space_before;
-        let rule_sep = if table.rows[row_idx].hline_before { font_size * 0.9 } else { 0.0 };
-        let rh = max_lines as f32 * line_h * state.array_stretch + cell_padding * 2.0 + extra + rule_sep;
+        let rule_sep = if table.rows[row_idx].hline_before { font_size * 0.5 } else { 0.0 };
+        let rule_sep_above = if row_idx > 0 && table.rows[row_idx - 1].hline_after { font_size * 0.4 } else { 0.0 };
+        let rh = max_lines as f32 * line_h * state.array_stretch + cell_padding * 2.0 + extra + rule_sep + rule_sep_above;
         row_heights.push(rh);
         wrapped_cells.push(row_wrapped);
     }
