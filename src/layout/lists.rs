@@ -50,25 +50,32 @@ pub(super) fn layout_list(
         let marker_gap = fs * 0.3; // gap between marker and text
         if numbered {
             state.text_buf.clear();
-            match depth {
-                0 => {
-                    let mut ibuf = itoa::Buffer::new();
-                    state.text_buf.push_str(ibuf.format(i + 1));
-                    state.text_buf.push('.');
+            if let Some(ref custom_label) = item.label {
+                // Use custom label from enumitem package
+                for node in custom_label {
+                    super::text::node_to_text(node, &mut state.text_buf, source);
                 }
-                1 => {
-                    state.text_buf.push('(');
-                    state.text_buf.push((b'a' + (i as u8).min(25)) as char);
-                    state.text_buf.push(')');
-                }
-                2 => {
-                    let roman = to_roman_lower(i + 1);
-                    state.text_buf.push_str(&roman);
-                    state.text_buf.push('.');
-                }
-                _ => {
-                    state.text_buf.push((b'A' + (i as u8).min(25)) as char);
-                    state.text_buf.push('.');
+            } else {
+                match depth {
+                    0 => {
+                        let mut ibuf = itoa::Buffer::new();
+                        state.text_buf.push_str(ibuf.format(i + 1));
+                        state.text_buf.push('.');
+                    }
+                    1 => {
+                        state.text_buf.push('(');
+                        state.text_buf.push((b'a' + (i as u8).min(25)) as char);
+                        state.text_buf.push(')');
+                    }
+                    2 => {
+                        let roman = to_roman_lower(i + 1);
+                        state.text_buf.push_str(&roman);
+                        state.text_buf.push('.');
+                    }
+                    _ => {
+                        state.text_buf.push((b'A' + (i as u8).min(25)) as char);
+                        state.text_buf.push('.');
+                    }
                 }
             }
             let marker: &str = unsafe { &*(state.text_buf.as_str() as *const str) };

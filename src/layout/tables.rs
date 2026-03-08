@@ -359,29 +359,35 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
             }
         }
 
+        // Booktabs-style rule thicknesses (LaTeX: 0.08em top/bottom, 0.05em mid)
+        let fs = state.current_font_size;
+        let heavy_rule = (fs * 0.08).max(0.6);  // toprule/bottomrule
+        let light_rule = (fs * 0.05).max(0.4);  // midrule
         if row.hline_before {
-            let rule_width = if row_idx == 0 { 1.2 } else { 0.8 };
+            let rule_width = if row_idx == 0 { heavy_rule } else { light_rule };
             state.emit_line(table_x, y, table_x + actual_table_width, y, rule_width, Color::BLACK);
         }
         if row.hline_after {
             let line_y = y + row_height;
-            let rule_width = if row_idx == num_data_rows - 1 { 1.2 } else { 0.8 };
+            let rule_width = if row_idx == num_data_rows - 1 { heavy_rule } else { light_rule };
             state.emit_line(table_x, line_y, table_x + actual_table_width, line_y, rule_width, Color::BLACK);
         }
         // Render cmidrules (partial horizontal rules)
+        let cmidrule_width = (fs * 0.03).max(0.3);
         for &(start_col, end_col) in &row.cmidrules {
             let s = (start_col.max(1) - 1) as usize; // convert to 0-based
             let e = end_col as usize;
             let x1 = table_x + col_widths.iter().take(s).sum::<f32>();
             let x2 = table_x + col_widths.iter().take(e.min(num_cols)).sum::<f32>();
-            state.emit_line(x1, y, x2, y, 0.6, Color::BLACK);
+            state.emit_line(x1, y, x2, y, cmidrule_width, Color::BLACK);
         }
         // Render vertical column separators
+        let vrule_width = (fs * 0.04).max(0.3);
         {
             let mut vx = table_x;
             for ci in 0..=num_cols {
                 if separator_before[ci] {
-                    state.emit_line(vx, y, vx, y + row_height, 0.4, Color::BLACK);
+                    state.emit_line(vx, y, vx, y + row_height, vrule_width, Color::BLACK);
                 }
                 if ci < num_cols { vx += col_widths[ci]; }
             }
