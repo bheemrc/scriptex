@@ -683,16 +683,21 @@ fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Documen
         let fig_num = state.figure_counter;
         state.current_y += 6.0;
 
+        // Caption uses slightly smaller font (LaTeX \captionsize = \small)
+        let cap_font_size = state.current_font_size * 0.9;
+        let saved_cap_font = state.current_font_size;
+        state.current_font_size = cap_font_size;
+
         // Build "Figure N: " prefix
         let mut ibuf = itoa::Buffer::new();
         let prefix = format!("Figure {}: ", ibuf.format(fig_num));
-        let prefix_width = font::measure_text(&prefix, FontId::TimesBold, state.current_font_size);
+        let prefix_width = font::measure_text(&prefix, FontId::TimesBold, cap_font_size);
 
         // Pre-measure caption text to decide centering
         state.text_buf.clear();
         let labels: &std::collections::HashMap<String, String> = unsafe { &*(&state.label_map as *const _) };
         for node in cap.iter() { text::node_to_text_resolved(node, &mut state.text_buf, source, labels); }
-        let cap_text_width = font::measure_text(state.text_buf.as_str(), FontId::TimesRoman, state.current_font_size);
+        let cap_text_width = font::measure_text(state.text_buf.as_str(), FontId::TimesRoman, cap_font_size);
         let total_width = prefix_width + cap_text_width;
 
         // Center if caption fits on one line
@@ -703,7 +708,7 @@ fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Documen
             state.current_x = state.text_left();
         }
 
-        state.emit_text(&prefix, state.current_font_size, FontStyle::Bold, Color::BLACK);
+        state.emit_text(&prefix, cap_font_size, FontStyle::Bold, Color::BLACK);
         state.current_x += prefix_width;
 
         // Use rich paragraph layout for caption content (supports bold, italic, math, etc.)
@@ -711,6 +716,7 @@ fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Documen
         state.paragraph_indent = 0.0;
         spans::layout_rich_paragraph(cap, state, source, false)?;
         state.paragraph_indent = saved_para_indent;
+        state.current_font_size = saved_cap_font;
     }
     state.set_indent(saved_indent);
     state.current_font_size = saved_font_size;

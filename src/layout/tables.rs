@@ -270,7 +270,9 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     if total_table_height > remaining_space && total_table_height <= full_page_height { state.new_page(); }
 
     if let Some(caption) = &table.caption {
-        let cap_font_size = state.current_font_size;
+        let cap_font_size = state.current_font_size * 0.9; // LaTeX \captionsize = \small
+        let saved_cap_font = state.current_font_size;
+        state.current_font_size = cap_font_size;
         state.current_y += 6.0;
 
         // Bold "Table N: " prefix
@@ -301,6 +303,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
         state.paragraph_indent = 0.0;
         spans::layout_rich_paragraph(caption, state, source, false)?;
         state.paragraph_indent = saved_para_indent;
+        state.current_font_size = saved_cap_font;
     }
 
     for row_idx in 0..num_data_rows {
