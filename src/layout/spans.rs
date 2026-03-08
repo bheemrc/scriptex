@@ -691,7 +691,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
     }
 
     // Orphan/widow control (LaTeX \clubpenalty/\widowpenalty equivalent)
-    if lines.len() >= 2 {
+    if lines.len() >= 1 {
         let remaining_space = state.cached_max_y - state.current_y;
         let first_line_h = lines[0].max_above + lines[0].max_below;
         // Orphan: prevent single line stranded at page bottom

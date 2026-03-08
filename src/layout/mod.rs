@@ -1215,6 +1215,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 // Stay at saved_y for next subfigure (side-by-side)
                 state.current_y = saved_y;
             }
+            state.suppress_next_indent = true;
         }
 
         Node::Text(_) | Node::TextRef(_, _) | Node::Bold(_) | Node::Italic(_) | Node::Monospace(_) | Node::SansSerif(_)

@@ -361,7 +361,7 @@ pub(super) fn layout_centered_text(text: &str, state: &mut LayoutState) -> Resul
     let font_size = state.current_font_size;
     let font_style = state.current_font_style;
     let color = state.current_color;
-    let line_h = font_size * 1.2;
+    let line_h = font_size * super::state::baselineskip_factor(state.base_font_size);
     let fid = font::style_to_font_id(font_style);
     let space_width = font::measure_text(" ", fid, font_size);
     let para_width = state.text_width();
@@ -412,7 +412,7 @@ fn layout_centered_rich(children: &[Node], state: &mut LayoutState, _doc: &Docum
     let font_size = state.current_font_size;
     let base_style = state.current_font_style;
     let base_color = state.current_color;
-    let line_h = font_size * 1.2;
+    let line_h = font_size * super::state::baselineskip_factor(state.base_font_size);
     let para_width = state.text_width();
 
     // Collect segments with their style info
@@ -560,7 +560,7 @@ fn layout_right_aligned_text(text: &str, state: &mut LayoutState) -> Result<()> 
     let font_size = state.current_font_size;
     let font_style = state.current_font_style;
     let color = state.current_color;
-    let line_h = font_size * 1.2;
+    let line_h = font_size * super::state::baselineskip_factor(state.base_font_size);
     let fid = font::style_to_font_id(font_style);
     let space_width = font::measure_text(" ", fid, font_size);
     let para_width = state.text_width();
