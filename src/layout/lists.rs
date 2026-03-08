@@ -10,6 +10,17 @@ use super::spans::layout_rich_paragraph;
 
 use anyhow::Result;
 
+/// Check if list item content is effectively empty (only whitespace/invisible nodes)
+fn is_item_empty(content: &[Node], source: &str) -> bool {
+    content.iter().all(|n| match n {
+        Node::Text(s) => s.trim().is_empty(),
+        Node::TextRef(off, len) => source[*off as usize..(*off as usize + *len as usize)].trim().is_empty(),
+        Node::Label(_) | Node::HSpace(_) | Node::VSpace(_) | Node::NonBreakingSpace => true,
+        Node::Paragraph(children) | Node::Group(children) => is_item_empty(children, source),
+        _ => false,
+    })
+}
+
 pub(super) fn layout_list(
     items: &[ListItem], state: &mut LayoutState, doc: &Document,
     numbered: bool, source: &str,
@@ -23,11 +34,8 @@ pub(super) fn layout_list(
     state.add_vertical_space(2.0);
 
     for (i, item) in items.iter().enumerate() {
-        if item.label.is_none() && item.content.iter().all(|n| match n {
-            Node::Text(s) => s.trim().is_empty(),
-            Node::TextRef(off, len) => source[*off as usize..(*off as usize + *len as usize)].trim().is_empty(),
-            _ => false,
-        }) { continue; }
+        // Skip empty items (only whitespace or invisible nodes)
+        if item.label.is_none() && is_item_empty(&item.content, source) { continue; }
 
         state.current_x = state.text_left();
         let line_h = state.current_font_size * 1.2;
@@ -64,7 +72,7 @@ pub(super) fn layout_list(
             // LaTeX itemize bullets: level 0 = filled circle (textbullet),
             // level 1 = en-dash, level 2 = filled small triangle, level 3+ = centered dot
             let fs = state.current_font_size;
-            let by = state.current_y + fs * 0.38; // vertical center of x-height
+            let by = state.current_y - fs * 0.3; // vertical center of x-height (above baseline)
             match depth {
                 0 => {
                     // Filled circle bullet (•) - radius ~1.5pt for 10pt font

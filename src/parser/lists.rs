@@ -74,10 +74,24 @@ impl<'a> Parser<'a> {
                             let name = self.read_braced_text()?;
                             if name == env_name {
                                 if in_item {
-                                    items.push(ListItem {
-                                        label: current_label.take(),
-                                        content: std::mem::take(&mut current_content),
+                                    // Only push final item if it has non-whitespace content
+                                    let has_content = current_content.iter().any(|n| match n {
+                                        Node::Text(s) => !s.trim().is_empty(),
+                                        Node::TextRef(off, len) => !self.source[*off as usize..(*off as usize + *len as usize)].trim().is_empty(),
+                                        Node::Paragraph(c) | Node::Group(c) => c.iter().any(|n2| match n2 {
+                                            Node::Text(s) => !s.trim().is_empty(),
+                                            Node::TextRef(o, l) => !self.source[*o as usize..(*o as usize + *l as usize)].trim().is_empty(),
+                                            _ => true,
+                                        }),
+                                        Node::Label(_) | Node::HSpace(_) | Node::VSpace(_) | Node::NonBreakingSpace => false,
+                                        _ => true,
                                     });
+                                    if has_content || current_label.is_some() {
+                                        items.push(ListItem {
+                                            label: current_label.take(),
+                                            content: std::mem::take(&mut current_content),
+                                        });
+                                    }
                                 }
                                 break;
                             }
