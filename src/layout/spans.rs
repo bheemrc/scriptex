@@ -164,6 +164,10 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
             Node::TeXLogo => {
                 out.push(StyledSpan { text: "TeX".to_string(), style, color, font_size, underline: false, strikethrough: false });
             }
+            Node::Rule { width: w, height: h } => {
+                // Sentinel marker with encoded dimensions — rendered as filled rectangle
+                out.push(StyledSpan { text: format!("\x01RULE:{:.2}:{:.2}\x01", w, h), style, color, font_size, underline: false, strikethrough: false });
+            }
             Node::HFill => {
                 // Sentinel marker — handled in layout_rich_paragraph
                 out.push(StyledSpan { text: "\x01HFILL\x01".to_string(), style, color, font_size, underline: false, strikethrough: false });
@@ -479,6 +483,14 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                         words.push(StyledWord { text: "\x01HFILL\x01".to_string(), style: span.style, color: span.color, font_size: sf, width: 0.0, math: None, superscript: false, underline: false, strikethrough: false });
                         continue;
                     }
+                    if span.text.starts_with("\x01RULE:") {
+                        // Parse encoded rule dimensions: \x01RULE:w:h\x01
+                        let inner = &span.text[6..span.text.len()-1]; // strip \x01RULE: and \x01
+                        let parts: Vec<&str> = inner.split(':').collect();
+                        let rule_w: f32 = parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(10.0);
+                        words.push(StyledWord { text: span.text.clone(), style: span.style, color: span.color, font_size: sf, width: rule_w, math: None, superscript: false, underline: false, strikethrough: false });
+                        continue;
+                    }
                     let font_id = font::style_to_font_id(span.style);
                     let parts: Vec<&str> = span.text.split_whitespace().collect();
                     let starts_with_space = span.text.starts_with(char::is_whitespace);
@@ -666,6 +678,17 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         for wi in line.start..line.end {
             let word = &words[wi];
             if word.text == " " { line_x += word.width + extra_per_space; continue; }
+            if word.text.starts_with("\x01RULE:") {
+                // Render filled rectangle for \rule{width}{height}
+                let inner = &word.text[6..word.text.len()-1];
+                let parts: Vec<&str> = inner.split(':').collect();
+                let rule_w: f32 = parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(10.0);
+                let rule_h: f32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(word.font_size * 0.8);
+                let ry = state.current_y - rule_h + word.font_size * 0.15; // baseline-aligned
+                state.emit_rect(line_x, ry, rule_w, rule_h, Some(word.color), None);
+                line_x += rule_w;
+                continue;
+            }
             if word.text == "\x01HFILL\x01" {
                 // Compute remaining content width after HFill
                 let mut remaining_w = 0.0f32;

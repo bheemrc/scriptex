@@ -290,6 +290,8 @@ pub enum Node {
 
     /// Horizontal rule
     HRule,
+    /// Inline rule with dimensions: \rule[raise]{width}{height}
+    Rule { width: f32, height: f32 },
 
     /// Quote/quotation environment
     Quote(Vec<Node>),

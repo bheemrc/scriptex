@@ -288,7 +288,7 @@ fn is_inline_node(node: &Node) -> bool {
             | Node::LeftQuote | Node::RightQuote | Node::LeftDoubleQuote | Node::RightDoubleQuote
             | Node::Ampersand | Node::Percent | Node::Dollar | Node::Hash | Node::Underscore
             | Node::Tilde | Node::Caret | Node::LeftBrace | Node::RightBrace
-            | Node::LaTeXLogo | Node::TeXLogo
+            | Node::LaTeXLogo | Node::TeXLogo | Node::Rule { .. }
         ),
     }
 }
@@ -1192,7 +1192,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
         | Node::FontSize { .. } | Node::Superscript(_) | Node::Subscript(_)
         | Node::NonBreakingSpace | Node::HSpace(_) | Node::LineBreak
         | Node::Code(_) | Node::Strikethrough(_)
-        | Node::LaTeXLogo | Node::TeXLogo => {
+        | Node::LaTeXLogo | Node::TeXLogo | Node::Rule { .. } => {
             layout_paragraph(&[node.clone()], state, doc, source)?;
         }
 

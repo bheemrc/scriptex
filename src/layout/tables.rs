@@ -76,14 +76,31 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     let mut cell_logical_cols: Vec<Vec<(u32, u32, Option<ColumnSpec>)>> = Vec::with_capacity(table.rows.len());
     // Pre-computed math boxes for cells with inline math (row_idx, cell_idx) → MathBox
     let mut cell_math: Vec<Vec<Option<math_layout::MathBox>>> = Vec::with_capacity(table.rows.len());
+    // Track multirow coverage: (row_idx, logical_col) → true if covered by a rowspan from above
+    let mut rowspan_covered: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+    // Track multirow origins: (origin_row, cell_idx) → (rowspan, logical_col)
+    let mut multirow_origins: Vec<(usize, usize, u32, u32)> = Vec::new();
 
-    for row in &table.rows {
+    for (row_idx, row) in table.rows.iter().enumerate() {
         let mut row_texts = Vec::with_capacity(num_cols);
         let mut row_styles = Vec::with_capacity(num_cols);
         let mut row_cols = Vec::with_capacity(num_cols);
         let mut row_math: Vec<Option<math_layout::MathBox>> = Vec::with_capacity(num_cols);
         let mut logical_col: u32 = 0;
-        for cell in &row.cells {
+        // Skip columns covered by rowspan from above
+        while rowspan_covered.contains(&(row_idx, logical_col as usize)) && (logical_col as usize) < num_cols {
+            // Insert empty placeholder for covered cell
+            row_texts.push(String::new()); row_styles.push(FontStyle::Regular);
+            row_cols.push((logical_col, 1, None)); row_math.push(None);
+            logical_col += 1;
+        }
+        for (cell_idx, cell) in row.cells.iter().enumerate() {
+            // Skip columns covered by rowspan
+            while rowspan_covered.contains(&(row_idx, logical_col as usize)) && (logical_col as usize) < num_cols {
+                row_texts.push(String::new()); row_styles.push(FontStyle::Regular);
+                row_cols.push((logical_col, 1, None)); row_math.push(None);
+                logical_col += 1;
+            }
             if logical_col as usize >= num_cols { break; }
             let span = cell.colspan.max(1);
             let has_math = cell_has_math(&cell.content);
@@ -106,6 +123,15 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
             row_texts.push(trimmed); row_styles.push(style);
             row_cols.push((logical_col, span, cell.alignment.clone()));
             row_math.push(math_box);
+            // Track multirow: mark subsequent rows as covered
+            if cell.rowspan > 1 {
+                multirow_origins.push((row_idx, cell_idx, cell.rowspan, logical_col));
+                for r in 1..cell.rowspan as usize {
+                    for c in 0..span as usize {
+                        rowspan_covered.insert((row_idx + r, logical_col as usize + c));
+                    }
+                }
+            }
             logical_col += span;
         }
         while row_texts.len() < num_cols {
@@ -275,6 +301,8 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
         for (cell_idx, cell_lines) in wrapped_cells[row_idx].iter().enumerate() {
             let (logical_col, span, align_override) = cell_logical_cols.get(row_idx).and_then(|r| r.get(cell_idx)).cloned().unwrap_or((cell_idx as u32, 1, None));
             if logical_col as usize >= num_cols { break; }
+            // Skip cells covered by multirow from a previous row
+            if rowspan_covered.contains(&(row_idx, logical_col as usize)) { continue; }
             col_x = table_x + col_widths.iter().take(logical_col as usize).sum::<f32>();
             let col_w = if span > 1 {
                 (logical_col..logical_col + span).map(|c| col_widths.get(c as usize).copied().unwrap_or(0.0)).sum::<f32>()
@@ -289,8 +317,18 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
             let style = cell_styles[row_idx].get(cell_idx).copied().unwrap_or(FontStyle::Regular);
             let fid = if style == FontStyle::Bold { FontId::TimesBold } else { FontId::TimesRoman };
 
+            // Check if this cell is the origin of a multirow span — vertically center content
+            let multirow_y_offset = multirow_origins.iter()
+                .find(|(or, _ci, _rs, lc)| *or == row_idx && *lc == logical_col)
+                .map(|&(origin_row, _ci, rspan, _lc)| {
+                    let total_h: f32 = (origin_row..origin_row + rspan as usize)
+                        .map(|r| row_heights.get(r).copied().unwrap_or(0.0))
+                        .sum();
+                    (total_h - row_height) / 2.0
+                })
+                .unwrap_or(0.0);
+
             // Use pre-computed math box if available (for cells with inline math/dingbats)
-            // rule_sep is already included in row height, so text starts at y + cell_padding
             if let Some(Some(ref math_box)) = cell_math.get(row_idx).and_then(|r| r.get(cell_idx)) {
                 let display_w = math_box.width;
                 let text_x = match align {
@@ -298,7 +336,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
                     ColumnSpec::Right => cx + cell_content_width - display_w,
                     _ => cx,
                 };
-                let text_y = y + cell_padding;
+                let text_y = y + cell_padding + multirow_y_offset;
                 emit_math_elements(math_box, text_x, text_y + math_box.height, state);
             } else {
                 for (line_idx, line_text) in cell_lines.iter().enumerate() {
@@ -308,7 +346,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
                         ColumnSpec::Right => cx + cell_content_width - display_w,
                         _ => cx,
                     };
-                    let text_y = y + cell_padding + line_idx as f32 * line_h;
+                    let text_y = y + cell_padding + line_idx as f32 * line_h + multirow_y_offset;
                     state.current_x = text_x;
                     state.current_y = text_y;
                     state.emit_text(line_text, state.current_font_size, style, Color::BLACK);

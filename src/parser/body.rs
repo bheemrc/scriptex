@@ -501,10 +501,17 @@ impl<'a> Parser<'a> {
                 let pts = self.parse_dimension(&dim_text).unwrap_or(10.0);
                 Ok(Some(Node::HSpace(pts)))
             }
-            "\\kern" => {
-                let dim_text = self.read_tex_dimension_text();
-                let pts = self.parse_dimension(&dim_text).unwrap_or(0.0);
-                Ok(Some(Node::HSpace(pts)))
+            "\\kern" | "\\mkern" => {
+                let (pts, remainder) = self.read_dimension_from_source();
+                if let Some(rem) = remainder {
+                    // Remainder text after the dimension — emit kern + text as a group
+                    Ok(Some(Node::Group(vec![
+                        Node::HSpace(pts),
+                        Node::Text(rem),
+                    ])))
+                } else {
+                    Ok(Some(Node::HSpace(pts)))
+                }
             }
             "\\appendix" => Ok(Some(Node::Appendix)),
             "\\indent" => Ok(Some(Node::HSpace(20.0))),
@@ -526,8 +533,8 @@ impl<'a> Parser<'a> {
                     // \rule{0pt}{height} is a strut (invisible height spacer)
                     Ok(Some(Node::VSpace(h)))
                 } else {
-                    // Inline filled rectangle
-                    Ok(Some(Node::HRule))
+                    // Inline filled rectangle with specific dimensions
+                    Ok(Some(Node::Rule { width: w, height: h }))
                 }
             }
 
@@ -1097,9 +1104,19 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            "\\verb" | "\\verb*" => {
-                // \verb|code| — read delimiter char, then content until matching delimiter
-                let tok = self.tokens[self.pos.saturating_sub(1)]; // the \verb token
+            "\\verb" | "\\verb*" | "\\lstinline" => {
+                // \verb|code| or \lstinline|code| or \lstinline{code}
+                // Skip optional arg for \lstinline (e.g., \lstinline[style=foo])
+                if cmd == "\\lstinline" {
+                    let _ = self.try_read_optional_arg();
+                }
+                // Check if braces are used as delimiters (common for \lstinline)
+                if self.current().kind == TokenKind::OpenBrace {
+                    let content = self.read_braced_text()?;
+                    return Ok(Some(Node::Code(content)));
+                }
+                // Otherwise use delimiter-based parsing like \verb
+                let tok = self.tokens[self.pos.saturating_sub(1)]; // the command token
                 let verb_end = tok.pos as usize + tok.len as usize;
                 if verb_end < self.source.len() {
                     let delim = self.source.as_bytes()[verb_end];

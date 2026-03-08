@@ -507,6 +507,7 @@ fn node_to_text_ext(node: &Node, out: &mut String, source: &str, labels: Option<
         Node::LaTeXLogo => out.push_str("LaTeX"),
         Node::TeXLogo => out.push_str("TeX"),
         Node::Dingbat(code) => out.push(char::from(*code)),
+        Node::Rule { .. } => {} // inline rule has no text content
         Node::Label(_) | Node::BibItem(_) => {}
         Node::Code(s) => out.push_str(s),
         Node::Href { content, .. } => {
