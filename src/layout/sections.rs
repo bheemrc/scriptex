@@ -15,7 +15,16 @@ pub(super) fn layout_section(
     level: SectionLevel, title: &[Node], numbered: bool,
     state: &mut LayoutState, _doc: &Document, source: &str,
 ) -> Result<()> {
-    state.add_vertical_space(level.spacing_before());
+    // LaTeX vertical space collapsing: if previous element added structural space,
+    // take the max of previous and current spacing rather than accumulating both
+    let space_before = level.spacing_before();
+    if state.last_structural_vspace > 0.0 {
+        let extra = (space_before - state.last_structural_vspace).max(0.0);
+        state.add_vertical_space(extra);
+    } else {
+        state.add_vertical_space(space_before);
+    }
+    state.last_structural_vspace = 0.0;
 
     let (font_size, style) = if state.is_amsart {
         match level {
@@ -184,7 +193,9 @@ pub(super) fn layout_section(
     }
 
     if !run_in {
-        state.add_vertical_space(level.spacing_after());
+        let sa = level.spacing_after();
+        state.add_vertical_space(sa);
+        state.last_structural_vspace = sa;
         state.current_x = state.text_left();
     }
     state.suppress_next_indent = true;

@@ -561,7 +561,7 @@ impl SectionLevel {
             SectionLevel::Chapter => 30.0,
             SectionLevel::Section => 18.0,   // LaTeX: 3.5ex ≈ 15pt + glue
             SectionLevel::Subsection => 14.0, // LaTeX: 3.25ex ≈ 14pt
-            SectionLevel::Subsubsection => 12.0,
+            SectionLevel::Subsubsection => 13.5, // LaTeX: 3.25ex ≈ 13.5pt
             SectionLevel::Paragraph => 10.0,
             SectionLevel::Subparagraph => 8.0,
         }

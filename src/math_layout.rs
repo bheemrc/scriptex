@@ -451,11 +451,15 @@ fn layout_operator(op: &str, font_size: f32) -> MathBox {
         if let Some(sym_byte) = font::unicode_to_symbol_byte(ch) {
             let sym_width = font::char_width_pt(FontId::Symbol, sym_byte, font_size);
             let total_width = thin + sym_width.max(font_size * 0.4) + thin;
-            let info = font::font_info(FontId::Symbol);
+            // Use reasonable glyph metrics instead of full font bbox
+            // Most Symbol glyphs (Greek, operators) are cap-height (~700/1000 units)
+            // Full bbox ascent=1010 would inflate line heights unnecessarily
+            let glyph_height = font_size * 0.7; // cap-height estimate
+            let glyph_depth = font_size * 0.05; // most symbols sit on baseline
             return MathBox {
                 width: total_width,
-                height: info.ascent as f32 * font_size * 0.001,
-                depth: (-info.descent as f32) * font_size * 0.001,
+                height: glyph_height,
+                depth: glyph_depth,
                 elements: vec![MathElement::Text {
                     x: thin,
                     y: 0.0,
@@ -604,11 +608,17 @@ fn layout_symbol(symbol: &str, font_size: f32) -> MathBox {
     if let Some(ch) = symbol.chars().next() {
         if let Some(sym_byte) = font::unicode_to_symbol_byte(ch) {
             let width = font::char_width_pt(FontId::Symbol, sym_byte, font_size);
-            let info = font::font_info(FontId::Symbol);
+            // Use per-glyph height estimates rather than full font bbox
+            // Greek lowercase (α-ω): x-height; uppercase (Α-Ω): cap-height
+            let is_lowercase_greek = matches!(ch, 'α'..='ω' | 'ϑ' | 'ϕ' | 'ϖ' | 'ϰ' | 'ϱ' | 'ε' | 'ϵ');
+            let gh = if is_lowercase_greek { font_size * 0.45 } else { font_size * 0.7 };
+            let gd = if matches!(ch, 'β' | 'γ' | 'μ' | 'ρ' | 'φ' | 'χ' | 'ψ' | 'ξ' | 'ζ' | 'η' | 'ϕ') {
+                font_size * 0.2 // descending Greek letters
+            } else { font_size * 0.05 };
             return MathBox {
                 width: width.max(font_size * 0.4),
-                height: info.ascent as f32 * font_size * 0.001,
-                depth: (-info.descent as f32) * font_size * 0.001,
+                height: gh,
+                depth: gd,
                 elements: vec![MathElement::Text {
                     x: 0.0,
                     y: 0.0,

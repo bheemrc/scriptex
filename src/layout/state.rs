@@ -147,8 +147,8 @@ pub(super) struct LayoutState {
     pub deferred_top_floats: Vec<DeferredFloat>,
     pub deferred_bottom_floats: Vec<DeferredFloat>,
     pub has_pending_top_floats: bool,
-    // Pending vertical space for collapsing (LaTeX: consecutive \vspace takes max, not sum)
-    pub pending_vspace: f32,
+    // Last structural vertical space added (for collapsing between sections)
+    pub last_structural_vspace: f32,
     // hyperref colors
     pub link_color: Color,  // internal cross-references
     pub url_color: Color,   // external URLs
@@ -261,7 +261,7 @@ impl LayoutState {
             deferred_top_floats: Vec::new(),
             deferred_bottom_floats: Vec::new(),
             has_pending_top_floats: false,
-            pending_vspace: 0.0,
+            last_structural_vspace: 0.0,
             link_color: Color::from_rgb_u8(140, 0, 0),   // dark red (hyperref default)
             url_color: Color::from_rgb_u8(0, 0, 180),    // blue
             cite_color: Color::from_rgb_u8(0, 100, 0),   // dark green
@@ -887,6 +887,7 @@ impl LayoutState {
     #[inline(always)]
     pub fn emit_text(&mut self, text: &str, font_size: f32, style: FontStyle, color: Color) {
         if text.is_empty() { return; }
+        self.last_structural_vspace = 0.0; // Reset: content breaks the spacing chain
         let offset = (self.all_text.len() - self.current_page_text_start as usize) as u32;
         self.all_text.push_str(text);
         self.all_elements.push(PageElement::Text {
