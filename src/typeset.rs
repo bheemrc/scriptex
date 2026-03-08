@@ -106,38 +106,22 @@ impl Default for FontMetrics {
     }
 }
 
-/// Fast word width measurement using average char width
-/// This is much faster than per-char measurement for typical text
-#[inline]
-fn fast_word_width(word: &str, avg_char_width: f32) -> f32 {
-    word.len() as f32 * avg_char_width
-}
-
 /// Word wrapping: breaks text into lines that fit within max_width
-/// Optimized for speed with fast width estimation
+/// Uses accurate per-glyph font metrics for precise line breaking
 pub fn wrap_text(text: &str, metrics: &FontMetrics, max_width: f32) -> Vec<String> {
     if text.is_empty() {
         return vec![String::new()];
     }
 
-    // Fast average char width for this font (Times Roman metrics)
-    let avg_width = metrics.size * match metrics.style {
-        FontStyle::Monospace => 0.6,
-        FontStyle::Bold | FontStyle::BoldItalic | FontStyle::TimesBold => 0.50,
-        _ => 0.47,
-    };
-    let space_width = metrics.size * 0.25;
+    let font_id = crate::font::style_to_font_id(metrics.style);
+    let space_width = crate::font::measure_text(" ", font_id, metrics.size);
 
-    // Estimate chars per line for capacity hint
-    let chars_per_line = (max_width / avg_width) as usize;
-    let estimated_lines = text.len() / chars_per_line.max(1) + 1;
-
-    let mut lines = Vec::with_capacity(estimated_lines);
-    let mut current_line = String::with_capacity(chars_per_line + 10);
+    let mut lines = Vec::with_capacity(4);
+    let mut current_line = String::with_capacity(80);
     let mut current_width: f32 = 0.0;
 
     for word in text.split_whitespace() {
-        let word_width = fast_word_width(word, avg_width);
+        let word_width = crate::font::measure_text(word, font_id, metrics.size);
 
         if current_line.is_empty() {
             current_line.push_str(word);
@@ -148,7 +132,7 @@ pub fn wrap_text(text: &str, metrics: &FontMetrics, max_width: f32) -> Vec<Strin
             current_width += space_width + word_width;
         } else {
             lines.push(std::mem::take(&mut current_line));
-            current_line = String::with_capacity(chars_per_line + 10);
+            current_line = String::with_capacity(80);
             current_line.push_str(word);
             current_width = word_width;
         }
