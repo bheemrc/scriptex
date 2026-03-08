@@ -1090,7 +1090,9 @@ pub fn measure_text(text: &str, font: FontId, font_size: f32) -> f32 {
     // Check if text is pure ASCII (common fast path)
     if bytes.iter().all(|&b| b < 0x80) {
         // Ligature-aware measurement: account for fi/fl/ff/ffi/ffl substitutions
-        let has_f = memchr::memchr(b'f', bytes).is_some();
+        // Skip ligatures for monospace fonts (Courier) — they don't have ligatures
+        let is_mono = matches!(font, FontId::Courier);
+        let has_f = !is_mono && memchr::memchr(b'f', bytes).is_some();
         if !has_f {
             // No ligatures — simple loop with kerning
             let mut prev: u8 = 0;
@@ -1189,11 +1191,12 @@ pub fn measure_text_1000(text: &str, font: FontId) -> u32 {
     let widths = font_widths(font);
     let bytes = text.as_bytes();
     let mut total: u32 = 0;
+    let is_mono = matches!(font, FontId::Courier);
     if bytes.iter().all(|&b| b < 0x80) {
-        // Ligature-aware measurement
+        // Ligature-aware measurement (skip for monospace fonts)
         let mut i = 0;
         while i < bytes.len() {
-            if bytes[i] == b'f' {
+            if !is_mono && bytes[i] == b'f' {
                 // Only fi/fl are standard ligatures in PDF Standard 14 fonts
                 if i + 1 < bytes.len() && bytes[i + 1] == b'i' { total += widths[LIG_FI as usize] as u32; i += 2; continue; }
                 if i + 1 < bytes.len() && bytes[i + 1] == b'l' { total += widths[LIG_FL as usize] as u32; i += 2; continue; }
