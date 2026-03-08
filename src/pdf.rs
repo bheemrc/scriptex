@@ -428,16 +428,34 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     begin_obj!(info_id);
     w.write_all(b"<< /Producer (SonicSpeedLaTeX 0.1)")?;
     if let Some(title) = &doc.preamble.title {
+        let clean = clean_metadata_text(title);
         w.write_all(b" /Title (")?;
-        w.write_all(escape_pdf_string(title).as_bytes())?;
+        w.write_all(escape_pdf_string(&clean).as_bytes())?;
         w.write_all(b")")?;
     }
     if let Some(author) = &doc.preamble.author {
+        let clean = clean_metadata_text(author);
         w.write_all(b" /Author (")?;
-        w.write_all(escape_pdf_string(author).as_bytes())?;
+        w.write_all(escape_pdf_string(&clean).as_bytes())?;
         w.write_all(b")")?;
     }
-    w.write_all(b" /Creator (SonicSpeedLaTeX) >>\nendobj\n")?;
+    w.write_all(b" /Creator (SonicSpeedLaTeX)")?;
+    // Add creation date in PDF date format: D:YYYYMMDDHHmmSS
+    {
+        use std::time::SystemTime;
+        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
+        let secs = now.as_secs();
+        // Simple UTC date formatting without chrono dependency
+        let days = secs / 86400;
+        let time_of_day = secs % 86400;
+        let hours = time_of_day / 3600;
+        let mins = (time_of_day % 3600) / 60;
+        let seconds = time_of_day % 60;
+        // Approximate date from epoch days (good enough for metadata)
+        let (year, month, day) = epoch_days_to_date(days);
+        write!(w, " /CreationDate (D:{:04}{:02}{:02}{:02}{:02}{:02}Z)", year, month, day, hours, mins, seconds)?;
+    }
+    w.write_all(b" >>\nendobj\n")?;
 
     // Cross-reference table
     let xref_offset = w.position();
@@ -1092,6 +1110,44 @@ fn paeth(a: i32, b: i32, c: i32) -> i32 {
     if pa <= pb && pa <= pc { a }
     else if pb <= pc { b }
     else { c }
+}
+
+/// Convert epoch days to (year, month, day)
+fn epoch_days_to_date(mut days: u64) -> (u32, u32, u32) {
+    // Algorithm from http://howardhinnant.github.io/date_algorithms.html
+    days += 719468;
+    let era = days / 146097;
+    let doe = days - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as u32, m as u32, d as u32)
+}
+
+/// Clean LaTeX markup from metadata text (title, author)
+fn clean_metadata_text(s: &str) -> String {
+    let mut result = s.replace("\\\\", " ")   // line breaks → space
+        .replace("\\newline", " ")
+        .replace('\n', " ")              // literal newlines → space
+        .replace('\r', "")
+        .replace("\\,", " ")
+        .replace("\\;", " ")
+        .replace("\\!", "")
+        .replace("\\textbf{", "").replace("\\textit{", "")
+        .replace("\\emph{", "").replace("\\textrm{", "")
+        .replace("\\textsc{", "").replace("\\textsf{", "")
+        .replace("\\texttt{", "");
+    // Remove stray closing braces from stripped commands
+    result = result.replace('}', "");
+    // Collapse multiple spaces
+    while result.contains("  ") {
+        result = result.replace("  ", " ");
+    }
+    result.trim().to_string()
 }
 
 fn escape_pdf_string(s: &str) -> String {
