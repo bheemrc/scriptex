@@ -678,13 +678,50 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         while k > 0 { opt_breaks.push(k); k = dp_from[k]; }
         opt_breaks.reverse();
 
-        // Build LineInfo from optimal breaks
+        // Build LineInfo from optimal breaks, with post-DP hyphenation for loose lines
         let mut prev_bp_idx = 0;
-        for &b in &opt_breaks {
+        for (bi, &b) in opt_breaks.iter().enumerate() {
             let ls = bp[prev_bp_idx];
             let le = bp[b];
+            let is_last = bi == opt_breaks.len() - 1;
+
+            // Check if line is too loose and could benefit from hyphenation
+            let trail_sp = if le > seg_start && words[le - 1].text == " " { words[le - 1].width } else { 0.0 };
+            let lw: f32 = words[ls..le].iter().map(|w| w.width).sum::<f32>() - trail_sp;
+            let max_w = if is_first_line && prev_bp_idx == 0 { text_width - first_line_used } else { text_width };
+            let slack = max_w - lw;
+            let mut hyphen_info: Option<(usize, usize)> = None;
+
+            // If slack > 0.5em and not the last line, try to pull in part of the next word
+            if !is_last && slack > font_size * 0.5 && le < seg_end {
+                // Find the next non-space word after this line's break
+                let mut next_wi = le;
+                while next_wi < seg_end && words[next_wi].text == " " { next_wi += 1; }
+                if next_wi < seg_end {
+                    let next_word = &words[next_wi];
+                    let wb = next_word.text.as_bytes();
+                    if wb.len() >= 5 && wb.iter().all(|&b| b.is_ascii_alphanumeric()) {
+                        let avail = slack - font_size * 0.1;
+                        let fid = font::style_to_font_id(next_word.style);
+                        let hyph_w = font::measure_text("-", fid, next_word.font_size);
+                        // Estimate max chars that fit based on average char width
+                        let avg_cw = next_word.width / wb.len() as f32;
+                        let max_chars = ((avail - hyph_w) / avg_cw).min(wb.len() as f32) as usize;
+                        if max_chars >= 2 {
+                            if let Some(bp) = crate::hyphenate::best_break(wb, max_chars.min(wb.len() - 2)) {
+                                // Verify the prefix actually fits
+                                let prefix_w = font::measure_text(&next_word.text[..bp], fid, next_word.font_size);
+                                if prefix_w + hyph_w <= avail {
+                                    hyphen_info = Some((next_wi, bp));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             let (ma, mb) = compute_line_metrics(&words[ls..le], text_ascent, text_descent, font_size);
-            lines.push(LineInfo { start: ls, end: le, max_above: ma, max_below: mb, hyphen: None });
+            lines.push(LineInfo { start: ls, end: le, max_above: ma, max_below: mb, hyphen: hyphen_info });
             is_first_line = false;
             prev_bp_idx = b;
         }

@@ -84,7 +84,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     }
     let available_width = state.text_width();
     // Cell padding scales with font size (~0.5em)
-    let cell_padding = (state.current_font_size * 0.5).max(3.0);
+    let cell_padding = (state.current_font_size * 0.6).max(3.0); // LaTeX \tabcolsep = 6pt per side
     let has_explicit_widths = data_cols.iter().any(|c| matches!(c, ColumnSpec::Paragraph(_)));
     let base_metrics = state.metrics();
     let font_size = state.current_font_size;
@@ -276,7 +276,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     if total_table_height > remaining_space && total_table_height <= full_page_height { state.new_page(); }
 
     if let Some(caption) = &table.caption {
-        let cap_font_size = state.current_font_size * 0.9; // LaTeX \captionsize = \small
+        let cap_font_size = state.current_font_size * 0.83; // LaTeX \small = 83% of \normalsize
         let saved_cap_font = state.current_font_size;
         state.current_font_size = cap_font_size;
         // LaTeX \abovecaptionskip = 10pt for tables (caption above)

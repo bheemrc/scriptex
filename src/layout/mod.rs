@@ -711,7 +711,7 @@ fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Documen
         state.current_y += state.base_font_size * 1.0;
 
         // Caption uses \small font (LaTeX convention)
-        let cap_font_size = state.current_font_size * 0.9;
+        let cap_font_size = state.current_font_size * 0.83; // LaTeX \small = 83% of \normalsize
         let saved_cap_font = state.current_font_size;
         state.current_font_size = cap_font_size;
 

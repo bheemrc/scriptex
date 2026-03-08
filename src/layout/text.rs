@@ -270,7 +270,7 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
 
                 // Hyphenation: check if next word can be partially pulled in
                 let slack_px = full_text_width - line_w;
-                if slack_px > font_size * 1.5 && next_pos < len {
+                if slack_px > font_size * 0.5 && next_pos < len {
                     let mut ws_skip = next_pos;
                     while ws_skip < len && bytes[ws_skip] <= b' ' { ws_skip += 1; }
                     if ws_skip < len {
