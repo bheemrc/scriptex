@@ -116,8 +116,8 @@ pub(super) fn layout_algorithm(
     let num_gutter = if line_numbered { font_size * 2.0 } else { 0.0 };
 
     // Algorithm counter + caption
-    state.figure_counter += 1;
-    let algo_num = state.figure_counter;
+    state.algorithm_counter += 1;
+    let algo_num = state.algorithm_counter;
 
     // Top rule
     state.ensure_space(line_height * 2.0);
