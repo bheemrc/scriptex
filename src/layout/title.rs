@@ -58,13 +58,7 @@ pub(super) fn layout_title(state: &mut LayoutState, doc: &Document, source: &str
         state.current_y += metrics.line_height();
     }
 
-    state.add_vertical_space(24.0);
-    state.emit_line(
-        state.text_left() + state.text_width() * 0.2, state.current_y,
-        state.text_left() + state.text_width() * 0.8, state.current_y,
-        0.5, Color::GRAY,
-    );
-    state.add_vertical_space(20.0);
+    state.add_vertical_space(30.0);
     Ok(())
 }
 

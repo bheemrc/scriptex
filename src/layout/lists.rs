@@ -61,13 +61,29 @@ pub(super) fn layout_list(
             let marker: &str = unsafe { &*(state.text_buf.as_str() as *const str) };
             state.emit_text(marker, state.current_font_size, FontStyle::Regular, Color::BLACK);
         } else {
-            let bullet_r = state.current_font_size * match depth { 0 => 0.15, 1 => 0.12, _ => 0.08 };
-            let bx = marker_x + bullet_r + 2.0;
-            let by = state.current_y + state.current_font_size * 0.35;
-            if depth == 0 || depth >= 2 {
-                state.emit_rounded_rect(bx - bullet_r, by - bullet_r, bullet_r * 2.0, bullet_r * 2.0, Some(Color::BLACK), None, bullet_r);
-            } else {
-                state.emit_rounded_rect(bx - bullet_r, by - bullet_r, bullet_r * 2.0, bullet_r * 2.0, None, Some(Color::BLACK), bullet_r);
+            // LaTeX itemize bullets: level 0 = filled circle (textbullet),
+            // level 1 = en-dash, level 2 = filled small triangle, level 3+ = centered dot
+            let fs = state.current_font_size;
+            let by = state.current_y + fs * 0.38; // vertical center of x-height
+            match depth {
+                0 => {
+                    // Filled circle bullet (•) - radius ~1.5pt for 10pt font
+                    let bullet_r = fs * 0.17;
+                    let bx = marker_x + bullet_r + 3.0;
+                    state.emit_rounded_rect(bx - bullet_r, by - bullet_r, bullet_r * 2.0, bullet_r * 2.0, Some(Color::BLACK), None, bullet_r);
+                }
+                1 => {
+                    // En-dash (–) for second level
+                    let dash_w = fs * 0.5;
+                    let dash_x = marker_x + 2.0;
+                    state.emit_line(dash_x, by, dash_x + dash_w, by, 0.5, Color::BLACK);
+                }
+                _ => {
+                    // Small filled circle for deeper levels
+                    let bullet_r = fs * 0.10;
+                    let bx = marker_x + bullet_r + 3.0;
+                    state.emit_rounded_rect(bx - bullet_r, by - bullet_r, bullet_r * 2.0, bullet_r * 2.0, Some(Color::BLACK), None, bullet_r);
+                }
             }
         }
         state.current_x = state.text_left();

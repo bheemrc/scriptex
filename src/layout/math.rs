@@ -346,7 +346,9 @@ fn layout_aligned_math(math_nodes: &[MathNode], numbered: bool, state: &mut Layo
 fn emit_equation_number(state: &mut LayoutState, baseline_y: f32) {
     state.equation_counter += 1;
     let eq_text = format!("({})", state.equation_counter);
-    let num_x = state.text_left() + state.text_width() - 30.0;
+    // Right-align equation number flush to right margin
+    let num_w = crate::font::measure_text(&eq_text, crate::font::FontId::TimesRoman, state.current_font_size);
+    let num_x = state.text_left() + state.text_width() - num_w;
     let offset = (state.all_text.len() - state.current_page_text_start as usize) as u32;
     state.all_text.push_str(&eq_text);
     state.all_elements.push(PageElement::Text {
@@ -362,13 +364,11 @@ pub(super) fn emit_math_elements(math_box: &math_layout::MathBox, cx: f32, basel
         match elem {
             math_layout::MathElement::Text { x, y, text, font_size, font_id, color } => {
                 let style = match font_id {
-                    FontId::TimesItalic => FontStyle::Italic,
-                    FontId::TimesBold => FontStyle::Bold,
-                    FontId::Courier => FontStyle::Monospace,
-                    FontId::Symbol => FontStyle::Symbol,
                     FontId::TimesRoman => FontStyle::TimesRoman,
                     FontId::TimesItalic => FontStyle::TimesItalic,
                     FontId::TimesBold => FontStyle::TimesBold,
+                    FontId::Courier => FontStyle::Monospace,
+                    FontId::Symbol => FontStyle::Symbol,
                     FontId::ZapfDingbats => FontStyle::ZapfDingbats,
                     _ => FontStyle::Regular,
                 };

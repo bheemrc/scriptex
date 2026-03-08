@@ -159,7 +159,7 @@ impl LayoutState {
         let avg_w = font_size * 0.47;
         let lh = font_size * baselineskip_factor(font_size);
         let st = lh * line_spacing;
-        let para_w = text_w - 17.0;
+        let para_w = text_w - 15.0;  // 1.5em paragraph indent (LaTeX default for 10pt)
         let max_chars = (para_w / avg_w) as usize;
         let font_key = (font_size.to_bits() & 0xFFFF0000) | (FontStyle::Regular as u32);
         LayoutState {
@@ -190,7 +190,7 @@ impl LayoutState {
             page_number: 1,
             indent: 0.0,
             right_indent: 0.0,
-            paragraph_indent: 17.0,
+            paragraph_indent: 15.0,  // 1.5em (LaTeX default for 10pt)
             line_spacing,
             section_counters: [0; 7],
             figure_counter: 0,
@@ -398,14 +398,14 @@ impl LayoutState {
             return;
         }
 
-        // Separator rule
+        // Separator rule (LaTeX default: black, 0.4pt, ~1/3 text width)
         self.emit_line(
             fn_left,
             fn_y_start,
-            fn_left + fn_width * 0.3,
+            fn_left + fn_width * 0.33,
             fn_y_start,
             0.4,
-            Color::GRAY,
+            Color::BLACK,
         );
 
         let mut y = fn_y_start + 6.0;
@@ -732,17 +732,18 @@ impl LayoutState {
 
     fn emit_page_number_centered(&mut self) {
         let center_x = self.page_setup.width / 2.0;
-        let y = self.page_setup.height - self.page_setup.margin_bottom + 10.0;
+        let y = self.page_setup.height - self.page_setup.margin_bottom + 14.0;
         let mut num_str = String::new();
         self.format_page_number(&mut num_str);
-        let text_width = font::measure_text(&num_str, FontId::TimesRoman, 9.0);
+        let page_num_size = 10.0; // LaTeX default: same as body text
+        let text_width = font::measure_text(&num_str, FontId::TimesRoman, page_num_size);
         let offset = (self.all_text.len() - self.current_page_text_start as usize) as u32;
         let num_len = num_str.len();
         self.all_text.push_str(&num_str);
         self.all_elements.push(PageElement::Text {
             x: center_x - text_width / 2.0, y, text_offset: offset,
-            text_len: num_len as u16, font_size_100: 900,
-            font_style: FontStyle::Regular, color: Color::GRAY, word_spacing_50: 0,
+            text_len: num_len as u16, font_size_100: (page_num_size * 100.0) as u16,
+            font_style: FontStyle::Regular, color: Color::BLACK, word_spacing_50: 0,
         });
     }
 

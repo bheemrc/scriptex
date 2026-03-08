@@ -369,7 +369,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
     let base_font_size = state.base_font_size;
     let line_height = font_size * baselineskip_factor(base_font_size);
     let step = line_height * state.line_spacing;
-    let space_width = font_size * 0.25;
+    let space_width = crate::font::measure_text(" ", crate::font::FontId::TimesRoman, font_size);
     let text_width = state.text_width();
     let indent = if with_indent { state.paragraph_indent } else { 0.0 };
 
@@ -435,7 +435,8 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 nodes_to_spans(&[child.clone()], node_style, node_color, font_size, base_font_size, &mut node_spans, source, labels_ref, citations_ref);
                 for span in &node_spans {
                     let sf = span.font_size;
-                    let sw = sf * 0.25;
+                    let font_id = crate::font::style_to_font_id(span.style);
+                    let sw = crate::font::measure_text(" ", font_id, sf);
                     if span.text == "\n" {
                         words.push(StyledWord { text: "\n".to_string(), style: span.style, color: span.color, font_size: sf, width: 0.0, math: None, superscript: false, underline: span.underline, strikethrough: span.strikethrough });
                         continue;
@@ -542,6 +543,17 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
     }
     if line_start < words.len() {
         lines.push(LineInfo { start: line_start, end: words.len(), max_above: line_max_above, max_below: line_max_below, hyphen: None });
+    }
+
+    // Orphan control: prevent single line stranded at page bottom
+    // (LaTeX \clubpenalty=150 equivalent)
+    if lines.len() >= 2 {
+        let remaining_space = state.cached_max_y - state.current_y;
+        let first_line_h = lines[0].max_above + lines[0].max_below;
+        // Fire only if exactly one line fits (not two or more)
+        if remaining_space >= first_line_h && remaining_space < first_line_h + step {
+            state.ensure_space(remaining_space + 1.0); // force page break
+        }
     }
 
     let total_lines = lines.len();

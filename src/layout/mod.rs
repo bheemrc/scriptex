@@ -905,12 +905,17 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
         }
 
         Node::Quote(content) | Node::Quotation(content) => {
+            // LaTeX quote/quotation: indent both left and right by ~1.5em
+            let quote_indent = state.base_font_size * 1.5;
             let saved_indent = state.indent;
-            state.set_indent(state.indent + 30.0);
+            let saved_right = state.right_indent;
+            state.set_right_indent(state.right_indent + quote_indent);
+            state.set_indent(state.indent + quote_indent);
             state.current_x = state.text_left();
             state.add_vertical_space(6.0);
             layout_nodes(content, state, doc, source)?;
             state.add_vertical_space(6.0);
+            state.set_right_indent(saved_right);
             state.set_indent(saved_indent);
             state.current_x = state.text_left();
             state.suppress_next_indent = true;
@@ -920,25 +925,38 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             if state.is_amsart {
                 state.deferred_abstract_idx = Some(1);
             } else {
+                // LaTeX article class abstract:
+                // - Centered bold "Abstract" heading in normal size
+                // - Body text in small font (9pt for 10pt base)
+                // - Indented ~1.5em on each side (matching \quotation environment)
+                state.add_vertical_space(4.0);
+
                 let title = "Abstract";
-                let metrics = FontMetrics::new(state.base_font_size * 1.1, FontStyle::Bold);
+                let title_size = state.base_font_size;
+                let metrics = FontMetrics::new(title_size, FontStyle::Bold);
                 let tw = metrics.measure_text(title);
                 let cx = state.text_left() + (state.text_width() - tw) / 2.0;
                 state.current_x = cx;
-                state.emit_text(title, state.base_font_size * 1.1, FontStyle::Bold, Color::BLACK);
-                state.current_y += metrics.line_height() + 4.0;
+                state.emit_text(title, title_size, FontStyle::Bold, Color::BLACK);
+                state.current_y += metrics.line_height() + 2.0;
 
+                let abstract_indent = state.base_font_size * 1.5; // ~1.5em indent each side
                 let saved_indent = state.indent;
-                state.set_indent(state.indent + 30.0);
+                let saved_right = state.right_indent;
+                state.set_right_indent(state.right_indent + abstract_indent);
+                state.set_indent(state.indent + abstract_indent);
                 state.current_x = state.text_left();
                 let saved_size = state.current_font_size;
                 state.current_font_size = state.base_font_size * 0.9;
                 layout_nodes(content, state, doc, source)?;
                 state.current_font_size = saved_size;
+                state.set_right_indent(saved_right);
                 state.set_indent(saved_indent);
                 state.current_x = state.text_left();
+
+                state.current_y += 2.0;
             }
-            state.add_vertical_space(10.0);
+            state.add_vertical_space(12.0);
         }
 
         Node::Center(content) => {

@@ -28,8 +28,9 @@ pub(super) fn layout_section(
         (level.font_size(state.base_font_size), FontStyle::Bold)
     };
     let line_height = font_size * 1.2;
-    // Ensure heading + spacing + at least 2 lines of body text fit on current page
-    state.ensure_space(line_height + level.spacing_after() + state.cached_line_height * 2.5);
+    // Ensure heading + spacing + at least 3 lines of body text fit on current page
+    // This prevents orphaned headings near page bottoms (LaTeX \clubpenalty equivalent)
+    state.ensure_space(line_height + level.spacing_after() + state.cached_line_height * 3.5);
 
     state.text_buf.clear();
     if numbered {
@@ -127,8 +128,12 @@ pub(super) fn layout_section(
         layout_section_with_math(title, title_start, style, font_size, line_height, centered, state, source);
     } else {
         let full_text: &str = unsafe { &*(state.text_buf.as_str() as *const str) };
-        let avg_width = font_size * 0.52;
-        let estimated_width = full_text.len() as f32 * avg_width;
+        let measure_font_id = match style {
+            FontStyle::Bold | FontStyle::SmallCaps => FontId::TimesBold,
+            FontStyle::Italic => FontId::TimesItalic,
+            _ => FontId::TimesRoman,
+        };
+        let measured_width = font::measure_text(full_text, measure_font_id, font_size);
 
         if run_in {
             let text_w = font::measure_text(full_text, FontId::TimesBold, font_size);
@@ -146,7 +151,7 @@ pub(super) fn layout_section(
             state.emit_text(full_text, font_size, style, Color::BLACK);
             state.current_y += line_height;
             state.current_x = state.text_left();
-        } else if estimated_width <= state.text_width() {
+        } else if measured_width <= state.text_width() {
             state.emit_text(full_text, font_size, style, Color::BLACK);
             state.current_y += line_height;
             state.current_x = state.text_left();

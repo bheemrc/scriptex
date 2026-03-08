@@ -84,10 +84,6 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
         let mut pos = 0;
         while pos < len && bytes[pos] <= b' ' { pos += 1; }
 
-        let mut push_start: usize = 0;
-        let mut buf_push_pos = state.all_text.len() - state.current_page_text_start as usize;
-        state.all_text.push_str(text);
-
         let x_first = state.text_left() + inline_offset;
         let x_rest = state.text_left();
         let first_line_width = full_text_width - inline_offset;
@@ -97,15 +93,16 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
         let mut lines_until_break = ((state.cached_max_y - state.current_y - line_height) / step) as i32 + 1;
 
         // Orphan prevention: if only 1 line would fit, move whole paragraph to next page
-        // Also estimate total lines — if paragraph is 3+ lines and only 1 line fits, start fresh
         let est_total_lines = (len as f32 * avg_width / full_text_width).ceil() as i32;
         if lines_until_break <= 1 && est_total_lines > 1 {
             state.new_page();
-            push_start = 0;
-            buf_push_pos = 0;
-            state.all_text.push_str(text);
             lines_until_break = ((state.cached_max_y - state.cached_start_y - line_height) / step) as i32 + 1;
         }
+
+        // Push text to buffer after potential page break to avoid double-push
+        let mut push_start: usize = 0;
+        let mut buf_push_pos = state.all_text.len() - state.current_page_text_start as usize;
+        state.all_text.push_str(text);
 
         // First line
         if pos < len {
@@ -268,7 +265,7 @@ pub(super) fn layout_text_content_source(text: &str, state: &mut LayoutState, sr
 
         let x_first = state.text_left() + pi;
         let x_rest = state.text_left();
-        let max_chars_first = ((para_width - pi) / avg_width) as usize;
+        let max_chars_first = (para_width / avg_width) as usize; // para_width already has pi subtracted
         let max_chars_rest = max_chars_single;
 
         let mut lines_until_break = ((state.cached_max_y - state.current_y - line_height) / step) as i32 + 1;

@@ -16,6 +16,7 @@ pub enum FontId {
     TimesItalic = 8,
     TimesBold = 9,
     ZapfDingbats = 10,
+    TimesBoldItalic = 11,
 }
 
 /// Helvetica character widths (WinAnsi encoding, indices 0-255)
@@ -1048,6 +1049,7 @@ pub fn font_widths(font: FontId) -> &'static [u16; 256] {
         FontId::TimesRoman => &TIMES_ROMAN_WIDTHS,
         FontId::TimesItalic => &TIMES_ITALIC_WIDTHS,
         FontId::TimesBold => &TIMES_BOLD_WIDTHS,
+        FontId::TimesBoldItalic => &TIMES_BOLD_WIDTHS, // Close approximation; bold-italic widths ≈ bold widths
         FontId::ZapfDingbats => &ZAPFDINGBATS_WIDTHS,
     }
 }
@@ -1193,7 +1195,7 @@ pub fn avg_char_width_1000(font: FontId) -> u16 {
         FontId::Symbol => 500,
         FontId::TimesRoman => 472,        // weighted avg (Times is narrower than Helvetica)
         FontId::TimesItalic => 462,
-        FontId::TimesBold => 497,
+        FontId::TimesBold | FontId::TimesBoldItalic => 497,
         FontId::ZapfDingbats => 788,
     }
 }
@@ -1206,7 +1208,7 @@ pub fn space_width_1000(font: FontId) -> u16 {
         FontId::HelveticaBold | FontId::HelveticaBoldOblique => 278,
         FontId::Courier => 600,
         FontId::Symbol => 250,
-        FontId::TimesRoman | FontId::TimesItalic | FontId::TimesBold => 250,
+        FontId::TimesRoman | FontId::TimesItalic | FontId::TimesBold | FontId::TimesBoldItalic => 250,
         FontId::ZapfDingbats => 278,
     }
 }
@@ -1219,7 +1221,7 @@ pub fn style_to_font_id(style: crate::typeset::FontStyle) -> FontId {
         FontStyle::Regular | FontStyle::SmallCaps => FontId::TimesRoman,
         FontStyle::Bold => FontId::TimesBold,
         FontStyle::Italic => FontId::TimesItalic,
-        FontStyle::BoldItalic => FontId::TimesBold, // TODO: add Times-BoldItalic
+        FontStyle::BoldItalic => FontId::TimesBoldItalic,
         FontStyle::Monospace => FontId::Courier,
         FontStyle::Symbol => FontId::Symbol,
         FontStyle::TimesRoman => FontId::TimesRoman,
@@ -1417,7 +1419,7 @@ pub fn font_info(font: FontId) -> FontInfo {
         FontId::TimesItalic => FontInfo {
             ascent: 683, descent: -217, cap_height: 653, x_height: 441, line_gap: 200,
         },
-        FontId::TimesBold => FontInfo {
+        FontId::TimesBold | FontId::TimesBoldItalic => FontInfo {
             ascent: 683, descent: -217, cap_height: 676, x_height: 461, line_gap: 200,
         },
         FontId::ZapfDingbats => FontInfo {

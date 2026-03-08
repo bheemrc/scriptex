@@ -65,7 +65,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     let data_cols: Vec<&ColumnSpec> = table.columns.iter().filter(|c| !matches!(c, ColumnSpec::Separator)).collect();
     let num_cols = data_cols.len().max(1);
     let available_width = state.text_width();
-    let cell_padding = 4.0;
+    let cell_padding = 5.0; // ~0.5em padding for readable cell spacing
     let has_explicit_widths = data_cols.iter().any(|c| matches!(c, ColumnSpec::Paragraph(_)));
     let base_metrics = state.metrics();
     let font_size = state.current_font_size;

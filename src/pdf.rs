@@ -77,6 +77,7 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     let font_times_roman_id = alloc_obj();
     let font_times_italic_id = alloc_obj();
     let font_times_bold_id = alloc_obj();
+    let font_times_bolditalic_id = alloc_obj();
     let font_dingbats_id = alloc_obj();
     let resource_id = alloc_obj();
 
@@ -180,6 +181,7 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
         (font_times_roman_id, "Times-Roman"),
         (font_times_italic_id, "Times-Italic"),
         (font_times_bold_id, "Times-Bold"),
+        (font_times_bolditalic_id, "Times-BoldItalic"),
     ] {
         begin_obj!(id);
         w.write_all(b"<< /Type /Font /Subtype /Type1 /BaseFont /")?;
@@ -213,6 +215,8 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     w.write_all(itoa_obj.format(font_times_bold_id).as_bytes())?;
     w.write_all(b" 0 R /F10 ")?;
     w.write_all(itoa_obj.format(font_dingbats_id).as_bytes())?;
+    w.write_all(b" 0 R /F11 ")?;
+    w.write_all(itoa_obj.format(font_times_bolditalic_id).as_bytes())?;
     w.write_all(b" 0 R >>")?;
     // XObject references for embedded images
     if !image_ids.is_empty() {
@@ -485,7 +489,7 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                     FontStyle::Regular | FontStyle::SmallCaps => 7u8, // Times-Roman (serif body)
                     FontStyle::Bold => 9,                              // Times-Bold
                     FontStyle::Italic => 8,                            // Times-Italic
-                    FontStyle::BoldItalic => 9,                        // Times-Bold (TODO: Times-BoldItalic)
+                    FontStyle::BoldItalic => 11,                       // Times-BoldItalic
                     FontStyle::Monospace => 5,
                     FontStyle::Symbol => 6,
                     FontStyle::TimesRoman => 7,
@@ -824,8 +828,13 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
 fn write_f32_fast(buf: &mut Vec<u8>, val: f32) {
     let negative = val < 0.0;
     let val = if negative { -val } else { val };
-    let int_part = val as u32;
-    let frac_1000 = ((val - int_part as f32) * 1000.0 + 0.5) as u32;
+    let mut int_part = val as u32;
+    let mut frac_1000 = ((val - int_part as f32) * 1000.0 + 0.5) as u32;
+    // Handle rounding carry (e.g., 1.9995 → frac rounds to 1000)
+    if frac_1000 >= 1000 {
+        int_part += 1;
+        frac_1000 = 0;
+    }
 
     if negative { buf.push(b'-'); }
 
@@ -847,7 +856,7 @@ fn write_f32_fast(buf: &mut Vec<u8>, val: f32) {
     // Write fractional part (3 decimal places, trailing zeros stripped)
     if frac_1000 > 0 {
         buf.push(b'.');
-        let f = frac_1000.min(999);
+        let f = frac_1000;
         buf.push(b'0' + (f / 100) as u8);
         let tens = ((f / 10) % 10) as u8;
         let ones = (f % 10) as u8;
@@ -893,7 +902,7 @@ fn write_image_xobject<W: Write>(w: &mut CountingWriter<W>, img: &crate::layout:
             // Simple approach: extract IDAT chunks and re-deflate raw RGB data
             if let Some((rgb_data, has_alpha)) = decode_png_to_rgb(&img.data) {
                 let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&rgb_data, 6);
-                let cs = if has_alpha { "/DeviceRGB" } else { "/DeviceRGB" };
+                let cs = "/DeviceRGB";
                 w.write_all(b"<< /Type /XObject /Subtype /Image")?;
                 w.write_all(b" /Width ")?;
                 w.write_all(itoa::Buffer::new().format(img.width_px).as_bytes())?;
