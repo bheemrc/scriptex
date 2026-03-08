@@ -37,20 +37,28 @@ pub(super) fn justify_line_ext(line: &[u8], available_width: f32, avg_width: f32
             let widths = crate::font::font_widths(font_id);
             let scale = font_size / 1000.0;
             let mut w = 0.0f32;
-            // Ligature-aware width measurement
+            // Ligature-aware width measurement with kerning
+            let mut prev: u8 = 0;
             let mut i = 0;
             while i < line.len() {
+                let cur;
                 if line[i] == b'f' {
                     if i + 2 < line.len() && line[i + 1] == b'f' {
-                        if line[i + 2] == b'i' { w += widths[crate::font::LIG_FFI as usize] as f32 * scale; i += 3; continue; }
-                        if line[i + 2] == b'l' { w += widths[crate::font::LIG_FFL as usize] as f32 * scale; i += 3; continue; }
-                        w += widths[crate::font::LIG_FF as usize] as f32 * scale; i += 2; continue;
-                    }
-                    if i + 1 < line.len() && line[i + 1] == b'i' { w += widths[crate::font::LIG_FI as usize] as f32 * scale; i += 2; continue; }
-                    if i + 1 < line.len() && line[i + 1] == b'l' { w += widths[crate::font::LIG_FL as usize] as f32 * scale; i += 2; continue; }
+                        if line[i + 2] == b'i' { cur = crate::font::LIG_FFI; w += widths[cur as usize] as f32 * scale; i += 3; }
+                        else if line[i + 2] == b'l' { cur = crate::font::LIG_FFL; w += widths[cur as usize] as f32 * scale; i += 3; }
+                        else { cur = crate::font::LIG_FF; w += widths[cur as usize] as f32 * scale; i += 2; }
+                    } else if i + 1 < line.len() && line[i + 1] == b'i' { cur = crate::font::LIG_FI; w += widths[cur as usize] as f32 * scale; i += 2; }
+                    else if i + 1 < line.len() && line[i + 1] == b'l' { cur = crate::font::LIG_FL; w += widths[cur as usize] as f32 * scale; i += 2; }
+                    else { cur = b'f'; w += widths[b'f' as usize] as f32 * scale; i += 1; }
+                } else {
+                    cur = line[i];
+                    w += widths[cur as usize] as f32 * scale;
+                    i += 1;
                 }
-                w += widths[line[i] as usize] as f32 * scale;
-                i += 1;
+                if prev != 0 {
+                    w += crate::font::kern_pair(font_id, prev, cur) as f32 * scale;
+                }
+                prev = cur;
             }
             w
         } else {

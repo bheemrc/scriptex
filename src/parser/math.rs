@@ -438,11 +438,17 @@ impl<'a> Parser<'a> {
             "\\vee" | "\\lor" => Ok(Some(MathNode::Operator("\u{2228}".to_string()))),
             "\\mapsto" => Ok(Some(MathNode::Operator("\u{21A6}".to_string()))),
             "\\hookrightarrow" => Ok(Some(MathNode::Operator("\u{21AA}".to_string()))),
-            "\\twoheadrightarrow" => Ok(Some(MathNode::Operator("\u{2192}".to_string()))), // approx as →
-            "\\longrightarrow" => Ok(Some(MathNode::Operator("\u{2192}".to_string()))),
-            "\\longleftarrow" => Ok(Some(MathNode::Operator("\u{2190}".to_string()))),
-            "\\Longrightarrow" => Ok(Some(MathNode::Operator("\u{21D2}".to_string()))),
-            "\\Longleftarrow" => Ok(Some(MathNode::Operator("\u{21D0}".to_string()))),
+            "\\hookleftarrow" => Ok(Some(MathNode::Operator("\u{21A9}".to_string()))),
+            "\\twoheadrightarrow" => Ok(Some(MathNode::Operator("\u{21A0}".to_string()))),
+            "\\twoheadleftarrow" => Ok(Some(MathNode::Operator("\u{219E}".to_string()))),
+            "\\longrightarrow" => Ok(Some(MathNode::Operator("\u{27F6}".to_string()))),
+            "\\longleftarrow" => Ok(Some(MathNode::Operator("\u{27F5}".to_string()))),
+            "\\longleftrightarrow" => Ok(Some(MathNode::Operator("\u{27F7}".to_string()))),
+            "\\longhookrightarrow" => Ok(Some(MathNode::Operator("\u{27F6}".to_string()))), // approx as long→
+            "\\longmapsto" => Ok(Some(MathNode::Operator("\u{27FC}".to_string()))),
+            "\\Longrightarrow" => Ok(Some(MathNode::Operator("\u{27F9}".to_string()))),
+            "\\Longleftarrow" => Ok(Some(MathNode::Operator("\u{27F8}".to_string()))),
+            "\\Longleftrightarrow" => Ok(Some(MathNode::Operator("\u{27FA}".to_string()))),
             "\\cong" => Ok(Some(MathNode::Operator("\u{2245}".to_string()))),
             "\\simeq" => Ok(Some(MathNode::Operator("\u{2243}".to_string()))),
             "\\propto" => Ok(Some(MathNode::Operator("\u{221D}".to_string()))),
@@ -475,11 +481,14 @@ impl<'a> Parser<'a> {
             | "\\arcsin" | "\\arccos" | "\\arctan"
             | "\\sinh" | "\\cosh" | "\\tanh" | "\\coth"
             | "\\log" | "\\ln" | "\\lg" | "\\exp"
-            | "\\dim" | "\\ker"
+            | "\\dim" | "\\codim" | "\\ker" | "\\coker"
             | "\\deg" | "\\hom" | "\\arg"
             | "\\var" | "\\cov" | "\\sgn"
             | "\\tr" | "\\diag" | "\\rank" | "\\lcm"
-            | "\\Hom" | "\\End" | "\\Aut" => {
+            | "\\Hom" | "\\End" | "\\Aut"
+            | "\\Spec" | "\\Proj" | "\\GL" | "\\SL"
+            | "\\Ann" | "\\Tor" | "\\Ext" | "\\Mor"
+            | "\\im" | "\\coim" | "\\id" | "\\ord" | "\\card" | "\\supp" => {
                 Ok(Some(MathNode::Function(cmd[1..].to_string())))
             }
 

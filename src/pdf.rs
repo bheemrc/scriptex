@@ -571,7 +571,7 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                 write_f32_fast(&mut c, dx);
                 c.push(b' ');
                 write_f32_fast(&mut c, dy);
-                c.extend_from_slice(b" Td\n(");
+                c.extend_from_slice(b" Td\n");
                 cur_tx = *x;
                 cur_ty = pdf_y;
 
@@ -579,9 +579,8 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                 let text_bytes = text.as_bytes();
                 let tlen = text_bytes.len();
                 if font_id == 6 || font_id == 10 {
-                    // Symbol/ZapfDingbats font: each char is a Unicode codepoint U+00XX where XX
-                    // is the font encoding byte. We must extract the byte value from the char,
-                    // NOT iterate over UTF-8 bytes (which would corrupt bytes > 127).
+                    // Symbol/ZapfDingbats font: no kerning
+                    c.push(b'(');
                     for ch in text.chars() {
                         let b = ch as u8;
                         match b {
@@ -591,95 +590,93 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                             _ => c.push(b),
                         }
                     }
+                    c.extend_from_slice(b") Tj\n");
                 } else {
-                // WinAnsiEncoding conversion with ligature substitution
-                // Handles: fi/fl/ff/ffi/ffl ligatures, `` → left dquote, '' → right dquote, --/--- → en/em-dash
-                let is_mono = font_id == 5; // Courier: no ligatures for monospace
+                // Single-pass encoding with inline kerning via TJ operator
+                // Writes directly to output buffer, no temp buffers needed
+                let is_mono = font_id == 5;
+                let kern_font: Option<crate::font::FontId> = match font_id {
+                    1 => Some(crate::font::FontId::Helvetica),
+                    2 => Some(crate::font::FontId::HelveticaBold),
+                    3 => Some(crate::font::FontId::HelveticaOblique),
+                    4 => Some(crate::font::FontId::HelveticaBoldOblique),
+                    7 => Some(crate::font::FontId::TimesRoman),
+                    8 => Some(crate::font::FontId::TimesItalic),
+                    9 => Some(crate::font::FontId::TimesBold),
+                    11 => Some(crate::font::FontId::TimesBoldItalic),
+                    _ => None,
+                };
+
+                // We start with [( and always use TJ format for kernable fonts,
+                // or ( and Tj for non-kernable fonts (Courier)
+                let start_pos = c.len();
+                if kern_font.is_some() {
+                    c.extend_from_slice(b"[(");
+                } else {
+                    c.push(b'(');
+                }
+
+                let mut prev_glyph: u8 = 0;
+                let mut has_kerns = false;
                 let mut tpos = 0;
                 while tpos < tlen {
-                    // Fast ASCII scan: find next byte needing special handling
-                    // Break on: ( ) \ ` \n \r f (ligatures) ' - (quote/dash ligatures) >= 0x80 (non-ASCII)
-                    let scan_start = tpos;
-                    while tpos < tlen {
-                        let b = text_bytes[tpos];
-                        if b == b'(' || b == b')' || b == b'\\' || b == b'`' || b == b'\n' || b == b'\r'
-                            || (!is_mono && b == b'f') || b == b'\'' || b == b'-' || b >= 0x80 {
-                            break;
-                        }
-                        tpos += 1;
-                    }
-                    // Emit safe ASCII run (no special chars)
-                    if tpos > scan_start {
-                        c.extend_from_slice(&text_bytes[scan_start..tpos]);
-                    }
-                    if tpos >= tlen { break; }
-
                     let b = text_bytes[tpos];
+                    let glyph: u8; // logical glyph byte for kern lookup
                     if b < 0x80 {
                         match b {
-                            b'\n' | b'\r' => c.push(b' '), // newlines → space
-                            b'(' => c.extend_from_slice(b"\\("),
-                            b')' => c.extend_from_slice(b"\\)"),
-                            b'\\' => c.extend_from_slice(b"\\\\"),
+                            b'\n' | b'\r' => { glyph = b' '; }
+                            b'(' => { glyph = b'('; }
+                            b')' => { glyph = b')'; }
+                            b'\\' => { glyph = b'\\'; }
                             b'`' => {
                                 if tpos + 1 < tlen && text_bytes[tpos + 1] == b'`' {
-                                    c.push(0x93); // WinAnsi left double quote
-                                    tpos += 1;
+                                    glyph = 0x93; tpos += 1;
                                 } else {
-                                    c.push(0x91); // WinAnsi left single quote
+                                    glyph = 0x91;
                                 }
                             }
                             b'\'' => {
                                 if tpos + 1 < tlen && text_bytes[tpos + 1] == b'\'' {
-                                    c.push(0x94); // WinAnsi right double quote
-                                    tpos += 1;
+                                    glyph = 0x94; tpos += 1;
                                 } else {
-                                    c.push(b);
+                                    glyph = b;
                                 }
                             }
                             b'-' => {
                                 if tpos + 1 < tlen && text_bytes[tpos + 1] == b'-' {
                                     if tpos + 2 < tlen && text_bytes[tpos + 2] == b'-' {
-                                        c.push(0x97); // WinAnsi em-dash (---)
-                                        tpos += 2;
+                                        glyph = 0x97; tpos += 2;
                                     } else {
-                                        c.push(0x96); // WinAnsi en-dash (--)
-                                        tpos += 1;
+                                        glyph = 0x96; tpos += 1;
                                     }
                                 } else {
-                                    c.push(b'-');
+                                    glyph = b'-';
                                 }
                             }
                             b'f' if !is_mono => {
-                                // Font ligature substitution: ffi, ffl, fi, fl, ff
                                 if tpos + 2 < tlen && text_bytes[tpos + 1] == b'f' {
                                     if text_bytes[tpos + 2] == b'i' {
-                                        c.push(crate::font::LIG_FFI); // ffi ligature
-                                        tpos += 2;
+                                        glyph = crate::font::LIG_FFI; tpos += 2;
                                     } else if text_bytes[tpos + 2] == b'l' {
-                                        c.push(crate::font::LIG_FFL); // ffl ligature
-                                        tpos += 2;
+                                        glyph = crate::font::LIG_FFL; tpos += 2;
                                     } else {
-                                        c.push(crate::font::LIG_FF); // ff ligature
-                                        tpos += 1;
+                                        glyph = crate::font::LIG_FF; tpos += 1;
                                     }
                                 } else if tpos + 1 < tlen && text_bytes[tpos + 1] == b'i' {
-                                    c.push(crate::font::LIG_FI); // fi ligature
-                                    tpos += 1;
+                                    glyph = crate::font::LIG_FI; tpos += 1;
                                 } else if tpos + 1 < tlen && text_bytes[tpos + 1] == b'l' {
-                                    c.push(crate::font::LIG_FL); // fl ligature
-                                    tpos += 1;
+                                    glyph = crate::font::LIG_FL; tpos += 1;
                                 } else {
-                                    c.push(b'f');
+                                    glyph = b'f';
                                 }
                             }
-                            _ => c.push(b),
+                            _ => { glyph = b; }
                         }
                         tpos += 1;
                     } else if b < 0xC0 {
-                        tpos += 1; // stray continuation byte
+                        tpos += 1;
+                        continue; // stray continuation byte
                     } else {
-                        // UTF-8 multi-byte: decode and convert to WinAnsi
                         let (codepoint, advance) = if b < 0xE0 && tpos + 1 < tlen {
                             (((b as u32 & 0x1F) << 6) | (text_bytes[tpos+1] as u32 & 0x3F), 2)
                         } else if b < 0xF0 && tpos + 2 < tlen {
@@ -691,7 +688,7 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                         } else {
                             (0xFFFD, 1)
                         };
-                        c.push(match codepoint {
+                        glyph = match codepoint {
                             0x00A0..=0x00FF => codepoint as u8,
                             0x2022 => 0x95, 0x2013 => 0x96, 0x2014 => 0x97,
                             0x2018 => 0x91, 0x2019 => 0x92, 0x201C => 0x93, 0x201D => 0x94,
@@ -700,13 +697,54 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                             0x0178 => 0x9F, 0x017D => 0x8E, 0x017E => 0x9E, 0x0192 => 0x83,
                             0x02C6 => 0x88, 0x02DC => 0x98, 0x20AC => 0x80, 0x2122 => 0x99,
                             _ => b'?',
-                        });
+                        };
                         tpos += advance;
                     }
+
+                    // Check kern pair before emitting glyph
+                    if let Some(kf) = kern_font {
+                        if prev_glyph != 0 {
+                            let k = crate::font::kern_pair(kf, prev_glyph, glyph);
+                            if k != 0 {
+                                // Close current string, insert kern adjustment, open new string
+                                c.push(b')');
+                                let mut kbuf = itoa::Buffer::new();
+                                c.extend_from_slice(kbuf.format(-k as i32).as_bytes());
+                                c.push(b'(');
+                                has_kerns = true;
+                            }
+                        }
+                    }
+                    prev_glyph = glyph;
+
+                    // Encode glyph to PDF string
+                    match glyph {
+                        b'(' => c.extend_from_slice(b"\\("),
+                        b')' => c.extend_from_slice(b"\\)"),
+                        b'\\' => c.extend_from_slice(b"\\\\"),
+                        _ => c.push(glyph),
+                    }
+                }
+
+                // Close text operator
+                if kern_font.is_some() {
+                    if has_kerns {
+                        c.extend_from_slice(b")] TJ\n");
+                    } else {
+                        // No kerns found — rewrite prefix from [( to just (
+                        // and use Tj instead of ] TJ
+                        c[start_pos] = b'(';
+                        // Shift content left by 1 to remove the [
+                        let content_start = start_pos + 2;
+                        let content_end = c.len();
+                        c.copy_within(content_start..content_end, content_start - 1);
+                        c.truncate(content_end - 1);
+                        c.extend_from_slice(b") Tj\n");
+                    }
+                } else {
+                    c.extend_from_slice(b") Tj\n");
                 }
                 } // end WinAnsi branch
-
-                c.extend_from_slice(b") Tj\n");
             }
 
             PageElement::Line { x1, y1, x2, y2, width_1000, color } => {

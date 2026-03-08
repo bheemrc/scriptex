@@ -1123,6 +1123,13 @@ impl<'a> Parser<'a> {
 
             _ => {
                 log::debug!("Unknown command: {}", cmd);
+                // Skip optional and braced arguments to prevent arg text from leaking into body
+                while self.current().kind == TokenKind::OpenBracket {
+                    let _ = self.try_read_optional_arg();
+                }
+                while self.current().kind == TokenKind::OpenBrace {
+                    let _ = self.read_braced_text();
+                }
                 Ok(None)
             }
         }

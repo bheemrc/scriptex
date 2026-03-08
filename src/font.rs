@@ -1082,55 +1082,69 @@ pub fn measure_text(text: &str, font: FontId, font_size: f32) -> f32 {
     let widths = font_widths(font);
     let scale = font_size * 0.001;
     let bytes = text.as_bytes();
-    let mut total: u32 = 0;
+    let mut total: i32 = 0;
+    let do_kern = matches!(font, FontId::TimesRoman | FontId::TimesItalic | FontId::TimesBold
+        | FontId::TimesBoldItalic | FontId::Helvetica | FontId::HelveticaBold
+        | FontId::HelveticaOblique | FontId::HelveticaBoldOblique);
 
     // Check if text is pure ASCII (common fast path)
     if bytes.iter().all(|&b| b < 0x80) {
         // Ligature-aware measurement: account for fi/fl/ff/ffi/ffl substitutions
         let has_f = memchr::memchr(b'f', bytes).is_some();
         if !has_f {
-            // No ligatures possible — fast 4-at-a-time loop
-            let chunks = bytes.len() / 4;
-            let mut i = 0;
-            for _ in 0..chunks {
-                unsafe {
-                    total += *widths.get_unchecked(*bytes.get_unchecked(i) as usize) as u32;
-                    total += *widths.get_unchecked(*bytes.get_unchecked(i + 1) as usize) as u32;
-                    total += *widths.get_unchecked(*bytes.get_unchecked(i + 2) as usize) as u32;
-                    total += *widths.get_unchecked(*bytes.get_unchecked(i + 3) as usize) as u32;
+            // No ligatures — simple loop with kerning
+            let mut prev: u8 = 0;
+            for &b in bytes {
+                total += widths[b as usize] as i32;
+                if do_kern && prev != 0 {
+                    total += kern_pair(font, prev, b) as i32;
                 }
-                i += 4;
-            }
-            while i < bytes.len() {
-                total += widths[bytes[i] as usize] as u32;
-                i += 1;
+                prev = b;
             }
         } else {
-            // Ligature-aware path
+            // Ligature-aware path with kerning
+            let mut prev: u8 = 0;
             let mut i = 0;
             while i < bytes.len() {
+                let cur;
                 if bytes[i] == b'f' {
                     if i + 2 < bytes.len() && bytes[i + 1] == b'f' {
                         if bytes[i + 2] == b'i' {
-                            total += widths[LIG_FFI as usize] as u32;
-                            i += 3; continue;
+                            cur = LIG_FFI;
+                            total += widths[cur as usize] as i32;
+                            i += 3;
                         } else if bytes[i + 2] == b'l' {
-                            total += widths[LIG_FFL as usize] as u32;
-                            i += 3; continue;
+                            cur = LIG_FFL;
+                            total += widths[cur as usize] as i32;
+                            i += 3;
                         } else {
-                            total += widths[LIG_FF as usize] as u32;
-                            i += 2; continue;
+                            cur = LIG_FF;
+                            total += widths[cur as usize] as i32;
+                            i += 2;
                         }
                     } else if i + 1 < bytes.len() && bytes[i + 1] == b'i' {
-                        total += widths[LIG_FI as usize] as u32;
-                        i += 2; continue;
+                        cur = LIG_FI;
+                        total += widths[cur as usize] as i32;
+                        i += 2;
                     } else if i + 1 < bytes.len() && bytes[i + 1] == b'l' {
-                        total += widths[LIG_FL as usize] as u32;
-                        i += 2; continue;
+                        cur = LIG_FL;
+                        total += widths[cur as usize] as i32;
+                        i += 2;
+                    } else {
+                        cur = b'f';
+                        total += widths[b'f' as usize] as i32;
+                        i += 1;
                     }
+                } else {
+                    cur = bytes[i];
+                    total += widths[cur as usize] as i32;
+                    i += 1;
                 }
-                total += widths[bytes[i] as usize] as u32;
-                i += 1;
+                // Kern between previous output glyph and current
+                if do_kern && prev != 0 {
+                    total += kern_pair(font, prev, cur) as i32;
+                }
+                prev = cur;
             }
         }
     } else {
@@ -1139,7 +1153,7 @@ pub fn measure_text(text: &str, font: FontId, font_size: f32) -> f32 {
         while i < bytes.len() {
             let b = bytes[i];
             if b < 0x80 {
-                total += widths[b as usize] as u32;
+                total += widths[b as usize] as i32;
                 i += 1;
             } else if b < 0xC0 {
                 i += 1; // stray continuation byte
@@ -1158,13 +1172,13 @@ pub fn measure_text(text: &str, font: FontId, font_size: f32) -> f32 {
                 };
                 // Map Unicode codepoint to WinAnsi byte (same as pdf.rs encoding)
                 let win_byte = unicode_to_winansi(cp);
-                total += widths[win_byte as usize] as u32;
+                total += widths[win_byte as usize] as i32;
                 i += advance;
             }
         }
     }
 
-    total as f32 * scale
+    total.max(0) as f32 * scale
 }
 
 /// Map a Unicode codepoint to its WinAnsi byte equivalent.
@@ -1438,6 +1452,17 @@ pub fn unicode_to_symbol_byte(ch: char) -> Option<u8> {
         0x2661 => 0xA9, // ♡ heartsuit
         0x2660 => 0xAA, // ♠ spadesuit
         0x2113 => 0x60, // ℓ ell
+        // Long arrows (approximate as standard arrows since Symbol font doesn't have long variants)
+        0x27F5 => 0xAC, // ⟵ long leftarrow
+        0x27F6 => 0xAE, // ⟶ long rightarrow
+        0x27F7 => 0xAB, // ⟷ long leftrightarrow
+        0x27F8 => 0xDC, // ⟸ long double leftarrow
+        0x27F9 => 0xDE, // ⟹ long double rightarrow
+        0x27FA => 0xDB, // ⟺ long double leftrightarrow
+        0x27FC => 0xAE, // ⟼ long mapsto (approximate as →)
+        0x21A0 => 0xAE, // ↠ twoheadrightarrow (approximate as →)
+        0x219E => 0xAC, // ↞ twoheadleftarrow (approximate as ←)
+        0x21A9 => 0xAC, // ↩ hookleftarrow (approximate as ←)
         _ => return None,
     })
 }
@@ -1477,6 +1502,141 @@ pub fn font_info(font: FontId) -> FontInfo {
         FontId::ZapfDingbats => FontInfo {
             ascent: 820, descent: -143, cap_height: 820, x_height: 525, line_gap: 200,
         },
+    }
+}
+
+// ─── Kerning ────────────────────────────────────────────────────────────────
+// Kern pair tables from Adobe AFM files for Standard 14 fonts.
+// Format: sorted array of (left_byte, right_byte, kern_value_1000ths) for binary search.
+// Only includes pairs with |kern| >= 15 units to keep tables compact.
+
+/// Kern pair entry: (left_char, right_char, kern_adjustment in 1/1000 em)
+type KernPair = (u8, u8, i16);
+
+// Times-Roman kern pairs (most impactful, from Adobe AFM)
+static TIMES_KERN: &[KernPair] = &[
+    (b'A', b'C', -40), (b'A', b'G', -40), (b'A', b'O', -55), (b'A', b'Q', -55),
+    (b'A', b'T', -111), (b'A', b'U', -55), (b'A', b'V', -135), (b'A', b'W', -90),
+    (b'A', b'Y', -105), (b'A', b'v', -74), (b'A', b'w', -92), (b'A', b'y', -92),
+    (b'B', b'U', -10), (b'B', b'u', -20),
+    (b'D', b'A', -40), (b'D', b'V', -40), (b'D', b'W', -30), (b'D', b'Y', -55),
+    (b'F', b'.', -80), (b'F', b',', -80), (b'F', b'A', -74), (b'F', b'a', -15),
+    (b'F', b'e', -15), (b'F', b'i', -20), (b'F', b'o', -15),
+    (b'K', b'O', -30), (b'K', b'e', -25), (b'K', b'o', -35), (b'K', b'u', -15),
+    (b'K', b'y', -25),
+    (b'L', b'T', -92), (b'L', b'V', -100), (b'L', b'W', -74), (b'L', b'Y', -100),
+    (b'L', b'y', -55),
+    (b'O', b'A', -35), (b'O', b'T', -40), (b'O', b'V', -50), (b'O', b'W', -35),
+    (b'O', b'X', -40), (b'O', b'Y', -50),
+    (b'P', b'.', -111), (b'P', b',', -111), (b'P', b'A', -92), (b'P', b'a', -15),
+    (b'P', b'e', -30), (b'P', b'o', -30),
+    (b'Q', b'U', -10),
+    (b'R', b'O', -20), (b'R', b'T', -20), (b'R', b'U', -20), (b'R', b'V', -50),
+    (b'R', b'W', -40), (b'R', b'Y', -50),
+    (b'T', b'.', -74), (b'T', b',', -74), (b'T', b'-', -92),
+    (b'T', b'A', -80), (b'T', b'O', -18),
+    (b'T', b'a', -80), (b'T', b'e', -70), (b'T', b'h', -15),
+    (b'T', b'i', -35), (b'T', b'o', -80), (b'T', b'r', -35),
+    (b'T', b'u', -45), (b'T', b'w', -80), (b'T', b'y', -80),
+    (b'U', b'A', -40),
+    (b'V', b'.', -129), (b'V', b',', -129),
+    (b'V', b'A', -135), (b'V', b'G', -15), (b'V', b'O', -45),
+    (b'V', b'a', -111), (b'V', b'e', -111), (b'V', b'i', -60),
+    (b'V', b'o', -129), (b'V', b'r', -65), (b'V', b'u', -75), (b'V', b'y', -70),
+    (b'W', b'.', -92), (b'W', b',', -92),
+    (b'W', b'A', -120), (b'W', b'O', -10),
+    (b'W', b'a', -80), (b'W', b'e', -80), (b'W', b'h', -15),
+    (b'W', b'i', -40), (b'W', b'o', -80), (b'W', b'r', -35),
+    (b'W', b'u', -55), (b'W', b'y', -73),
+    (b'Y', b'.', -92), (b'Y', b',', -92),
+    (b'Y', b'A', -120), (b'Y', b'O', -30),
+    (b'Y', b'a', -100), (b'Y', b'e', -100), (b'Y', b'i', -55),
+    (b'Y', b'o', -110), (b'Y', b'p', -92), (b'Y', b'q', -92),
+    (b'Y', b'u', -111), (b'Y', b'v', -71),
+    (b'f', b'.', -15), (b'f', b',', -15), (b'f', b'f', -18),
+    (b'k', b'e', -10), (b'k', b'o', -10),
+    (b'r', b'.', -55), (b'r', b',', -40), (b'r', b'-', -20),
+    (b'r', b'g', -18), (b'r', b'y', -15),
+    (b'v', b'.', -65), (b'v', b',', -65), (b'v', b'a', -25), (b'v', b'o', -15),
+    (b'w', b'.', -65), (b'w', b',', -65), (b'w', b'a', -10), (b'w', b'o', -10),
+    (b'y', b'.', -65), (b'y', b',', -65),
+];
+
+// Helvetica kern pairs (from Adobe AFM)
+static HELVETICA_KERN: &[KernPair] = &[
+    (b'A', b'C', -30), (b'A', b'G', -30), (b'A', b'O', -30), (b'A', b'Q', -30),
+    (b'A', b'T', -120), (b'A', b'U', -50), (b'A', b'V', -70), (b'A', b'W', -50),
+    (b'A', b'Y', -100), (b'A', b'v', -40), (b'A', b'w', -40), (b'A', b'y', -40),
+    (b'F', b'.', -100), (b'F', b',', -100), (b'F', b'A', -80),
+    (b'F', b'a', -50), (b'F', b'e', -30), (b'F', b'o', -30),
+    (b'L', b'T', -110), (b'L', b'V', -110), (b'L', b'W', -80), (b'L', b'Y', -120),
+    (b'L', b'y', -30),
+    (b'P', b'.', -120), (b'P', b',', -120), (b'P', b'A', -100),
+    (b'P', b'a', -40), (b'P', b'e', -50), (b'P', b'o', -50),
+    (b'R', b'O', -20), (b'R', b'T', -30), (b'R', b'U', -40),
+    (b'R', b'V', -50), (b'R', b'W', -30), (b'R', b'Y', -50),
+    (b'T', b'.', -120), (b'T', b',', -120), (b'T', b'-', -140),
+    (b'T', b'A', -120), (b'T', b'O', -40),
+    (b'T', b'a', -120), (b'T', b'e', -120), (b'T', b'i', -120),
+    (b'T', b'o', -120), (b'T', b'r', -120), (b'T', b'u', -120),
+    (b'T', b'w', -120), (b'T', b'y', -120),
+    (b'V', b'.', -120), (b'V', b',', -120),
+    (b'V', b'A', -80), (b'V', b'G', -40), (b'V', b'O', -40),
+    (b'V', b'a', -70), (b'V', b'e', -80), (b'V', b'i', -60),
+    (b'V', b'o', -80), (b'V', b'r', -80), (b'V', b'u', -70), (b'V', b'y', -60),
+    (b'W', b'.', -80), (b'W', b',', -80),
+    (b'W', b'A', -50), (b'W', b'O', -20),
+    (b'W', b'a', -40), (b'W', b'e', -35), (b'W', b'i', -40),
+    (b'W', b'o', -60), (b'W', b'r', -35), (b'W', b'u', -30), (b'W', b'y', -20),
+    (b'Y', b'.', -100), (b'Y', b',', -100),
+    (b'Y', b'A', -110), (b'Y', b'O', -70),
+    (b'Y', b'a', -90), (b'Y', b'e', -80), (b'Y', b'i', -50),
+    (b'Y', b'o', -100), (b'Y', b'p', -90), (b'Y', b'u', -100), (b'Y', b'v', -80),
+    (b'f', b'.', -30), (b'f', b',', -30),
+    (b'r', b'.', -30), (b'r', b',', -30),
+    (b'v', b'.', -80), (b'v', b',', -80),
+    (b'w', b'.', -60), (b'w', b',', -60),
+    (b'y', b'.', -100), (b'y', b',', -100),
+];
+
+// Bitmask of left-side characters that have kern pairs (fast rejection)
+// Generated from the kern tables above
+static TIMES_KERN_LEFT: [u8; 32] = kern_left_bitmap(TIMES_KERN);
+static HELVETICA_KERN_LEFT: [u8; 32] = kern_left_bitmap(HELVETICA_KERN);
+
+const fn kern_left_bitmap(table: &[KernPair]) -> [u8; 32] {
+    let mut bits = [0u8; 32];
+    let mut i = 0;
+    while i < table.len() {
+        let ch = table[i].0;
+        bits[ch as usize >> 3] |= 1 << (ch & 7);
+        i += 1;
+    }
+    bits
+}
+
+/// Look up the kerning adjustment for a character pair (in 1/1000 em).
+/// Returns 0 for pairs with no kerning data.
+#[inline]
+pub fn kern_pair(font: FontId, left: u8, right: u8) -> i16 {
+    let (table, bitmap): (&[KernPair], &[u8; 32]) = match font {
+        FontId::TimesRoman | FontId::TimesItalic | FontId::TimesBold | FontId::TimesBoldItalic
+            => (TIMES_KERN, &TIMES_KERN_LEFT),
+        FontId::Helvetica | FontId::HelveticaBold | FontId::HelveticaOblique | FontId::HelveticaBoldOblique
+            => (HELVETICA_KERN, &HELVETICA_KERN_LEFT),
+        _ => return 0,
+    };
+
+    // Fast rejection: check if left char has any kern pairs at all
+    if bitmap[left as usize >> 3] & (1 << (left & 7)) == 0 {
+        return 0;
+    }
+
+    // Binary search on (left, right) key
+    let key = ((left as u16) << 8) | right as u16;
+    match table.binary_search_by_key(&key, |&(l, r, _)| ((l as u16) << 8) | r as u16) {
+        Ok(idx) => table[idx].2,
+        Err(_) => 0,
     }
 }
 
