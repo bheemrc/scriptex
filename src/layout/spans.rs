@@ -72,6 +72,7 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
                             FontDeclType::Italic => FontStyle::Italic,
                             FontDeclType::Monospace => FontStyle::Monospace,
                             FontDeclType::Regular => FontStyle::Regular,
+                            FontDeclType::SansSerif => FontStyle::SansSerif,
                             FontDeclType::SmallCaps => unreachable!(),
                         };
                     }
@@ -120,6 +121,15 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
                 let mut t = String::new();
                 for c in children { node_to_text_resolved(c, &mut t, source, labels); }
                 out.push(StyledSpan { text: t, style: FontStyle::Monospace, color, font_size, underline: false, strikethrough: false });
+            }
+            Node::SansSerif(children) => {
+                let sf_style = match style {
+                    FontStyle::Bold | FontStyle::SansSerifBold => FontStyle::SansSerifBold,
+                    FontStyle::Italic | FontStyle::SansSerifItalic => FontStyle::SansSerifItalic,
+                    FontStyle::BoldItalic | FontStyle::SansSerifBoldItalic => FontStyle::SansSerifBoldItalic,
+                    _ => FontStyle::SansSerif,
+                };
+                nodes_to_spans_sc(children, sf_style, color, font_size, base_size, smallcaps, out, source, labels, citations);
             }
             Node::Code(s) => {
                 out.push(StyledSpan { text: s.clone(), style: FontStyle::Monospace, color, font_size, underline: false, strikethrough: false });
@@ -355,6 +365,28 @@ fn inline_math_node_to_spans(node: &MathNode, color: Color, font_size: f32, out:
     }
 }
 
+struct StyledWord {
+    text: String, style: FontStyle, color: Color, font_size: f32, width: f32,
+    math: Option<math_layout::MathBox>, superscript: bool, underline: bool, strikethrough: bool,
+}
+
+/// Compute max_above/max_below metrics for a line of styled words
+fn compute_line_metrics(words: &[StyledWord], text_ascent: f32, text_descent: f32, base_font_size: f32) -> (f32, f32) {
+    let mut ma = text_ascent;
+    let mut mb = text_descent;
+    for w in words {
+        if let Some(ref math_box) = w.math {
+            ma = ma.max(math_box.height);
+            mb = mb.max(math_box.depth);
+        } else if w.font_size > base_font_size + 0.5 {
+            let wfid = font::style_to_font_id(w.style);
+            ma = ma.max(font::font_ascent(wfid, w.font_size));
+            mb = mb.max(font::font_descent(wfid, w.font_size));
+        }
+    }
+    (ma, mb)
+}
+
 /// Layout a paragraph with rich inline formatting (bold, italic, etc.).
 pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, source: &str, with_indent: bool) -> Result<()> {
     // Apply \parskip between paragraphs (only when starting a new paragraph, not continuation)
@@ -363,7 +395,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
     }
 
     let has_formatting = children.iter().any(|n| matches!(n,
-        Node::Bold(_) | Node::Italic(_) | Node::Emph(_) | Node::Monospace(_)
+        Node::Bold(_) | Node::Italic(_) | Node::Emph(_) | Node::Monospace(_) | Node::SansSerif(_)
         | Node::Colored { .. } | Node::Code(_) | Node::SmallCaps(_)
         | Node::Underline(_) | Node::InlineMath(_) | Node::Href { .. }
         | Node::Footnote(_) | Node::FontStyleDecl(_) | Node::ColorDecl(_) | Node::Group(_)
@@ -372,6 +404,18 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
     ));
 
     if !has_formatting {
+        // Fast path for single TextRef: zero-copy layout directly from source
+        if children.len() == 1 {
+            if let Node::TextRef(offset, len) = &children[0] {
+                let text = source[*offset as usize..(*offset as usize + *len as usize)].trim();
+                if !text.is_empty() {
+                    let src_off = (text.as_ptr() as usize - source.as_ptr() as usize) as u32;
+                    if !with_indent { state.suppress_next_indent = true; }
+                    super::text::layout_text_content_source(text, state, src_off)?;
+                }
+                return Ok(());
+            }
+        }
         state.text_buf.clear();
         let labels: &HashMap<String, String> = unsafe { &*(&state.label_map as *const _) };
         for node in children {
@@ -383,11 +427,6 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
             else { layout_text_content_no_indent(text, state)?; }
         }
         return Ok(());
-    }
-
-    struct StyledWord {
-        text: String, style: FontStyle, color: Color, font_size: f32, width: f32,
-        math: Option<math_layout::MathBox>, superscript: bool, underline: bool, strikethrough: bool,
     }
 
     let font_size = state.current_font_size;
@@ -423,7 +462,9 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 if math_box.width > 0.0 {
                     if let Some(last) = words.last() {
                         if last.text != " " && last.text != "\n" {
-                            words.push(StyledWord { text: " ".to_string(), style: FontStyle::Regular, color: state.current_color, width: space_width * 0.5, math: None, superscript: false, font_size, underline: false, strikethrough: false });
+                            // TeX \thinmuskip = 3mu ≈ font_size/6
+                            let thin_space = font_size / 6.0;
+                            words.push(StyledWord { text: " ".to_string(), style: FontStyle::Regular, color: state.current_color, width: thin_space, math: None, superscript: false, font_size, underline: false, strikethrough: false });
                         }
                     }
                     let w = math_box.width;
@@ -534,73 +575,119 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
 
     struct LineInfo { start: usize, end: usize, max_above: f32, max_below: f32, hyphen: Option<(usize, usize)> }
     let mut lines: Vec<LineInfo> = Vec::new();
-    let mut line_start = 0usize;
-    let mut current_line_width = 0.0f32;
-    let mut first_line = true;
-    let mut line_max_above = text_ascent;
-    let mut line_max_below = text_descent;
 
-    let mut i = 0;
-    while i < words.len() {
-        let word = &words[i];
-        if word.text == "\n" {
-            lines.push(LineInfo { start: line_start, end: i, max_above: line_max_above, max_below: line_max_below, hyphen: None });
-            line_start = i + 1; current_line_width = 0.0; first_line = false;
-            line_max_above = text_ascent; line_max_below = text_descent; i += 1; continue;
+    // --- Knuth-Plass style optimal line breaking ---
+    // Split paragraph into segments at forced breaks (\n), then run DP on each segment.
+    let mut segments: Vec<(usize, usize)> = Vec::new(); // (start, end) in words[]
+    {
+        let mut seg_start = 0;
+        for (i, w) in words.iter().enumerate() {
+            if w.text == "\n" {
+                segments.push((seg_start, i));
+                seg_start = i + 1;
+            }
         }
-        if word.text == " " { current_line_width += word.width; i += 1; continue; }
+        if seg_start <= words.len() {
+            segments.push((seg_start, words.len()));
+        }
+    }
 
-        let effective_max = if first_line { text_width - first_line_used } else { text_width };
-        // Hanging punctuation: allow trailing period/comma/hyphen to protrude into margin
-        let hang = if word.text.ends_with('.') || word.text.ends_with(',') || word.text.ends_with('-') || word.text.ends_with(')') {
-            let fid = font::style_to_font_id(word.style);
-            let last_ch = word.text.as_bytes()[word.text.len() - 1];
-            font::measure_text(std::str::from_utf8(&[last_ch]).unwrap_or("."), fid, word.font_size) * 0.5
-        } else { 0.0 };
-        if current_line_width > 0.0 && current_line_width + word.width > effective_max + hang {
-            let mut hyphenated = false;
-            if word.math.is_none() && !word.superscript && word.text.len() >= 5 {
-                let remaining = effective_max - current_line_width;
-                let fid = font::style_to_font_id(word.style);
-                let hyphen_w = font::measure_text("-", fid, word.font_size);
-                let avg_char_w = word.width / word.text.len() as f32;
-                let max_prefix = ((remaining - hyphen_w) / avg_char_w) as usize;
-                if max_prefix >= 2 {
-                    if let Some(bp) = crate::hyphenate::best_break(word.text.as_bytes(), max_prefix) {
-                        let prefix_w = font::measure_text(&word.text[..bp], fid, word.font_size);
-                        if prefix_w + hyphen_w <= remaining {
-                            lines.push(LineInfo { start: line_start, end: i + 1, max_above: line_max_above, max_below: line_max_below, hyphen: Some((i, bp)) });
-                            line_start = i; current_line_width = 0.0; first_line = false;
-                            line_max_above = text_ascent; line_max_below = text_descent;
-                            if word.font_size > font_size + 0.5 {
-                                line_max_above = line_max_above.max(font::font_ascent(font::style_to_font_id(word.style), word.font_size));
-                                line_max_below = line_max_below.max(font::font_descent(font::style_to_font_id(word.style), word.font_size));
-                            }
-                            let suffix_w = font::measure_text(&word.text[bp..], fid, word.font_size);
-                            current_line_width = suffix_w; i += 1; hyphenated = true;
-                        }
-                    }
+    let mut is_first_line = true;
+    for (seg_start, seg_end) in &segments {
+        let seg_start = *seg_start;
+        let seg_end = *seg_end;
+        if seg_start >= seg_end { continue; }
+
+        // Collect break opportunities within this segment (at spaces)
+        // bp[0] = seg_start (start of segment), bp[last] = seg_end (end)
+        let mut bp: Vec<usize> = vec![seg_start];
+        for i in seg_start..seg_end {
+            if words[i].text == " " {
+                bp.push(i + 1);
+            }
+        }
+        if *bp.last().unwrap() != seg_end {
+            bp.push(seg_end);
+        }
+        let m = bp.len();
+
+        if m <= 2 {
+            // Single word or no break opportunities — one line
+            let (ma, mb) = compute_line_metrics(&words[seg_start..seg_end], text_ascent, text_descent, font_size);
+            lines.push(LineInfo { start: seg_start, end: seg_end, max_above: ma, max_below: mb, hyphen: None });
+            is_first_line = false;
+            continue;
+        }
+
+        // Prefix sums for O(1) line width queries
+        let mut prefix: Vec<f32> = Vec::with_capacity(seg_end - seg_start + 1);
+        prefix.push(0.0);
+        for k in seg_start..seg_end {
+            prefix.push(prefix.last().unwrap() + words[k].width);
+        }
+        let pw = |idx: usize| -> f32 { prefix[idx - seg_start] };
+
+        // DP: cost[i] = minimum badness to optimally break words up to bp[i]
+        let mut dp_cost: Vec<f64> = vec![f64::MAX; m];
+        let mut dp_from: Vec<usize> = vec![0; m];
+        dp_cost[0] = 0.0;
+
+        for j in 1..m {
+            let end = bp[j];
+            // Width of trailing space at end of line (if any)
+            let trail_sp = if end > seg_start && words[end - 1].text == " " {
+                words[end - 1].width
+            } else { 0.0 };
+
+            for a in (0..j).rev() {
+                if dp_cost[a] == f64::MAX { continue; }
+                let start = bp[a];
+
+                // O(1) line width via prefix sums
+                let lw = pw(end) - pw(start) - trail_sp;
+
+                let max_w = if is_first_line && a == 0 { text_width - first_line_used } else { text_width };
+
+                // Prune: earlier starts only make lines wider
+                if lw > max_w * 1.3 && j > a + 1 { break; }
+
+                let is_last = j == m - 1;
+                let badness: f64 = if is_last {
+                    if lw > max_w { let o = (lw - max_w) as f64; o * o * 1000.0 } else { 0.0 }
+                } else if lw > max_w {
+                    let o = (lw - max_w) as f64;
+                    o * o * 1000.0
+                } else {
+                    let slack = (max_w - lw) as f64;
+                    let ratio = slack / max_w as f64;
+                    if ratio > 0.5 { slack * slack * slack + 10000.0 }
+                    else { slack * slack * slack }
+                };
+
+                let total = dp_cost[a] + badness;
+                if total < dp_cost[j] {
+                    dp_cost[j] = total;
+                    dp_from[j] = a;
                 }
             }
-            if !hyphenated {
-                lines.push(LineInfo { start: line_start, end: i, max_above: line_max_above, max_below: line_max_below, hyphen: None });
-                line_start = i; current_line_width = 0.0; first_line = false;
-                line_max_above = text_ascent; line_max_below = text_descent; continue;
-            } else { continue; }
         }
 
-        if let Some(ref math_box) = word.math {
-            line_max_above = line_max_above.max(math_box.height);
-            line_max_below = line_max_below.max(math_box.depth);
-        } else if word.font_size > font_size + 0.5 {
-            let wfid = font::style_to_font_id(word.style);
-            line_max_above = line_max_above.max(font::font_ascent(wfid, word.font_size));
-            line_max_below = line_max_below.max(font::font_descent(wfid, word.font_size));
+        // Reconstruct optimal break sequence
+        let mut opt_breaks: Vec<usize> = Vec::new();
+        let mut k = m - 1;
+        while k > 0 { opt_breaks.push(k); k = dp_from[k]; }
+        opt_breaks.reverse();
+
+        // Build LineInfo from optimal breaks
+        let mut prev_bp_idx = 0;
+        for &b in &opt_breaks {
+            let ls = bp[prev_bp_idx];
+            let le = bp[b];
+            let (ma, mb) = compute_line_metrics(&words[ls..le], text_ascent, text_descent, font_size);
+            lines.push(LineInfo { start: ls, end: le, max_above: ma, max_below: mb, hyphen: None });
+            is_first_line = false;
+            prev_bp_idx = b;
         }
-        current_line_width += word.width; i += 1;
-    }
-    if line_start < words.len() {
-        lines.push(LineInfo { start: line_start, end: words.len(), max_above: line_max_above, max_below: line_max_below, hyphen: None });
     }
 
     // Orphan/widow control (LaTeX \clubpenalty/\widowpenalty equivalent)

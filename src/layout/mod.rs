@@ -280,7 +280,7 @@ fn is_inline_node(node: &Node) -> bool {
         Node::Group(children) => children.iter().all(is_inline_node),
         _ => matches!(node,
             Node::Text(_) | Node::TextRef(_, _) | Node::Bold(_) | Node::Italic(_)
-            | Node::Monospace(_) | Node::SmallCaps(_) | Node::Underline(_) | Node::Emph(_)
+            | Node::Monospace(_) | Node::SmallCaps(_) | Node::SansSerif(_) | Node::Underline(_) | Node::Emph(_)
             | Node::InlineMath(_) | Node::Colored { .. }
             | Node::FontSize { .. } | Node::Superscript(_) | Node::Subscript(_)
             | Node::NonBreakingSpace | Node::HSpace(_) | Node::HFill | Node::Code(_) | Node::Footnote(_)
@@ -589,7 +589,8 @@ fn render_top_floats(state: &mut LayoutState, doc: &Document, source: &str) -> R
 
 /// Render a tcolorbox / colored framed box
 fn layout_colorbox(boxdata: &ColorBoxData, state: &mut LayoutState, doc: &Document, source: &str) -> Result<()> {
-    state.add_vertical_space(8.0);
+    // LaTeX \intextsep = 12pt at 10pt base, scales proportionally
+    state.add_vertical_space(state.base_font_size * 1.0);
     let padding = boxdata.padding;
 
     let start_y = state.current_y;
@@ -667,61 +668,68 @@ fn layout_colorbox(boxdata: &ColorBoxData, state: &mut LayoutState, doc: &Docume
         state.all_elements.insert(elem_start, PageElement::Rect(idx));
     }
 
-    state.add_vertical_space(8.0);
+    state.add_vertical_space(state.base_font_size * 1.0);
     state.current_x = state.text_left();
+    Ok(())
+}
+
+/// Render a caption paragraph: centered if single-line, left-aligned if multi-line.
+/// The `combined` nodes should include the bold prefix (e.g., "Figure 1: ") and caption body.
+fn layout_caption_paragraph(combined: &[Node], state: &mut LayoutState, source: &str) -> Result<()> {
+    // Measure total width to decide centering
+    state.text_buf.clear();
+    let labels: &std::collections::HashMap<String, String> = unsafe { &*(&state.label_map as *const _) };
+    for node in combined.iter() { text::node_to_text_resolved(node, &mut state.text_buf, source, labels); }
+    let total_width = font::measure_text(state.text_buf.as_str(), crate::font::FontId::TimesRoman, state.current_font_size);
+
+    let saved_align = state.alignment_mode;
+    let saved_para_indent = state.paragraph_indent;
+    state.paragraph_indent = 0.0;
+
+    // Center if caption fits on one line (LaTeX convention)
+    if total_width <= state.text_width() {
+        state.alignment_mode = crate::document::AlignmentMode::Center;
+    }
+
+    spans::layout_rich_paragraph(combined, state, source, false)?;
+
+    state.alignment_mode = saved_align;
+    state.paragraph_indent = saved_para_indent;
     Ok(())
 }
 
 /// Render a figure/table float inline at the current position
 fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Document, source: &str) -> Result<()> {
-    state.add_vertical_space(10.0);
+    state.add_vertical_space(state.base_font_size * 1.2);
     let saved_indent = state.indent;
     let saved_font_size = state.current_font_size;
     layout_nodes(&fig.content, state, doc, source)?;
     if let Some(cap) = &fig.caption {
         state.figure_counter += 1;
         let fig_num = state.figure_counter;
-        state.current_y += 6.0;
+        // LaTeX \abovecaptionskip = 10pt default
+        state.current_y += state.base_font_size * 1.0;
 
-        // Caption uses slightly smaller font (LaTeX \captionsize = \small)
+        // Caption uses \small font (LaTeX convention)
         let cap_font_size = state.current_font_size * 0.9;
         let saved_cap_font = state.current_font_size;
         state.current_font_size = cap_font_size;
 
-        // Build "Figure N: " prefix
+        // Build combined node list: Bold("Figure N: ") + caption children
         let mut ibuf = itoa::Buffer::new();
         let prefix = format!("Figure {}: ", ibuf.format(fig_num));
-        let prefix_width = font::measure_text(&prefix, FontId::TimesBold, cap_font_size);
+        let mut combined = Vec::with_capacity(cap.len() + 1);
+        combined.push(Node::Bold(vec![Node::Text(prefix)]));
+        combined.extend_from_slice(cap);
 
-        // Pre-measure caption text to decide centering
-        state.text_buf.clear();
-        let labels: &std::collections::HashMap<String, String> = unsafe { &*(&state.label_map as *const _) };
-        for node in cap.iter() { text::node_to_text_resolved(node, &mut state.text_buf, source, labels); }
-        let cap_text_width = font::measure_text(state.text_buf.as_str(), FontId::TimesRoman, cap_font_size);
-        let total_width = prefix_width + cap_text_width;
-
-        // Center if caption fits on one line
-        if total_width <= state.text_width() {
-            let cx = state.text_left() + (state.text_width() - total_width) / 2.0;
-            state.current_x = cx;
-        } else {
-            state.current_x = state.text_left();
-        }
-
-        state.emit_text(&prefix, cap_font_size, FontStyle::Bold, Color::BLACK);
-        state.current_x += prefix_width;
-
-        // Use rich paragraph layout for caption content (supports bold, italic, math, etc.)
-        let saved_para_indent = state.paragraph_indent;
-        state.paragraph_indent = 0.0;
-        spans::layout_rich_paragraph(cap, state, source, false)?;
-        state.paragraph_indent = saved_para_indent;
+        // Render as centered paragraph
+        layout_caption_paragraph(&combined, state, source)?;
         state.current_font_size = saved_cap_font;
     }
     state.set_indent(saved_indent);
     state.current_font_size = saved_font_size;
     state.current_x = state.text_left();
-    state.add_vertical_space(10.0);
+    state.add_vertical_space(state.base_font_size * 1.2);
     state.suppress_next_indent = true;
     Ok(())
 }
@@ -917,13 +925,13 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
         }
 
         Node::HRule => {
-            state.add_vertical_space(6.0);
+            state.add_vertical_space(state.base_font_size * 0.6);
             state.emit_line(
                 state.text_left(), state.current_y,
                 state.text_left() + state.text_width(), state.current_y,
-                0.5, Color::BLACK,
+                0.4, Color::BLACK,
             );
-            state.current_y += 6.0;
+            state.current_y += state.base_font_size * 0.6;
         }
 
         Node::VSpace(pts) => {
@@ -965,9 +973,10 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             state.set_indent(state.indent + quote_indent);
             state.paragraph_indent = 0.0;
             state.current_x = state.text_left();
-            state.add_vertical_space(6.0);
+            // LaTeX \topsep for quote = ~6pt at 10pt
+            state.add_vertical_space(state.base_font_size * 0.6);
             layout_nodes(content, state, doc, source)?;
-            state.add_vertical_space(6.0);
+            state.add_vertical_space(state.base_font_size * 0.6);
             state.paragraph_indent = saved_para_indent;
             state.set_right_indent(saved_right);
             state.set_indent(saved_indent);
@@ -982,9 +991,9 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             state.set_right_indent(state.right_indent + quote_indent);
             state.set_indent(state.indent + quote_indent);
             state.current_x = state.text_left();
-            state.add_vertical_space(6.0);
+            state.add_vertical_space(state.base_font_size * 0.6);
             layout_nodes(content, state, doc, source)?;
-            state.add_vertical_space(6.0);
+            state.add_vertical_space(state.base_font_size * 0.6);
             state.set_right_indent(saved_right);
             state.set_indent(saved_indent);
             state.current_x = state.text_left();
@@ -999,7 +1008,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 // - Centered bold "Abstract" heading in normal size
                 // - Body text in small font (9pt for 10pt base)
                 // - Indented ~1.5em on each side (matching \quotation environment)
-                state.add_vertical_space(4.0);
+                state.add_vertical_space(state.base_font_size * 0.5);
 
                 let title = "Abstract";
                 let title_size = state.base_font_size;
@@ -1008,7 +1017,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 let cx = state.text_left() + (state.text_width() - tw) / 2.0;
                 state.current_x = cx;
                 state.emit_text(title, title_size, FontStyle::Bold, Color::BLACK);
-                state.current_y += metrics.line_height() + 2.0;
+                state.current_y += metrics.line_height() + state.base_font_size * 0.3;
 
                 let abstract_indent = state.base_font_size * 1.5; // ~1.5em indent each side
                 let saved_indent = state.indent;
@@ -1024,9 +1033,9 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 state.set_indent(saved_indent);
                 state.current_x = state.text_left();
 
-                state.current_y += 2.0;
+                state.current_y += state.base_font_size * 0.2;
             }
-            state.add_vertical_space(12.0);
+            state.add_vertical_space(state.base_font_size * 1.2);
         }
 
         Node::Center(content) => {
@@ -1110,6 +1119,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 FontDeclType::Monospace => FontStyle::Monospace,
                 FontDeclType::Regular => FontStyle::Regular,
                 FontDeclType::SmallCaps => FontStyle::Regular,
+                FontDeclType::SansSerif => FontStyle::SansSerif,
             };
         }
 
@@ -1138,25 +1148,24 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
         Node::WrapFigure { content, caption, label, .. } => {
             // Simplified: render as inline figure (full wrapfigure layout would need
             // text flow tracking which is very complex)
-            state.add_vertical_space(6.0);
+            state.add_vertical_space(state.base_font_size * 0.6);
             layout_nodes(content, state, doc, source)?;
             if let Some(cap) = caption {
-                let saved_style = state.current_font_style;
-                state.current_font_style = FontStyle::Regular;
                 state.figure_counter += 1;
                 let fig_num = state.figure_counter;
-                let cap_text = format!("Figure {}: ", fig_num);
                 if let Some(ref l) = label {
                     state.label_map.insert(l.clone(), fig_num.to_string());
                 }
-                state.current_x = state.text_left();
-                state.emit_text(&cap_text, state.current_font_size * 0.9, FontStyle::Bold, Color::BLACK);
-                state.current_x += font::measure_text(&cap_text, FontId::TimesBold, state.current_font_size * 0.9);
-                for cn in cap { layout_node(cn, state, doc, source)?; }
-                state.current_y += state.current_font_size * 1.2;
-                state.current_font_style = saved_style;
+                let saved_fs = state.current_font_size;
+                state.current_font_size *= 0.9;
+                let prefix = format!("Figure {}: ", fig_num);
+                let mut combined = Vec::with_capacity(cap.len() + 1);
+                combined.push(Node::Bold(vec![Node::Text(prefix)]));
+                combined.extend_from_slice(cap);
+                layout_caption_paragraph(&combined, state, source)?;
+                state.current_font_size = saved_fs;
             }
-            state.add_vertical_space(6.0);
+            state.add_vertical_space(state.base_font_size * 0.6);
             state.current_x = state.text_left();
         }
 
@@ -1208,7 +1217,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             }
         }
 
-        Node::Text(_) | Node::TextRef(_, _) | Node::Bold(_) | Node::Italic(_) | Node::Monospace(_)
+        Node::Text(_) | Node::TextRef(_, _) | Node::Bold(_) | Node::Italic(_) | Node::Monospace(_) | Node::SansSerif(_)
         | Node::SmallCaps(_) | Node::Underline(_) | Node::Emph(_)
         | Node::InlineMath(_) | Node::Group(_) | Node::Colored { .. }
         | Node::FontSize { .. } | Node::Superscript(_) | Node::Subscript(_)

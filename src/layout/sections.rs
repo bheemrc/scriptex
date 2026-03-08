@@ -27,7 +27,7 @@ pub(super) fn layout_section(
     } else {
         (level.font_size(state.base_font_size), FontStyle::Bold)
     };
-    let line_height = font_size * 1.2;
+    let line_height = font_size * super::state::baselineskip_factor(state.base_font_size);
     // Ensure heading + spacing + at least 3 lines of body text fit on current page
     // This prevents orphaned headings near page bottoms (LaTeX \clubpenalty equivalent)
     state.ensure_space(line_height + level.spacing_after() + state.cached_line_height * 3.5);
@@ -250,7 +250,7 @@ fn layout_section_with_math(
 
 pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
     let base = state.base_font_size;
-    state.add_vertical_space(10.0);
+    state.add_vertical_space(base * 1.0);
     let heading_size = base * 1.44;
     state.ensure_space(heading_size * 1.2);
     state.current_x = state.text_left();
@@ -260,13 +260,10 @@ pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
     state.current_y += 8.0;
 
     let entries = std::mem::take(&mut state.toc_entries);
-    let dot_char = ". ";
-    let dot_width = font::measure_text(dot_char, FontId::TimesRoman, base);
+    // Dot leaders: use evenly spaced dots like LaTeX
+    let single_dot_w = font::measure_text(".", FontId::TimesRoman, base * 0.9);
+    let dot_spacing = single_dot_w * 3.5; // TeX uses ~4.5pt spacing between dot centers
     let page_num_width = font::measure_text("000", FontId::TimesRoman, base);
-
-    let max_dots = 200;
-    let mut dot_leader = String::with_capacity(max_dots * 2);
-    for _ in 0..max_dots { dot_leader.push('.'); dot_leader.push(' '); }
 
     for (toc_idx, entry) in entries.iter().enumerate() {
         let depth = entry.level.depth();
@@ -295,14 +292,21 @@ pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
         if text_w <= available - page_num_width - 10.0 {
             state.emit_text(text, font_size, style, Color::BLACK);
             let after_text_x = x + text_w + 4.0;
-            let dot_start = after_text_x;
             let dot_end = right_edge - page_num_width - 4.0;
-            if dot_end > dot_start + dot_width * 2.0 {
-                let num_dots = ((dot_end - dot_start) / dot_width) as usize;
-                let num_dots = num_dots.min(max_dots);
-                let slice_end = (num_dots * 2).min(dot_leader.len());
-                state.current_x = dot_start;
-                state.emit_text(&dot_leader[..slice_end], base * 0.9, FontStyle::Regular, Color::GRAY);
+            // Align dots to a grid so they line up across TOC entries (LaTeX convention)
+            let grid_start = state.text_left(); // align to left margin
+            let first_dot_x = {
+                let raw = after_text_x + dot_spacing * 0.5;
+                let n = ((raw - grid_start) / dot_spacing).ceil();
+                grid_start + n * dot_spacing
+            };
+            if dot_end > first_dot_x {
+                let mut dx = first_dot_x;
+                while dx < dot_end {
+                    state.current_x = dx;
+                    state.emit_text(".", base * 0.9, FontStyle::Regular, Color::BLACK);
+                    dx += dot_spacing;
+                }
             }
             let page_x = right_edge - page_num_width;
             state.current_x = page_x;
@@ -338,8 +342,8 @@ pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
     }
 
     state.toc_entries = entries;
-    state.add_vertical_space(16.0);
+    state.add_vertical_space(base * 1.6);
     state.emit_line(state.text_left(), state.current_y, state.text_left() + state.text_width(), state.current_y, 0.3, Color::LIGHT_GRAY);
-    state.add_vertical_space(12.0);
+    state.add_vertical_space(base * 1.2);
     Ok(())
 }

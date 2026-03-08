@@ -20,6 +20,7 @@ fn cell_has_math(content: &[Node]) -> bool {
                 Node::InlineMath(_) | Node::Dingbat(_) => return true,
                 Node::Bold(c) | Node::Italic(c) | Node::Emph(c) | Node::Group(c)
                 | Node::Underline(c) | Node::Monospace(c) | Node::SmallCaps(c)
+                | Node::SansSerif(c)
                 | Node::Strikethrough(c) | Node::Paragraph(c) => { if check(c) { return true; } }
                 Node::Colored { content, .. } | Node::FontSize { content, .. } => { if check(content) { return true; } }
                 _ => {}
@@ -61,7 +62,9 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
 
     if table.caption.is_some() { state.table_counter += 1; }
     let tbl_num = state.table_counter;
-    state.add_vertical_space(8.0);
+    // LaTeX \intextsep default = 12pt for 10pt, scales proportionally
+    let intextsep = state.base_font_size * 1.2;
+    state.add_vertical_space(intextsep);
 
     let data_cols: Vec<&ColumnSpec> = table.columns.iter().filter(|c| !matches!(c, ColumnSpec::Separator)).collect();
     let num_cols = data_cols.len().max(1);
@@ -80,7 +83,8 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
         if prev_was_sep && data_idx <= num_cols { separator_before[data_idx] = true; }
     }
     let available_width = state.text_width();
-    let cell_padding = 5.0; // ~0.5em padding for readable cell spacing
+    // Cell padding scales with font size (~0.5em)
+    let cell_padding = (state.current_font_size * 0.5).max(3.0);
     let has_explicit_widths = data_cols.iter().any(|c| matches!(c, ColumnSpec::Paragraph(_)));
     let base_metrics = state.metrics();
     let font_size = state.current_font_size;
@@ -262,8 +266,9 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     }
 
     let total_row_height: f32 = row_heights.iter().take(num_data_rows).sum();
-    let caption_height = if table.caption.is_some() { state.current_font_size * 1.2 + 10.0 } else { 0.0 };
-    let total_table_height = total_row_height + caption_height + 8.0;
+    // Caption height: line + abovecaptionskip + belowcaptionskip
+    let caption_height = if table.caption.is_some() { state.current_font_size * 1.2 + state.base_font_size * 2.0 } else { 0.0 };
+    let total_table_height = total_row_height + caption_height;
 
     let remaining_space = state.cached_max_y - state.current_y;
     let full_page_height = state.cached_max_y - state.cached_start_y;
@@ -273,36 +278,18 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
         let cap_font_size = state.current_font_size * 0.9; // LaTeX \captionsize = \small
         let saved_cap_font = state.current_font_size;
         state.current_font_size = cap_font_size;
-        state.current_y += 6.0;
+        // LaTeX \abovecaptionskip = 10pt for tables (caption above)
+        state.current_y += state.base_font_size * 1.0;
 
-        // Bold "Table N: " prefix
+        // Build combined node list: Bold("Table N: ") + caption children
         let mut ibuf = itoa::Buffer::new();
         let prefix = format!("Table {}: ", ibuf.format(tbl_num));
-        let prefix_width = font::measure_text(&prefix, FontId::TimesBold, cap_font_size);
+        let mut combined = Vec::with_capacity(caption.len() + 1);
+        combined.push(Node::Bold(vec![Node::Text(prefix)]));
+        combined.extend_from_slice(caption);
 
-        // Pre-measure caption text to decide centering
-        state.text_buf.clear();
-        let label_map: &std::collections::HashMap<String, String> = unsafe { &*(&state.label_map as *const _) };
-        for node in caption.iter() { node_to_text_resolved(node, &mut state.text_buf, source, label_map); }
-        let cap_text_width = font::measure_text(state.text_buf.as_str(), FontId::TimesRoman, cap_font_size);
-        let total_width = prefix_width + cap_text_width;
-
-        // Center if caption fits on one line
-        if total_width <= state.text_width() {
-            let cx = state.text_left() + (state.text_width() - total_width) / 2.0;
-            state.current_x = cx;
-        } else {
-            state.current_x = state.text_left();
-        }
-
-        state.emit_text(&prefix, cap_font_size, FontStyle::Bold, Color::BLACK);
-        state.current_x += prefix_width;
-
-        // Rich paragraph layout for caption body (supports bold, italic, math, etc.)
-        let saved_para_indent = state.paragraph_indent;
-        state.paragraph_indent = 0.0;
-        spans::layout_rich_paragraph(caption, state, source, false)?;
-        state.paragraph_indent = saved_para_indent;
+        // Render as centered caption paragraph
+        super::layout_caption_paragraph(&combined, state, source)?;
         state.current_font_size = saved_cap_font;
     }
 
@@ -402,7 +389,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
         state.current_y = y + row_height - extra;
     }
 
-    state.add_vertical_space(8.0);
+    state.add_vertical_space(intextsep);
     state.current_x = state.text_left();
     Ok(())
 }
@@ -446,7 +433,7 @@ fn layout_cell_nodes(result: &mut math_layout::MathBox, x: &mut f32, nodes: &[No
             }
             // Recurse into wrapper nodes
             Node::Bold(c) | Node::Italic(c) | Node::Emph(c) | Node::Group(c)
-            | Node::Underline(c) | Node::Monospace(c) | Node::SmallCaps(c)
+            | Node::Underline(c) | Node::Monospace(c) | Node::SmallCaps(c) | Node::SansSerif(c)
             | Node::Strikethrough(c) | Node::Paragraph(c) | Node::Superscript(c) | Node::Subscript(c) => {
                 layout_cell_nodes(result, x, c, font_size, source, label_map);
             }

@@ -29,9 +29,14 @@ pub(super) fn layout_list(
     let saved_para_indent = state.paragraph_indent;
     let depth = state.list_depth;
     state.list_depth += 1;
-    state.set_indent(state.indent + 20.0);
+    // LaTeX default indent: ~25pt for enumerate, ~18pt for itemize
+    let list_indent = if numbered { 22.0 } else { 18.0 };
+    state.set_indent(state.indent + list_indent);
     state.paragraph_indent = 0.0;
-    state.add_vertical_space(2.0);
+    // LaTeX \topsep: 8pt + \partopsep(2pt) for 10pt, scales with base size
+    let base = state.base_font_size;
+    let topsep = if depth == 0 { base * 0.8 } else { base * 0.3 };
+    state.add_vertical_space(topsep);
 
     for (i, item) in items.iter().enumerate() {
         // Skip empty items (only whitespace or invisible nodes)
@@ -112,7 +117,8 @@ pub(super) fn layout_list(
     state.paragraph_indent = saved_para_indent;
     state.set_indent(saved_indent);
     state.current_x = state.text_left();
-    state.add_vertical_space(2.0);
+    state.add_vertical_space(topsep);
+    state.suppress_next_indent = true;
     Ok(())
 }
 
@@ -129,27 +135,28 @@ fn to_roman_lower(mut n: usize) -> String {
 pub(super) fn layout_description_list(
     items: &[ListItem], state: &mut LayoutState, doc: &Document, source: &str,
 ) -> Result<()> {
-    state.add_vertical_space(4.0);
+    // Match topsep for itemize lists
+    let topsep = state.base_font_size * 0.8;
+    state.add_vertical_space(topsep);
     for item in items {
         state.current_x = state.text_left();
         let line_h = state.current_font_size * 1.2;
         state.ensure_space(line_h);
-
-        if let Some(label) = &item.label {
-            state.text_buf.clear();
-            for node in label { node_to_text(node, &mut state.text_buf, source); }
-            let label_text: &str = unsafe { &*(state.text_buf.as_str() as *const str) };
-            let label_w = font::measure_text(label_text, FontId::TimesBold, state.current_font_size);
-            state.emit_text(label_text, state.current_font_size, FontStyle::Bold, Color::BLACK);
-            state.current_x += label_w + state.current_font_size * 0.5;
-        }
 
         let saved_indent = state.indent;
         let mut inline_end = item.content.len();
         for (j, node) in item.content.iter().enumerate() {
             if !super::is_inline_node(node) { inline_end = j; break; }
         }
-        if inline_end > 0 {
+
+        // Combine bold label + inline content into one paragraph
+        if let Some(label) = &item.label {
+            let mut combined = Vec::with_capacity(label.len() + inline_end + 2);
+            combined.push(Node::Bold(label.clone()));
+            combined.push(Node::Text(" ".to_string()));
+            combined.extend_from_slice(&item.content[..inline_end]);
+            layout_rich_paragraph(&combined, state, source, false)?;
+        } else if inline_end > 0 {
             layout_rich_paragraph(&item.content[..inline_end], state, source, false)?;
         }
         if inline_end < item.content.len() {
@@ -164,15 +171,19 @@ pub(super) fn layout_description_list(
             }
             state.set_indent(saved_indent);
         }
-        state.add_vertical_space(4.0);
+        // LaTeX \itemsep ≈ 4pt for 10pt
+        state.add_vertical_space(state.base_font_size * 0.4);
     }
+    state.add_vertical_space(topsep);
     state.current_x = state.text_left();
     Ok(())
 }
 
 pub(super) fn layout_bibliography(nodes: &[Node], state: &mut LayoutState, doc: &Document, source: &str) -> Result<()> {
-    state.add_vertical_space(22.0);
-    state.ensure_space(40.0);
+    // Space before bibliography: ~2 baselineskips
+    let base = state.base_font_size;
+    state.add_vertical_space(base * 2.4);
+    state.ensure_space(base * 4.0);
     if state.is_amsart {
         let heading = "References";
         let heading_size = state.current_font_size * 1.2;

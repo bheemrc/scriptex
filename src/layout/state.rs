@@ -169,7 +169,7 @@ impl LayoutState {
         let avg_w = font_size * 0.47;
         let lh = font_size * baselineskip_factor(font_size);
         let st = lh * line_spacing;
-        let para_w = text_w - 15.0;  // 1.5em paragraph indent (LaTeX default for 10pt)
+        let para_w = text_w - font_size * 1.5;  // 1.5em paragraph indent
         let max_chars = (para_w / avg_w) as usize;
         let font_key = (font_size.to_bits() & 0xFFFF0000) | (FontStyle::Regular as u32);
         LayoutState {
@@ -200,7 +200,7 @@ impl LayoutState {
             page_number: 1,
             indent: 0.0,
             right_indent: 0.0,
-            paragraph_indent: 15.0,  // 1.5em (LaTeX default for 10pt)
+            paragraph_indent: font_size * 1.5,  // 1.5em (LaTeX default)
             paragraph_skip: 0.0,     // \parskip default is 0pt (set by parskip package)
             line_spacing,
             baseline_skip_override: None,
@@ -339,7 +339,7 @@ impl LayoutState {
 
     pub fn reserve_footnote_space(&mut self) {
         let fn_size = self.base_font_size * 0.8;
-        let fn_line_height = fn_size * 1.3;
+        let fn_line_height = fn_size * baselineskip_factor(fn_size);
         if self.footnote_reserved == 0.0 {
             self.footnote_reserved = 10.0 + fn_line_height;
         } else {
@@ -355,7 +355,7 @@ impl LayoutState {
         let footnotes = std::mem::take(&mut self.footnotes);
         let fn_start_num = self.footnote_counter - footnotes.len() as u32 + 1;
         let fn_size = self.base_font_size * 0.8;
-        let fn_line_height = fn_size * 1.3;
+        let fn_line_height = fn_size * baselineskip_factor(fn_size);
 
         // Column-aware footnote area
         let fn_left = if self.twocolumn_active && !self.spanning_mode {
@@ -416,18 +416,21 @@ impl LayoutState {
             return;
         }
 
-        // Separator rule (LaTeX default: 0.4pt thick, 1/3 text width, with 2pt gap above)
-        let rule_y = fn_y_start + 2.0;
+        // Separator rule (LaTeX default: 0.4pt thick, ~1/3 text width)
+        // LaTeX \footnoterule: \kern -3pt, rule 0.4pt thick, \kern 2.6pt
+        // Total: rule sits 3pt above the footnote text area with 2.6pt gap below it
+        let rule_y = fn_y_start;
         self.emit_line(
             fn_left,
             rule_y,
-            fn_left + fn_width * 0.4,
+            fn_left + fn_width * 0.33,
             rule_y,
             0.4,
             Color::BLACK,
         );
 
-        let mut y = rule_y + 5.0;
+        // Gap below rule: enough for ascenders not to touch the line
+        let mut y = rule_y + fn_size * 1.1;
         for (i, spans) in fn_span_lists.iter().enumerate() {
             let num = fn_start_num + i as u32;
             let mut ibuf = itoa::Buffer::new();
@@ -493,8 +496,9 @@ impl LayoutState {
                 self.emit_page_number_centered();
             }
             PageStyle::Headings => {
-                let header_font_size = 9.0;
-                let header_y = self.page_setup.margin_top - 14.0;
+                // Scale header font with base font: LaTeX uses \small for headers
+                let header_font_size = (self.base_font_size * 0.9).max(8.0);
+                let header_y = self.page_setup.margin_top - header_font_size * 1.6;
                 let left_x = self.page_setup.margin_left;
                 let right_x = self.page_setup.width - self.page_setup.margin_right;
 
@@ -561,7 +565,8 @@ impl LayoutState {
                 }
 
                 if !self.is_amsart {
-                    let rule_y = header_y + 4.0;
+                    // Rule sits below header text: gap = ~0.3x header font size
+                    let rule_y = header_y + header_font_size * 0.4;
                     self.all_elements.push(PageElement::Line {
                         x1: left_x, y1: rule_y, x2: right_x, y2: rule_y,
                         width_1000: 400, color: Color::BLACK,
@@ -570,12 +575,12 @@ impl LayoutState {
             }
             PageStyle::Empty => {}
             PageStyle::Fancy => {
-                let header_font_size = 9.0;
+                let header_font_size = (self.base_font_size * 0.9).max(8.0);
                 let left_x = self.page_setup.margin_left;
                 let right_x = self.page_setup.width - self.page_setup.margin_right;
 
                 // Render header
-                let header_y = self.page_setup.margin_top - 14.0;
+                let header_y = self.page_setup.margin_top - header_font_size * 1.6;
                 let resolve = |tmpl: &str, state: &mut LayoutState| -> String {
                     let mut s = tmpl.to_string();
                     if s.contains("\x01PAGE\x01") {
@@ -755,7 +760,7 @@ impl LayoutState {
         let y = self.page_setup.height - self.page_setup.margin_bottom / 2.0;
         let mut num_str = String::new();
         self.format_page_number(&mut num_str);
-        let page_num_size = 10.0; // LaTeX default: same as body text
+        let page_num_size = self.base_font_size; // LaTeX default: same as body text
         let text_width = font::measure_text(&num_str, FontId::TimesRoman, page_num_size);
         let offset = (self.all_text.len() - self.current_page_text_start as usize) as u32;
         let num_len = num_str.len();

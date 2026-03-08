@@ -11,7 +11,8 @@ use super::types::*;
 use anyhow::Result;
 
 pub(super) fn layout_theorem(thm: &TheoremData, state: &mut LayoutState, doc: &Document, source: &str) -> Result<()> {
-    state.add_vertical_space(10.0);
+    // LaTeX theorem spacing: \topsep + \partopsep ≈ 10pt for 10pt base
+    state.add_vertical_space(state.base_font_size * 1.0);
 
     let (display_title, is_numbered, thm_style) = if let Some(def) = doc.preamble.theorem_defs.iter()
         .find(|d| d.env_name == thm.env_name) {
@@ -66,12 +67,12 @@ pub(super) fn layout_theorem(thm: &TheoremData, state: &mut LayoutState, doc: &D
     super::layout_nodes(&thm.body, state, doc, source)?;
     state.current_font_style = saved_style;
 
-    state.add_vertical_space(10.0);
+    state.add_vertical_space(state.base_font_size * 1.0);
     Ok(())
 }
 
 pub(super) fn layout_proof(header: Option<&str>, content: &[Node], state: &mut LayoutState, doc: &Document, source: &str) -> Result<()> {
-    state.add_vertical_space(8.0);
+    state.add_vertical_space(state.base_font_size * 0.8);
     let font_size = state.current_font_size;
     let header_text = match header {
         Some(h) => format!("{}.", h),
@@ -92,7 +93,7 @@ pub(super) fn layout_proof(header: Option<&str>, content: &[Node], state: &mut L
     let qed_x = state.text_left() + state.text_width() - sq;
     let qed_y = state.current_y - sq;
     state.emit_rect(qed_x, qed_y, sq, sq, Some(Color::BLACK), None);
-    state.add_vertical_space(8.0);
+    state.add_vertical_space(state.base_font_size * 0.8);
     Ok(())
 }
 
@@ -104,7 +105,7 @@ pub(super) fn layout_algorithm(
     state: &mut LayoutState,
     doc: &Document,
 ) -> Result<()> {
-    state.add_vertical_space(12.0);
+    state.add_vertical_space(state.base_font_size * 1.2);
     let font_size = state.current_font_size;
     let line_height = font_size * 1.4;
     let indent_unit = font_size * 1.2;
@@ -191,7 +192,7 @@ pub(super) fn layout_algorithm(
 
     // Bottom rule
     state.emit_line(left, state.current_y - line_height * 0.5, left + width, state.current_y - line_height * 0.5, 0.8, Color::BLACK);
-    state.add_vertical_space(12.0);
+    state.add_vertical_space(state.base_font_size * 1.2);
     Ok(())
 }
 
@@ -200,7 +201,7 @@ pub(super) fn layout_verbatim(text: &str, state: &mut LayoutState) -> Result<()>
 }
 
 pub(super) fn layout_code_block(text: &str, language: Option<&str>, state: &mut LayoutState) -> Result<()> {
-    state.add_vertical_space(6.0);
+    state.add_vertical_space(state.base_font_size * 0.6);
     let font_size = state.base_font_size * 0.85;
     let metrics = FontMetrics::new(font_size, FontStyle::Monospace);
     let line_h = metrics.line_height();
@@ -313,7 +314,7 @@ pub(super) fn layout_code_block(text: &str, language: Option<&str>, state: &mut 
         state.emit_text(line, font_size, FontStyle::Monospace, Color::DARK_GRAY);
         state.current_y += line_h;
     }
-    state.add_vertical_space(10.0);
+    state.add_vertical_space(state.base_font_size * 1.0);
     state.current_x = state.text_left();
     Ok(())
 }
@@ -324,7 +325,7 @@ pub(super) fn layout_centered(content: &[Node], state: &mut LayoutState, doc: &D
             Node::Paragraph(children) => {
                 // Check if paragraph has rich formatting (bold, italic, etc.)
                 let has_formatting = children.iter().any(|n| matches!(n,
-                    Node::Bold(_) | Node::Italic(_) | Node::Emph(_) | Node::Monospace(_)
+                    Node::Bold(_) | Node::Italic(_) | Node::Emph(_) | Node::Monospace(_) | Node::SansSerif(_)
                     | Node::Colored { .. } | Node::SmallCaps(_) | Node::Underline(_)
                     | Node::InlineMath(_) | Node::FontStyleDecl(_) | Node::FontSize { .. }
                 ));
@@ -428,6 +429,7 @@ fn layout_centered_rich(children: &[Node], state: &mut LayoutState, _doc: &Docum
                 Node::Bold(c) => { collect_segments(c, FontStyle::Bold, color, font_size, source, out); }
                 Node::Italic(c) | Node::Emph(c) => { collect_segments(c, FontStyle::Italic, color, font_size, source, out); }
                 Node::Monospace(c) => { collect_segments(c, FontStyle::Monospace, color, font_size, source, out); }
+                Node::SansSerif(c) => { collect_segments(c, FontStyle::SansSerif, color, font_size, source, out); }
                 Node::SmallCaps(c) => { collect_segments(c, FontStyle::SmallCaps, color, font_size, source, out); }
                 Node::Colored { color: c, content } => { collect_segments(content, style, *c, font_size, source, out); }
                 Node::FontSize { size, content } => {
