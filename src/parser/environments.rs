@@ -83,6 +83,10 @@ impl<'a> Parser<'a> {
                 let raw_source = self.capture_environment_raw(&env_name)?;
                 Ok(Some(Node::Verbatim(format!("%%tikz:{}%%\n{}", env_name, raw_source))))
             }
+            "verse" => {
+                let content = self.parse_environment_body(&env_name)?;
+                Ok(Some(Node::Quote(content))) // verse: like quote with preserved line breaks
+            }
             "quote" => {
                 let content = self.parse_environment_body(&env_name)?;
                 Ok(Some(Node::Quote(content)))

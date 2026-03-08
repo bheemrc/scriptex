@@ -918,8 +918,27 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             layout_display_math_data(math_data, state)?;
         }
 
-        Node::Quote(content) | Node::Quotation(content) => {
-            // LaTeX quote/quotation: indent both left and right by ~1.5em
+        Node::Quote(content) => {
+            // LaTeX quote: indent both sides, no paragraph indent, compact spacing
+            let quote_indent = state.base_font_size * 1.5;
+            let saved_indent = state.indent;
+            let saved_right = state.right_indent;
+            let saved_para_indent = state.paragraph_indent;
+            state.set_right_indent(state.right_indent + quote_indent);
+            state.set_indent(state.indent + quote_indent);
+            state.paragraph_indent = 0.0;
+            state.current_x = state.text_left();
+            state.add_vertical_space(6.0);
+            layout_nodes(content, state, doc, source)?;
+            state.add_vertical_space(6.0);
+            state.paragraph_indent = saved_para_indent;
+            state.set_right_indent(saved_right);
+            state.set_indent(saved_indent);
+            state.current_x = state.text_left();
+            state.suppress_next_indent = true;
+        }
+        Node::Quotation(content) => {
+            // LaTeX quotation: indent both sides, paragraph indent, extra paragraph spacing
             let quote_indent = state.base_font_size * 1.5;
             let saved_indent = state.indent;
             let saved_right = state.right_indent;
