@@ -76,24 +76,30 @@ impl FontMetrics {
         self.size * 1.2
     }
 
-    /// Ascent above baseline
+    /// Ascent above baseline (uses real AFM font metrics)
     pub fn ascent(&self) -> f32 {
-        self.size * 0.8
+        let font_id = crate::font::style_to_font_id(self.style);
+        crate::font::font_ascent(font_id, self.size)
     }
 
-    /// Descent below baseline
+    /// Descent below baseline (uses real AFM font metrics)
     pub fn descent(&self) -> f32 {
-        self.size * 0.2
+        let font_id = crate::font::style_to_font_id(self.style);
+        crate::font::font_descent(font_id, self.size)
     }
 
-    /// Cap height
+    /// Cap height (uses real AFM font metrics)
     pub fn cap_height(&self) -> f32 {
-        self.size * 0.7
+        let font_id = crate::font::style_to_font_id(self.style);
+        let info = crate::font::font_info(font_id);
+        self.size * info.cap_height as f32 / 1000.0
     }
 
-    /// x-height
+    /// x-height (uses real AFM font metrics)
     pub fn x_height(&self) -> f32 {
-        self.size * 0.45
+        let font_id = crate::font::style_to_font_id(self.style);
+        let info = crate::font::font_info(font_id);
+        self.size * info.x_height as f32 / 1000.0
     }
 }
 

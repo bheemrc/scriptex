@@ -56,6 +56,17 @@ pub fn best_break(word: &[u8], max_prefix_chars: usize) -> Option<usize> {
     prefix_score(&w[..n], &mut scores, b"post", 3);
     prefix_score(&w[..n], &mut scores, b"re", 3);
     prefix_score(&w[..n], &mut scores, b"de", 3);
+    prefix_score(&w[..n], &mut scores, b"out", 3);
+    prefix_score(&w[..n], &mut scores, b"con", 3);
+    prefix_score(&w[..n], &mut scores, b"com", 3);
+    prefix_score(&w[..n], &mut scores, b"pro", 3);
+    prefix_score(&w[..n], &mut scores, b"para", 3);
+    prefix_score(&w[..n], &mut scores, b"extra", 4);
+    prefix_score(&w[..n], &mut scores, b"meta", 3);
+    prefix_score(&w[..n], &mut scores, b"infra", 3);
+    prefix_score(&w[..n], &mut scores, b"intra", 4);
+    prefix_score(&w[..n], &mut scores, b"macro", 4);
+    prefix_score(&w[..n], &mut scores, b"mono", 3);
 
     // Rule 2: Break before common suffixes
     suffix_score(&w[..n], &mut scores, b"tion", 5);
@@ -70,8 +81,6 @@ pub fn best_break(word: &[u8], max_prefix_chars: usize) -> Option<usize> {
     suffix_score(&w[..n], &mut scores, b"ical", 3);
     suffix_score(&w[..n], &mut scores, b"ally", 3);
     suffix_score(&w[..n], &mut scores, b"ling", 3);
-    suffix_score(&w[..n], &mut scores, b"ness", 3);
-    suffix_score(&w[..n], &mut scores, b"ment", 3);
     suffix_score(&w[..n], &mut scores, b"ious", 3);
     suffix_score(&w[..n], &mut scores, b"eous", 3);
     suffix_score(&w[..n], &mut scores, b"less", 3);
@@ -83,6 +92,21 @@ pub fn best_break(word: &[u8], max_prefix_chars: usize) -> Option<usize> {
     suffix_score(&w[..n], &mut scores, b"ous", 2);
     suffix_score(&w[..n], &mut scores, b"ive", 2);
     suffix_score(&w[..n], &mut scores, b"lines", 4);
+    suffix_score(&w[..n], &mut scores, b"ment", 3);
+    suffix_score(&w[..n], &mut scores, b"ments", 4);
+    suffix_score(&w[..n], &mut scores, b"tions", 5);
+    suffix_score(&w[..n], &mut scores, b"sions", 5);
+    suffix_score(&w[..n], &mut scores, b"ation", 5);
+    suffix_score(&w[..n], &mut scores, b"atory", 4);
+    suffix_score(&w[..n], &mut scores, b"ment", 4);
+    suffix_score(&w[..n], &mut scores, b"ular", 3);
+    suffix_score(&w[..n], &mut scores, b"ably", 3);
+    suffix_score(&w[..n], &mut scores, b"ibly", 3);
+    suffix_score(&w[..n], &mut scores, b"ery", 2);
+    suffix_score(&w[..n], &mut scores, b"ory", 2);
+    suffix_score(&w[..n], &mut scores, b"ary", 2);
+    suffix_score(&w[..n], &mut scores, b"ical", 3);
+    suffix_score(&w[..n], &mut scores, b"ally", 3);
 
     // Rule 3: Break between double consonants (run-ning, slip-per)
     for i in 1..n.saturating_sub(2) {

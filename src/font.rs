@@ -1489,6 +1489,20 @@ pub fn font_info(font: FontId) -> FontInfo {
     }
 }
 
+/// Get font ascent in points for a given font_size
+#[inline]
+pub fn font_ascent(font: FontId, font_size: f32) -> f32 {
+    let info = font_info(font);
+    font_size * info.ascent as f32 / 1000.0
+}
+
+/// Get font descent (positive value, distance below baseline) in points
+#[inline]
+pub fn font_descent(font: FontId, font_size: f32) -> f32 {
+    let info = font_info(font);
+    font_size * (-info.descent) as f32 / 1000.0
+}
+
 // ─── Kerning ────────────────────────────────────────────────────────────────
 // Kern pair tables from Adobe AFM files for Standard 14 fonts.
 // Format: sorted array of (left_byte, right_byte, kern_value_1000ths) for binary search.

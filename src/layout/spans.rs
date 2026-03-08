@@ -520,8 +520,9 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
     let fn_count_after = state.footnotes.len();
     for _ in fn_count_before..fn_count_after { state.reserve_footnote_space(); }
 
-    let text_ascent = font_size * 0.75;
-    let text_descent = font_size * 0.25;
+    let base_font_id = font::style_to_font_id(FontStyle::Regular);
+    let text_ascent = font::font_ascent(base_font_id, font_size);
+    let text_descent = font::font_descent(base_font_id, font_size);
     state.ensure_space(line_height);
     let normal_start = state.text_left() + indent;
     let initial_line_x = if state.current_x > normal_start + 1.0 { state.current_x } else { normal_start };
@@ -546,7 +547,13 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         if word.text == " " { current_line_width += word.width; i += 1; continue; }
 
         let effective_max = if first_line { text_width - first_line_used } else { text_width };
-        if current_line_width > 0.0 && current_line_width + word.width > effective_max {
+        // Hanging punctuation: allow trailing period/comma/hyphen to protrude into margin
+        let hang = if word.text.ends_with('.') || word.text.ends_with(',') || word.text.ends_with('-') || word.text.ends_with(')') {
+            let fid = font::style_to_font_id(word.style);
+            let last_ch = word.text.as_bytes()[word.text.len() - 1];
+            font::measure_text(std::str::from_utf8(&[last_ch]).unwrap_or("."), fid, word.font_size) * 0.5
+        } else { 0.0 };
+        if current_line_width > 0.0 && current_line_width + word.width > effective_max + hang {
             let mut hyphenated = false;
             if word.math.is_none() && !word.superscript && word.text.len() >= 5 {
                 let remaining = effective_max - current_line_width;
@@ -562,8 +569,8 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                             line_start = i; current_line_width = 0.0; first_line = false;
                             line_max_above = text_ascent; line_max_below = text_descent;
                             if word.font_size > font_size + 0.5 {
-                                line_max_above = line_max_above.max(word.font_size * 0.75);
-                                line_max_below = line_max_below.max(word.font_size * 0.25);
+                                line_max_above = line_max_above.max(font::font_ascent(font::style_to_font_id(word.style), word.font_size));
+                                line_max_below = line_max_below.max(font::font_descent(font::style_to_font_id(word.style), word.font_size));
                             }
                             let suffix_w = font::measure_text(&word.text[bp..], fid, word.font_size);
                             current_line_width = suffix_w; i += 1; hyphenated = true;
@@ -582,8 +589,9 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
             line_max_above = line_max_above.max(math_box.height);
             line_max_below = line_max_below.max(math_box.depth);
         } else if word.font_size > font_size + 0.5 {
-            line_max_above = line_max_above.max(word.font_size * 0.75);
-            line_max_below = line_max_below.max(word.font_size * 0.25);
+            let wfid = font::style_to_font_id(word.style);
+            line_max_above = line_max_above.max(font::font_ascent(wfid, word.font_size));
+            line_max_below = line_max_below.max(font::font_descent(wfid, word.font_size));
         }
         current_line_width += word.width; i += 1;
     }
@@ -745,7 +753,8 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 state.emit_line(line_x, ul_y, line_x + word.width, ul_y, ul_thickness, word.color);
             }
             if word.strikethrough && word.text != " " && !word.text.is_empty() {
-                let st_y = state.current_y - word.font_size * 0.25;
+                let wfid = font::style_to_font_id(word.style);
+                let st_y = state.current_y - font::font_info(wfid).x_height as f32 * word.font_size / 2000.0;
                 let st_thickness = (word.font_size * 0.05).max(0.4);
                 state.emit_line(line_x, st_y, line_x + word.width, st_y, st_thickness, word.color);
             }
