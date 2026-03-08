@@ -79,6 +79,89 @@ pub fn compile_latex_project_structure(source: &str, files_json: &str) -> Result
         .map_err(|e| JsValue::from_str(&format!("Structure extraction error: {}", e)))
 }
 
+// ============================================================
+// Paper analysis WASM exports
+// ============================================================
+
+/// Analyze a single LaTeX paper: detect sections and build citation graph.
+/// Returns JSON with sections, citation graph, importance scores, clusters.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn analyze_paper_wasm(source: &str) -> Result<String, JsValue> {
+    let analysis = crate::analyze_paper(source)
+        .map_err(|e| JsValue::from_str(&format!("Analysis error: {}", e)))?;
+    Ok(crate::analysis_json::paper_analysis_to_json(&analysis, false))
+}
+
+/// Analyze a single LaTeX paper from a multi-file project.
+/// `files_json` follows the same format as `compile_latex_project`.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn analyze_paper_project_wasm(source: &str, files_json: &str) -> Result<String, JsValue> {
+    let mut project = crate::ProjectFiles::new();
+    if !files_json.is_empty() {
+        parse_project_files(files_json, &mut project)
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse project files: {}", e)))?;
+    }
+    let analysis = crate::analyze_paper_project(source, &project)
+        .map_err(|e| JsValue::from_str(&format!("Analysis error: {}", e)))?;
+    Ok(crate::analysis_json::paper_analysis_to_json(&analysis, false))
+}
+
+/// Analyze multiple LaTeX papers as a corpus.
+/// `sources_json` is a JSON object mapping filenames to LaTeX source strings:
+///   { "paper1.tex": "\\documentclass{article}...", "paper2.tex": "..." }
+///
+/// Returns JSON with per-paper analysis plus cross-paper shared references.
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn analyze_corpus_wasm(sources_json: &str) -> Result<String, JsValue> {
+    let sources = parse_sources_json(sources_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse sources: {}", e)))?;
+
+    let source_refs: Vec<(&str, &str)> = sources
+        .iter()
+        .map(|(name, content)| (name.as_str(), content.as_str()))
+        .collect();
+
+    let corpus = crate::analyze_papers(&source_refs)
+        .map_err(|e| JsValue::from_str(&format!("Corpus analysis error: {}", e)))?;
+    Ok(crate::analysis_json::corpus_to_json(&corpus, false))
+}
+
+/// Parse a JSON object of filename→source into a Vec of (name, source) pairs.
+#[cfg(feature = "wasm")]
+fn parse_sources_json(json: &str) -> Result<Vec<(String, String)>, String> {
+    let json = json.trim();
+    if !json.starts_with('{') || !json.ends_with('}') {
+        return Err("Expected JSON object".into());
+    }
+    let inner = &json[1..json.len()-1];
+    let mut chars = inner.chars().peekable();
+    let mut sources = Vec::new();
+
+    loop {
+        while chars.peek().map_or(false, |c| c.is_whitespace() || *c == ',') {
+            chars.next();
+        }
+        if chars.peek().is_none() { break; }
+
+        let key = parse_json_string(&mut chars)
+            .map_err(|_| "Failed to parse filename key")?;
+
+        while chars.peek().map_or(false, |c| c.is_whitespace() || *c == ':') {
+            chars.next();
+        }
+
+        let value = parse_json_string(&mut chars)
+            .map_err(|_| format!("Failed to parse source for '{}'", key))?;
+
+        sources.push((key, value));
+    }
+
+    Ok(sources)
+}
+
 /// Parse a simple JSON object of filename→content into ProjectFiles.
 /// We do minimal JSON parsing to avoid pulling in serde_json for WASM size.
 #[cfg(feature = "wasm")]

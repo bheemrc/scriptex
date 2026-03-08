@@ -33,6 +33,11 @@ pub mod font_embed;
 
 pub mod structure;
 
+pub mod section;
+pub mod citation;
+pub mod corpus;
+pub mod analysis_json;
+
 #[cfg(feature = "wasm")]
 pub mod wasm_api;
 
@@ -665,4 +670,96 @@ pub fn compile_latex_project_structure(source: &str, project: &ProjectFiles) -> 
         &doc, effective_source,
         &label_map, &label_types, &citation_map, &toc_entries,
     ))
+}
+
+// ============================================================
+// Paper analysis (section detection + citation graph)
+// ============================================================
+
+/// Analyze a single LaTeX paper: detect academic sections and build
+/// a citation graph with accurate section attribution.
+pub fn analyze_paper(source: &str) -> Result<corpus::PaperAnalysis> {
+    analyze_paper_project(source, &ProjectFiles::new())
+}
+
+/// Analyze a multi-file LaTeX paper.
+pub fn analyze_paper_project(source: &str, project: &ProjectFiles) -> Result<corpus::PaperAnalysis> {
+    let (doc, effective_source, bib) = preprocess_and_parse(source, project)?;
+    Ok(corpus::analyze_document(&doc, &effective_source, &bib.entries, "", 0))
+}
+
+/// Analyze multiple papers and assemble into a corpus.
+pub fn analyze_papers(sources: &[(&str, &str)]) -> Result<corpus::PaperCorpus> {
+    let mut analyses = Vec::with_capacity(sources.len());
+    for (i, (name, source)) in sources.iter().enumerate() {
+        let (doc, effective_source, bib) = preprocess_and_parse(source, &ProjectFiles::new())?;
+        analyses.push(corpus::analyze_document(&doc, &effective_source, &bib.entries, name, i));
+    }
+    Ok(corpus::PaperCorpus::from_analyses(analyses))
+}
+
+/// Shared preprocessing + parsing pipeline for analysis functions.
+fn preprocess_and_parse(
+    source: &str,
+    project: &ProjectFiles,
+) -> Result<(crate::document::Document, String, crate::bibliography::Bibliography)> {
+    // Step 1: Resolve inputs
+    let resolved;
+    let s1: &str = if source.contains("\\input") || source.contains("\\include{") {
+        resolved = resolve_inputs_from_project(source, project, 0);
+        &resolved
+    } else {
+        source
+    };
+
+    // Step 2: Style definitions
+    let with_styles;
+    let s2: &str = if !project.tex_files.is_empty() {
+        let style_defs = extract_style_definitions(s1, project);
+        if !style_defs.is_empty() {
+            with_styles = inject_style_definitions(s1, &style_defs);
+            &with_styles
+        } else {
+            s1
+        }
+    } else {
+        s1
+    };
+
+    // Step 3: Macro expansion
+    let expanded;
+    let effective_source: &str = if macro_expand::MacroEngine::has_macros(s2) {
+        expanded = macro_expand::expand(s2);
+        &expanded
+    } else {
+        s2
+    };
+
+    // Step 4-5: Lex + Parse
+    let tokens = lexer::tokenize_parallel(effective_source);
+    let mut parser = Parser::new(tokens, effective_source);
+    let doc = parser.parse()?;
+
+    // Load bibliography
+    let mut bib = bibliography::Bibliography::new();
+    if !project.bib_files.is_empty() || has_bibliography_command(effective_source) {
+        let referenced_files = extract_bib_filenames(effective_source);
+        for filename in &referenced_files {
+            let content = project.bib_files.get(filename)
+                .or_else(|| {
+                    let basename = filename.rsplit('/').next().unwrap_or(filename);
+                    project.bib_files.get(basename)
+                });
+            if let Some(bib_content) = content {
+                let _ = bib.parse_bib_content(bib_content);
+            }
+        }
+        if bib.entries.is_empty() {
+            for (_, content) in &project.bib_files {
+                let _ = bib.parse_bib_content(content);
+            }
+        }
+    }
+
+    Ok((doc, effective_source.to_string(), bib))
 }
