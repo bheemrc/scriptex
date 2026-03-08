@@ -65,6 +65,20 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
 
     let data_cols: Vec<&ColumnSpec> = table.columns.iter().filter(|c| !matches!(c, ColumnSpec::Separator)).collect();
     let num_cols = data_cols.len().max(1);
+    // Track vertical separator positions: separator_positions[i] = true means draw a vertical line before data column i
+    // Also track trailing separator
+    let mut separator_before = vec![false; num_cols + 1]; // +1 for trailing separator
+    {
+        let mut data_idx = 0usize;
+        let mut prev_was_sep = false;
+        for col in &table.columns {
+            match col {
+                ColumnSpec::Separator => { separator_before[data_idx] = true; prev_was_sep = true; }
+                _ => { data_idx += 1; prev_was_sep = false; }
+            }
+        }
+        if prev_was_sep && data_idx <= num_cols { separator_before[data_idx] = true; }
+    }
     let available_width = state.text_width();
     let cell_padding = 5.0; // ~0.5em padding for readable cell spacing
     let has_explicit_widths = data_cols.iter().any(|c| matches!(c, ColumnSpec::Paragraph(_)));
@@ -242,7 +256,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
         }
         let extra = table.rows[row_idx].extra_space_before;
         let rule_sep = if table.rows[row_idx].hline_before { font_size * 0.9 } else { 0.0 };
-        let rh = max_lines as f32 * line_h + cell_padding * 2.0 + extra + rule_sep;
+        let rh = max_lines as f32 * line_h * state.array_stretch + cell_padding * 2.0 + extra + rule_sep;
         row_heights.push(rh);
         wrapped_cells.push(row_wrapped);
     }
@@ -371,6 +385,16 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
             let x1 = table_x + col_widths.iter().take(s).sum::<f32>();
             let x2 = table_x + col_widths.iter().take(e.min(num_cols)).sum::<f32>();
             state.emit_line(x1, y, x2, y, 0.6, Color::BLACK);
+        }
+        // Render vertical column separators
+        {
+            let mut vx = table_x;
+            for ci in 0..=num_cols {
+                if separator_before[ci] {
+                    state.emit_line(vx, y, vx, y + row_height, 0.4, Color::BLACK);
+                }
+                if ci < num_cols { vx += col_widths[ci]; }
+            }
         }
         state.current_y = y + row_height - extra;
     }

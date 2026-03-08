@@ -44,6 +44,7 @@ pub struct Preamble {
     pub keywords: Option<String>,
     pub subjclass: Option<(String, String)>, // (year, classification text)
     pub hyperref: HyperrefConfig,
+    pub array_stretch: f32,  // \arraystretch (default 1.0)
 }
 
 /// hyperref package configuration
@@ -100,6 +101,7 @@ impl Default for Preamble {
             keywords: None,
             subjclass: None,
             hyperref: HyperrefConfig::default(),
+            array_stretch: 1.0,
         }
     }
 }

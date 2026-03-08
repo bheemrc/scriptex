@@ -78,6 +78,9 @@ pub fn layout_document_inner(
     if let Some(ps) = doc.preamble.paragraph_skip {
         state.paragraph_skip = ps;
     }
+    if doc.preamble.array_stretch != 1.0 {
+        state.array_stretch = doc.preamble.array_stretch;
+    }
 
     for opt in &doc.class.options {
         match opt.as_str() {

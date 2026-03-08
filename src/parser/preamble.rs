@@ -284,6 +284,12 @@ impl<'a> Parser<'a> {
                                     let val = self.read_braced_text().unwrap_or_default();
                                     preamble.fancy_header.foot_rule_width = self.parse_dimension(&val).unwrap_or(0.0);
                                 }
+                                "\\arraystretch" => {
+                                    let val = self.read_braced_text().unwrap_or_default();
+                                    if let Ok(f) = val.trim().parse::<f32>() {
+                                        preamble.array_stretch = f;
+                                    }
+                                }
                                 _ => { self.skip_command_args(); }
                             }
                         }
