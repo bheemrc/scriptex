@@ -43,6 +43,22 @@ pub struct Preamble {
     pub addresses: Vec<AuthorAddress>,
     pub keywords: Option<String>,
     pub subjclass: Option<(String, String)>, // (year, classification text)
+    pub hyperref: HyperrefConfig,
+}
+
+/// hyperref package configuration
+#[derive(Debug, Clone)]
+pub struct HyperrefConfig {
+    pub color_links: bool,
+    pub link_color: Option<String>,  // internal links color name
+    pub url_color: Option<String>,   // URL link color name
+    pub cite_color: Option<String>,  // citation link color name
+}
+
+impl Default for HyperrefConfig {
+    fn default() -> Self {
+        Self { color_links: true, link_color: None, url_color: None, cite_color: None }
+    }
 }
 
 /// fancyhdr header/footer configuration
@@ -83,6 +99,7 @@ impl Default for Preamble {
             addresses: Vec::new(),
             keywords: None,
             subjclass: None,
+            hyperref: HyperrefConfig::default(),
         }
     }
 }

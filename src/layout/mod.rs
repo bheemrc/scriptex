@@ -160,6 +160,20 @@ pub fn layout_document_inner(
         _ => {}
     }
 
+    // Apply hyperref colors
+    let href = &doc.preamble.hyperref;
+    if href.color_links {
+        if let Some(ref c) = href.link_color {
+            if let Some(color) = crate::color::Color::from_name(c) { state.link_color = color; }
+        }
+        if let Some(ref c) = href.url_color {
+            if let Some(color) = crate::color::Color::from_name(c) { state.url_color = color; }
+        }
+        if let Some(ref c) = href.cite_color {
+            if let Some(color) = crate::color::Color::from_name(c) { state.cite_color = color; }
+        }
+    }
+
     state.source_ptr = source.as_ptr();
     state.source_len = source.len();
 
@@ -1159,7 +1173,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             } else {
                 "??".to_string()
             };
-            let ref_color = Color::from_rgb_u8(140, 0, 0);
+            let ref_color = state.link_color;
             let start_x = state.current_x;
             let text_w = font::measure_text(&ref_text, FontId::TimesRoman, state.current_font_size);
             state.emit_text(&ref_text, state.current_font_size, FontStyle::Regular, ref_color);
@@ -1181,7 +1195,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             } else {
                 "(??)".to_string()
             };
-            let ref_color = Color::from_rgb_u8(140, 0, 0);
+            let ref_color = state.link_color;
             let start_x = state.current_x;
             let text_w = font::measure_text(&ref_text, FontId::TimesRoman, state.current_font_size);
             state.emit_text(&ref_text, state.current_font_size, FontStyle::Regular, ref_color);
@@ -1222,7 +1236,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             } else {
                 format!("{}~{}", prefix, num)
             };
-            let ref_color = Color::from_rgb_u8(140, 0, 0);
+            let ref_color = state.link_color;
             let start_x = state.current_x;
             let text_w = font::measure_text(&ref_text, FontId::TimesRoman, state.current_font_size);
             state.emit_text(&ref_text, state.current_font_size, FontStyle::Regular, ref_color);
@@ -1238,7 +1252,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
         }
 
         Node::Href { url, content } => {
-            let link_color = Color::from_rgb_u8(0, 0, 180);
+            let link_color = state.url_color;
             let saved_color = state.current_color;
             state.current_color = link_color;
             let start_x = state.current_x;

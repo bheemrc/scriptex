@@ -233,6 +233,8 @@ pub struct TocEntry {
     pub number: String,
     pub title: String,
     pub page: u32,
+    pub dest_page: u32,  // destination page index (filled during layout)
+    pub dest_y: f32,     // destination y position (filled during layout)
 }
 
 /// TOC fixup: position where a page number should be stamped after layout
@@ -322,6 +324,8 @@ fn collect_toc_inner(nodes: &[Node], entries: &mut Vec<TocEntry>, counters: &mut
                         number,
                         title: title_text,
                         page: 0,
+                        dest_page: 0,
+                        dest_y: 0.0,
                     });
                 }
             }

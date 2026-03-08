@@ -142,6 +142,10 @@ pub(super) struct LayoutState {
     pub deferred_top_floats: Vec<DeferredFloat>,
     pub deferred_bottom_floats: Vec<DeferredFloat>,
     pub has_pending_top_floats: bool,
+    // hyperref colors
+    pub link_color: Color,  // internal cross-references
+    pub url_color: Color,   // external URLs
+    pub cite_color: Color,  // citations
 }
 
 /// A figure/table deferred for float placement
@@ -245,6 +249,9 @@ impl LayoutState {
             deferred_top_floats: Vec::new(),
             deferred_bottom_floats: Vec::new(),
             has_pending_top_floats: false,
+            link_color: Color::from_rgb_u8(140, 0, 0),   // dark red (hyperref default)
+            url_color: Color::from_rgb_u8(0, 0, 180),    // blue
+            cite_color: Color::from_rgb_u8(0, 100, 0),   // dark green
         }
     }
 

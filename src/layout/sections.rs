@@ -48,7 +48,7 @@ pub(super) fn layout_section(
             }
             SectionLevel::Chapter => {
                 state.text_buf.push_str(ibuf.format(state.section_counters[1]));
-                state.text_buf.push_str("  ");
+                state.text_buf.push(' ');
             }
             SectionLevel::Section => {
                 state.current_section_num = state.section_counters[2];
@@ -59,7 +59,7 @@ pub(super) fn layout_section(
                 } else {
                     state.text_buf.push_str(ibuf.format(state.section_counters[2]));
                 }
-                state.text_buf.push_str(if state.is_amsart { ". " } else { "  " });
+                state.text_buf.push_str(if state.is_amsart { ". " } else { " " });
             }
             SectionLevel::Subsection => {
                 if state.appendix_mode {
@@ -70,7 +70,7 @@ pub(super) fn layout_section(
                 }
                 state.text_buf.push('.');
                 state.text_buf.push_str(ibuf.format(state.section_counters[3]));
-                state.text_buf.push_str(if state.is_amsart { ". " } else { "  " });
+                state.text_buf.push_str(if state.is_amsart { ". " } else { " " });
             }
             SectionLevel::Subsubsection => {
                 if state.appendix_mode {
@@ -83,7 +83,7 @@ pub(super) fn layout_section(
                 state.text_buf.push_str(ibuf.format(state.section_counters[3]));
                 state.text_buf.push('.');
                 state.text_buf.push_str(ibuf.format(state.section_counters[4]));
-                state.text_buf.push_str(if state.is_amsart { ". " } else { "  " });
+                state.text_buf.push_str(if state.is_amsart { ". " } else { " " });
             }
             _ => {}
         }
@@ -116,7 +116,10 @@ pub(super) fn layout_section(
         state.current_section_title.push_str(&state.text_buf);
     }
     if numbered && (state.toc_section_idx as usize) < state.toc_entries.len() {
-        state.toc_entries[state.toc_section_idx as usize].page = state.page_number;
+        let idx = state.toc_section_idx as usize;
+        state.toc_entries[idx].page = state.page_number;
+        state.toc_entries[idx].dest_page = state.page_bounds.len() as u32;
+        state.toc_entries[idx].dest_y = state.current_y;
         state.toc_section_idx += 1;
     }
 
@@ -282,7 +285,7 @@ pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
         state.text_buf.clear();
         if !entry.number.is_empty() {
             state.text_buf.push_str(&entry.number);
-            state.text_buf.push_str("  ");
+            state.text_buf.push(' ');
         }
         state.text_buf.push_str(&entry.title);
 
@@ -317,6 +320,19 @@ pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
                 let lines = wrap_text(text, &metrics, truncated_avail);
                 if let Some(first) = lines.first() { state.emit_text(first, font_size, style, Color::BLACK); }
             }
+        }
+
+        // Create clickable link for TOC entry pointing to section destination
+        if entry.dest_page > 0 || entry.dest_y > 0.0 {
+            let link_width = (right_edge - x).min(state.text_width());
+            state.links.push(LinkAnnotation {
+                page: state.page_bounds.len() as u32,
+                x, y: state.current_y - font_size * 0.8,
+                width: link_width, height: font_size * 1.2,
+                url: String::new(),
+                dest_page: Some(entry.dest_page),
+                dest_y: entry.dest_y,
+            });
         }
 
         state.current_y += line_height;

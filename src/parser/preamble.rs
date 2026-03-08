@@ -138,6 +138,20 @@ impl<'a> Parser<'a> {
                                     "algorithm" | "algorithm2e" | "algorithmic" | "algpseudocode" => {
                                         // Algorithm environments — render as verbatim-like
                                     }
+                                    "hyperref" => {
+                                        for opt in &options {
+                                            let opt = opt.trim();
+                                            if opt == "colorlinks" {
+                                                preamble.hyperref.color_links = true;
+                                            } else if let Some(val) = opt.strip_prefix("linkcolor=") {
+                                                preamble.hyperref.link_color = Some(val.trim().to_string());
+                                            } else if let Some(val) = opt.strip_prefix("urlcolor=") {
+                                                preamble.hyperref.url_color = Some(val.trim().to_string());
+                                            } else if let Some(val) = opt.strip_prefix("citecolor=") {
+                                                preamble.hyperref.cite_color = Some(val.trim().to_string());
+                                            }
+                                        }
+                                    }
                                     "cleveref" => {
                                         // Smart cross-references — our \ref already works
                                     }
