@@ -190,18 +190,18 @@ pub(super) fn layout_bibliography(nodes: &[Node], state: &mut LayoutState, doc: 
         let heading_w = font::measure_text(heading, FontId::TimesRoman, heading_size);
         state.current_x = state.text_left() + (state.text_width() - heading_w) * 0.5;
         state.emit_text(heading, heading_size, FontStyle::SmallCaps, Color::BLACK);
-        state.current_y += heading_size * 1.2 + 8.0;
+        state.current_y += heading_size * 1.2 + base * 0.8;
     } else {
         let heading = "References";
         let heading_size = state.current_font_size * 1.44;
         state.current_x = state.text_left();
         state.emit_text(heading, heading_size, FontStyle::Bold, Color::BLACK);
-        state.current_y += heading_size * 1.2 + 10.0;
+        state.current_y += heading_size * 1.2 + base * 1.0;
     }
 
     let mut bib_num = 0u32;
     let mut entry_nodes: Vec<&Node> = Vec::new();
-    let indent = if state.is_amsart { 20.0 } else { 24.0 };
+    let indent = if state.is_amsart { base * 2.0 } else { base * 2.4 };
 
     for node in nodes {
         if let Node::BibItem(_key) = node {
@@ -217,7 +217,7 @@ pub(super) fn layout_bibliography(nodes: &[Node], state: &mut LayoutState, doc: 
     if bib_num > 0 && !entry_nodes.is_empty() {
         layout_bib_entry(bib_num, &entry_nodes, state, doc, source, indent)?;
     }
-    state.add_vertical_space(8.0);
+    state.add_vertical_space(base * 0.8);
     Ok(())
 }
 

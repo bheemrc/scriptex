@@ -13,10 +13,11 @@ pub(super) fn layout_title(state: &mut LayoutState, doc: &Document, source: &str
         return layout_title_amsart(state, doc, source);
     }
 
-    state.add_vertical_space(40.0);
+    let base = state.base_font_size;
+    state.add_vertical_space(base * 4.0);
 
     if let Some(title) = &doc.preamble.title {
-        let size = state.base_font_size * 1.728;
+        let size = base * 1.728;
         let metrics = FontMetrics::new(size, FontStyle::Bold);
         let segments: Vec<&str> = title.split("\\\\").collect();
         for segment in &segments {
@@ -32,11 +33,11 @@ pub(super) fn layout_title(state: &mut LayoutState, doc: &Document, source: &str
                 state.current_y += metrics.line_height();
             }
         }
-        state.add_vertical_space(12.0);
+        state.add_vertical_space(base * 1.2);
     }
 
     if let Some(author) = &doc.preamble.author {
-        let size = state.base_font_size * 1.2;
+        let size = base * 1.2;
         let metrics = FontMetrics::new(size, FontStyle::Regular);
         let para_width = state.text_width();
         // Split by \and or , for multi-author, then word-wrap each line
@@ -58,11 +59,11 @@ pub(super) fn layout_title(state: &mut LayoutState, doc: &Document, source: &str
                 super::environments::layout_centered_text(part, state)?;
             }
         }
-        state.add_vertical_space(6.0);
+        state.add_vertical_space(base * 0.6);
     }
 
     if let Some(date) = &doc.preamble.date {
-        let size = state.base_font_size;
+        let size = base;
         let metrics = FontMetrics::new(size, FontStyle::Regular);
         let tw = metrics.measure_text(date);
         let cx = state.text_left() + (state.text_width() - tw) / 2.0;
@@ -72,15 +73,16 @@ pub(super) fn layout_title(state: &mut LayoutState, doc: &Document, source: &str
         state.current_y += metrics.line_height();
     }
 
-    state.add_vertical_space(30.0);
+    state.add_vertical_space(base * 3.0);
     Ok(())
 }
 
 fn layout_title_amsart(state: &mut LayoutState, doc: &Document, source: &str) -> Result<()> {
-    state.add_vertical_space(60.0);
+    let base = state.base_font_size;
+    state.add_vertical_space(base * 6.0);
 
     if let Some(title) = &doc.preamble.title {
-        let size = state.base_font_size * 1.2;
+        let size = base * 1.2;
         let upper_title = title.to_uppercase();
         let metrics = FontMetrics::new(size, FontStyle::Bold);
         let segments: Vec<&str> = upper_title.split("\\\\").collect();
@@ -97,11 +99,11 @@ fn layout_title_amsart(state: &mut LayoutState, doc: &Document, source: &str) ->
                 state.current_y += metrics.line_height();
             }
         }
-        state.add_vertical_space(16.0);
+        state.add_vertical_space(base * 1.6);
     }
 
     if let Some(author) = &doc.preamble.author {
-        let size = state.base_font_size;
+        let size = base;
         let upper_author = author.to_uppercase();
         let metrics = FontMetrics::new(size, FontStyle::Regular);
         let parts: Vec<&str> = upper_author.split("\\AND").collect();
@@ -115,21 +117,22 @@ fn layout_title_amsart(state: &mut LayoutState, doc: &Document, source: &str) ->
             state.emit_text(part, size, FontStyle::Regular, Color::BLACK);
             state.current_y += metrics.line_height();
         }
-        state.add_vertical_space(10.0);
+        state.add_vertical_space(base * 1.0);
     }
 
     // Deferred abstract
     if state.deferred_abstract_idx.is_some() {
         for node in &doc.body {
             if let Node::Abstract(content) = node {
-                state.add_vertical_space(6.0);
+                state.add_vertical_space(base * 0.6);
                 let saved_indent = state.indent;
                 let saved_right = state.right_indent;
-                state.set_right_indent(36.0);
-                state.set_indent(state.indent + 36.0);
+                let abs_indent = base * 3.6; // ~36pt at 10pt base
+                state.set_right_indent(abs_indent);
+                state.set_indent(state.indent + abs_indent);
                 state.current_x = state.text_left();
                 let saved_size = state.current_font_size;
-                let abs_size = state.base_font_size * 0.9;
+                let abs_size = base * 0.9;
                 state.current_font_size = abs_size;
                 let prefix = "Abstract. ";
                 let prefix_w = font::measure_text(prefix, FontId::TimesBold, abs_size);
@@ -140,7 +143,7 @@ fn layout_title_amsart(state: &mut LayoutState, doc: &Document, source: &str) ->
                 state.set_right_indent(saved_right);
                 state.set_indent(saved_indent);
                 state.current_x = state.text_left();
-                state.add_vertical_space(6.0);
+                state.add_vertical_space(base * 0.6);
                 break;
             }
         }
@@ -149,7 +152,7 @@ fn layout_title_amsart(state: &mut LayoutState, doc: &Document, source: &str) ->
 
     // First-page footer items
     {
-        let fn_size = state.base_font_size * 0.7;
+        let fn_size = base * 0.7;
         let fn_lh = fn_size * 1.4;
         let mut footer_lines: Vec<(String, FontStyle)> = Vec::new();
         if let Some(date) = &doc.preamble.date {
@@ -163,10 +166,10 @@ fn layout_title_amsart(state: &mut LayoutState, doc: &Document, source: &str) ->
         }
 
         if !footer_lines.is_empty() {
-            let total_h = footer_lines.len() as f32 * fn_lh + 12.0;
+            let total_h = footer_lines.len() as f32 * fn_lh + base * 1.2;
             let orig_max_y = state.page_setup.height - state.page_setup.margin_bottom - state.page_setup.footer_height;
             let footer_y = orig_max_y - total_h;
-            state.cached_max_y = footer_y - 10.0;
+            state.cached_max_y = footer_y - base * 1.0;
 
             state.emit_line(
                 state.page_setup.margin_left, footer_y,
@@ -175,7 +178,7 @@ fn layout_title_amsart(state: &mut LayoutState, doc: &Document, source: &str) ->
             );
 
             let text_w = state.page_setup.text_width();
-            let mut y = footer_y + 8.0;
+            let mut y = footer_y + base * 0.8;
             for (text, style) in &footer_lines {
                 let metrics = FontMetrics::new(fn_size, *style);
                 let lines = wrap_text(text, &metrics, text_w);
