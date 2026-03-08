@@ -156,14 +156,14 @@ fn layout_math_node(node: &MathNode, font_size: f32) -> MathBox {
         MathNode::Super(nodes) => {
             // Standalone superscript (no base)
             let mut sup = layout_math(nodes, font_size * 0.7);
-            let shift = font_size * 0.4;
+            let shift = font_size * 0.45;
             sup.translate(0.0, -shift);
             sup.height = (sup.height + shift).max(0.0);
             sup
         }
         MathNode::Sub(nodes) => {
             let mut sub = layout_math(nodes, font_size * 0.7);
-            let shift = font_size * 0.2;
+            let shift = font_size * 0.25;
             sub.translate(0.0, shift);
             sub.depth = (sub.depth + shift).max(0.0);
             sub
@@ -492,10 +492,65 @@ fn layout_operator(op: &str, font_size: f32) -> MathBox {
                 elements: glyph.elements,
             }
         }
-        // Binary/relation operators: thin space on both sides
+        // Binary operators: medium space (4mu = 0.22em) on both sides
+        "+" | "-" | "×" | "÷" | "±" | "∓" | "∪" | "∩" | "∧" | "∨" | "⊕" | "⊗"
+        | "\\pm" | "\\mp" | "\\times" | "\\div" | "\\cup" | "\\cap"
+        | "\\wedge" | "\\vee" | "\\oplus" | "\\otimes" | "\\setminus" | "\\cdot"
+        | "·" | "∖" | "⋆" | "∘" | "†" | "‡" | "⊎" | "⊔" | "△" => {
+            let med = font_size * 0.22; // 4mu medium space
+            let glyph = layout_text(op, font_size, FontId::TimesRoman);
+            MathBox {
+                width: med + glyph.width + med,
+                height: glyph.height,
+                depth: glyph.depth,
+                elements: vec![MathElement::Text {
+                    x: med + glyph.elements.first().map_or(0.0, |e| if let MathElement::Text { x, .. } = e { *x } else { 0.0 }),
+                    y: 0.0,
+                    text: op.to_string(),
+                    font_size,
+                    font_id: FontId::TimesRoman,
+                    color: Color::BLACK,
+                }],
+            }
+        }
+        // Relation operators: thick space (5mu = 0.28em) on both sides
+        "=" | "<" | ">" | "≤" | "≥" | "≠" | "≈" | "∼" | "≡" | "⊂" | "⊃"
+        | "⊆" | "⊇" | "∈" | "∉" | "∝" | "≪" | "≫" | "≺" | "≻" | "⊥" | "∥"
+        | "→" | "←" | "↔" | "⇒" | "⇐" | "⇔" | "↦" | "⊢" | "⊣" | "≃" | "≅"
+        | "≐" | "≍" | "⋈" => {
+            let thick = font_size * 0.28; // 5mu thick space
+            let glyph = layout_text(op, font_size, FontId::TimesRoman);
+            MathBox {
+                width: thick + glyph.width + thick,
+                height: glyph.height,
+                depth: glyph.depth,
+                elements: vec![MathElement::Text {
+                    x: thick + glyph.elements.first().map_or(0.0, |e| if let MathElement::Text { x, .. } = e { *x } else { 0.0 }),
+                    y: 0.0,
+                    text: op.to_string(),
+                    font_size,
+                    font_id: FontId::TimesRoman,
+                    color: Color::BLACK,
+                }],
+            }
+        }
+        // Unknown operators: medium space as default
         _ => {
-            let op_text = format!(" {} ", op);
-            layout_text(&op_text, font_size, FontId::TimesRoman)
+            let med = font_size * 0.22;
+            let glyph = layout_text(op, font_size, FontId::TimesRoman);
+            MathBox {
+                width: med + glyph.width + med,
+                height: glyph.height,
+                depth: glyph.depth,
+                elements: vec![MathElement::Text {
+                    x: med + glyph.elements.first().map_or(0.0, |e| if let MathElement::Text { x, .. } = e { *x } else { 0.0 }),
+                    y: 0.0,
+                    text: op.to_string(),
+                    font_size,
+                    font_id: FontId::TimesRoman,
+                    color: Color::BLACK,
+                }],
+            }
         }
     }
 }
@@ -584,7 +639,7 @@ fn layout_symbol(symbol: &str, font_size: f32) -> MathBox {
 }
 
 fn layout_fraction(numer: &[MathNode], denom: &[MathNode], font_size: f32) -> MathBox {
-    let frac_size = font_size * 0.8; // TeX \textstyle fraction uses ~80% of current size
+    let frac_size = font_size * 0.7; // TeX \scriptstyle fraction size in text mode
     let mut num_box = layout_math(numer, frac_size);
     let mut den_box = layout_math(denom, frac_size);
 
@@ -594,9 +649,9 @@ fn layout_fraction(numer: &[MathNode], denom: &[MathNode], font_size: f32) -> Ma
 
     // TeX math axis: fraction bar sits at the math axis (~half x-height)
     let axis = font_size * 0.25;
-    // Minimum gap between content and bar (TeX sigma8 / sigma11)
-    let num_gap = (font_size * 0.12).max(rule_thickness);
-    let den_gap = (font_size * 0.12).max(rule_thickness);
+    // Minimum gap between content and bar (TeX sigma8 / sigma11 ≈ 3pt at 10pt = 0.3em)
+    let num_gap = (font_size * 0.25).max(rule_thickness * 2.0);
+    let den_gap = (font_size * 0.25).max(rule_thickness * 2.0);
 
     // Position numerator: bottom of numerator box should be at least num_gap above the bar
     let num_x = (total_width - num_box.width) / 2.0;
@@ -726,7 +781,7 @@ fn attach_scripts(base: &MathBox, sup: Option<&MathBox>, sub: Option<&MathBox>, 
     let script_x = base.width + font_size * 0.05;
 
     if let Some(sup_box) = sup {
-        let shift_up = font_size * 0.35;
+        let shift_up = font_size * 0.45; // TeX: superscript rise ≈ x-height (0.45em)
         let mut s = sup_box.clone();
         s.translate(script_x, -shift_up);
         width = width.max(script_x + s.width);
@@ -735,7 +790,7 @@ fn attach_scripts(base: &MathBox, sup: Option<&MathBox>, sub: Option<&MathBox>, 
     }
 
     if let Some(sub_box) = sub {
-        let shift_down = font_size * 0.15;
+        let shift_down = font_size * 0.25; // TeX: subscript drop ≈ 0.25em
         let mut s = sub_box.clone();
         s.translate(script_x, shift_down);
         width = width.max(script_x + s.width);
@@ -1119,9 +1174,9 @@ fn layout_matrix(
         return MathBox::empty();
     }
 
-    let cell_size = font_size * 0.85;
-    let col_gap = font_size * 0.8;
-    let row_gap = font_size * 0.5;
+    let cell_size = font_size; // TeX: matrix cells use \textstyle (same size)
+    let col_gap = font_size * 1.0; // TeX: 2 * \arraycolsep = 2 * 5pt = 1.0em
+    let row_gap = font_size * 0.3; // TeX: \jot = 3pt = 0.3em
 
     // Layout all cells
     let num_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);

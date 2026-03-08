@@ -50,7 +50,8 @@ fn justify_line_with_width(line: &[u8], available_width: f32, avg_width: f32, fo
     let ws = extra / num_spaces as f32;
     // TeX-like spacing limits: allow compression (-1pt) and moderate stretch (+4pt)
     // Tighter than +6pt for more even text color / grayness
-    let ws_clamped = ws.max(-1.0).min(4.0);
+    // TeX: stretch ≈ 1.67pt, shrink ≈ 1.11pt for 10pt font
+    let ws_clamped = ws.max(-font_size * 0.12).min(font_size * 0.25);
     (ws_clamped * 50.0).min(i16::MAX as f32) as i16
 }
 

@@ -168,6 +168,10 @@ impl<'a> Parser<'a> {
 
     pub(super) fn parse_dimension(&self, text: &str) -> Option<f32> {
         let text = text.trim();
+        // Handle \fill and \stretch as large expandable space
+        if text == "\\fill" || text == "fill" || text == "\\stretch{1}" {
+            return Some(1000.0); // Large value representing expandable glue
+        }
         // Try to parse dimension with unit
         let (num_str, unit) = if text.ends_with("pt") {
             (&text[..text.len()-2], "pt")

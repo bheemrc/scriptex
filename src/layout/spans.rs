@@ -765,12 +765,13 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 // Justify if line is at least 55% full (TeX justifies aggressively)
                 if slack > 0.0 && slack < available * 0.45 {
                     extra_per_space = slack / space_count as f32;
-                    // Allow up to 0.5em stretch per space (TeX default ~0.5em)
-                    extra_per_space = extra_per_space.min(font_size * 0.5);
+                    // TeX inter-word stretch ≈ 1.67pt for 10pt (0.167em)
+                    // Allow up to 0.25em to avoid visible rivers while staying tight
+                    extra_per_space = extra_per_space.min(font_size * 0.25);
                 } else if slack < 0.0 && slack > -font_size * 1.5 {
-                    // Allow slight compression for overfull lines
+                    // TeX inter-word shrink ≈ 1.11pt for 10pt (0.111em)
                     extra_per_space = slack / space_count as f32;
-                    extra_per_space = extra_per_space.max(-font_size * 0.15);
+                    extra_per_space = extra_per_space.max(-font_size * 0.12);
                 }
             }
         }

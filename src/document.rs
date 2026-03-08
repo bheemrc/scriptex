@@ -128,18 +128,21 @@ pub struct PageSetup {
 
 impl Default for PageSetup {
     fn default() -> Self {
-        // US Letter: 8.5 x 11 inches = 612 x 792 points
+        // LaTeX article class defaults for US Letter (10pt):
+        // textwidth = 345pt, textheight ≈ 598pt
+        // Horizontal: 1in hoffset + oddsidemargin(0.39in) ≈ 133.5pt each side
+        // Vertical: 1in voffset + topmargin(0) + headheight(12) + headsep(25) ≈ 97pt top
         PageSetup {
             width: 612.0,
             height: 792.0,
-            margin_top: 72.0,    // 1 inch
-            margin_bottom: 72.0,
-            margin_left: 72.0,
-            margin_right: 72.0,
+            margin_top: 89.0,    // ~1.24in (LaTeX: 1in + topmargin + headheight + headsep)
+            margin_bottom: 105.0, // to give textheight ≈ 598pt
+            margin_left: 133.5,  // (612 - 345) / 2 ≈ 133.5pt for centered text
+            margin_right: 133.5,
             header_height: 0.0,
-            footer_height: 20.0,  // space for page number
+            footer_height: 30.0,  // LaTeX \footskip = 30pt
             columns: 1,
-            column_sep: 18.0,
+            column_sep: 10.0,    // LaTeX \columnsep = 10pt
         }
     }
 }

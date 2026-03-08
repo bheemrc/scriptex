@@ -131,6 +131,11 @@ pub(super) fn layout_list(
         if inline_end < item.content.len() {
             super::layout_nodes(&item.content[inline_end..], state, doc, source)?;
         }
+        // LaTeX \itemsep + \parsep: ~4pt for 10pt at depth 0, ~2pt for nested
+        if i + 1 < items.len() {
+            let itemsep = if depth == 0 { base * 0.4 } else { base * 0.2 };
+            state.add_vertical_space(itemsep);
+        }
     }
 
     state.list_depth = depth;

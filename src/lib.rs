@@ -297,7 +297,9 @@ fn extract_defs_from_sty(sty_content: &str, defs: &mut String) {
                 || rest.starts_with("\\providecommand")
                 || rest.starts_with("\\DeclareMathOperator")
                 || rest.starts_with("\\newtheorem")
-                || rest.starts_with("\\definecolor");
+                || rest.starts_with("\\definecolor")
+                || rest.starts_with("\\setlength")
+                || rest.starts_with("\\addtolength");
 
             if is_def_cmd {
                 let end = find_command_end(sty_content, i);

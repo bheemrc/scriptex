@@ -295,7 +295,17 @@ impl<'a> Parser<'a> {
                         }
                         "\\setlength" => {
                             self.advance();
-                            if let (Ok(name), Ok(val)) = (self.read_braced_text(), self.read_braced_text()) {
+                            // Handle both \setlength{\textwidth}{...} and \setlength\textwidth{...}
+                            let name_result = if self.current().kind == TokenKind::OpenBrace {
+                                self.read_braced_text()
+                            } else if self.current().kind == TokenKind::Command {
+                                let cmd = self.current().text(self.source).to_string();
+                                self.advance();
+                                Ok(cmd)
+                            } else {
+                                Err(anyhow::anyhow!("expected name"))
+                            };
+                            if let (Ok(name), Ok(val)) = (name_result, self.read_braced_text()) {
                                 if let Some(pts) = self.parse_dimension(&val) {
                                     match name.trim_start_matches('\\') {
                                         "parindent" => preamble.paragraph_indent = Some(pts),
@@ -319,12 +329,39 @@ impl<'a> Parser<'a> {
                             self.advance();
                             self.skip_command_args();
                         }
+                        "\\addtolength" => {
+                            self.advance();
+                            let name_result = if self.current().kind == TokenKind::OpenBrace {
+                                self.read_braced_text()
+                            } else if self.current().kind == TokenKind::Command {
+                                let cmd = self.current().text(self.source).to_string();
+                                self.advance();
+                                Ok(cmd)
+                            } else {
+                                Err(anyhow::anyhow!("expected name"))
+                            };
+                            if let (Ok(name), Ok(val)) = (name_result, self.read_braced_text()) {
+                                if let Some(pts) = self.parse_dimension(&val) {
+                                    match name.trim_start_matches('\\') {
+                                        "topmargin" => preamble.page_setup.margin_top += pts,
+                                        "oddsidemargin" | "evensidemargin" => preamble.page_setup.margin_left += pts,
+                                        "textheight" => {
+                                            preamble.page_setup.margin_bottom -= pts;
+                                        }
+                                        "textwidth" => {
+                                            preamble.page_setup.margin_right -= pts;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
                         "\\thispagestyle"
                         | "\\newcommand" | "\\def"
                         | "\\DeclareMathOperator"
                         | "\\bibliographystyle"
                         | "\\hypersetup" | "\\lstset" | "\\graphicspath"
-                        | "\\numberwithin" | "\\addtolength" => {
+                        | "\\numberwithin" => {
                             // Skip these preamble commands - consume their arguments
                             self.advance();
                             self.skip_command_args();

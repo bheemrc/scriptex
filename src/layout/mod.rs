@@ -109,10 +109,10 @@ pub fn layout_document_inner(
         state.amsart_pre_title = true;
         state.page_style = PageStyle::Headings;
         state.page_setup.header_height = 20.0;
-        state.page_setup.margin_left = 72.0;
-        state.page_setup.margin_right = 72.0;
-        state.page_setup.margin_top = 72.0;
-        state.page_setup.margin_bottom = 72.0;
+        state.page_setup.margin_left = 100.0;  // amsart: ~1.4in margins
+        state.page_setup.margin_right = 100.0;
+        state.page_setup.margin_top = 89.0;
+        state.page_setup.margin_bottom = 89.0;
         state.page_setup.footer_height = 14.0;
         state.cached_text_width = state.page_setup.text_width();
         state.cached_max_y = state.page_setup.height - state.page_setup.margin_bottom - state.page_setup.footer_height;
@@ -841,7 +841,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             let has_t = placement.contains('t');
 
             // If placement is purely [t] (no [h]), defer to top of next page
-            if has_t && !has_h && !state.deferred_top_floats.is_empty() == false {
+            if has_t && !has_h {
                 // Defer: store content for top-of-next-page placement
                 use state::DeferredFloat;
                 state.deferred_top_floats.push(DeferredFloat {
@@ -1036,6 +1036,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 state.current_y += state.base_font_size * 0.2;
             }
             state.add_vertical_space(state.base_font_size * 1.2);
+            state.suppress_next_indent = true;
         }
 
         Node::Center(content) => {

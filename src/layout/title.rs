@@ -74,6 +74,7 @@ pub(super) fn layout_title(state: &mut LayoutState, doc: &Document, source: &str
     }
 
     state.add_vertical_space(base * 3.0);
+    state.suppress_next_indent = true;
     Ok(())
 }
 
@@ -192,5 +193,6 @@ fn layout_title_amsart(state: &mut LayoutState, doc: &Document, source: &str) ->
         }
     }
 
+    state.suppress_next_indent = true;
     Ok(())
 }
