@@ -46,6 +46,7 @@ impl MacroEngine {
             || preamble.contains("\\renewcommand") || preamble.contains("\\let\\")
             || preamble.contains("\\DeclarePairedDelimiter")
             || preamble.contains("\\providecommand")
+            || preamble.contains("\\DeclareRobustCommand")
             || preamble.contains("\\newenvironment")
             || source.contains("\\DeclareMathOperator")
             || source.contains("\\today")
@@ -65,7 +66,7 @@ impl MacroEngine {
             }
 
             // Try each definition form
-            if source[pos..].starts_with("\\newcommand") || source[pos..].starts_with("\\renewcommand") || source[pos..].starts_with("\\providecommand") {
+            if source[pos..].starts_with("\\newcommand") || source[pos..].starts_with("\\renewcommand") || source[pos..].starts_with("\\providecommand") || source[pos..].starts_with("\\DeclareRobustCommand") {
                 if let Some(new_pos) = self.parse_newcommand(source, pos) {
                     pos = new_pos;
                     continue;

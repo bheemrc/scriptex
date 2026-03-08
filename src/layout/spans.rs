@@ -401,6 +401,19 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                     words.push(StyledWord { text: String::new(), style: FontStyle::Regular, color: state.current_color, font_size, width: w, math: Some(math_box), superscript: false, underline: false, strikethrough: false });
                 }
             }
+            Node::Superscript(content) => {
+                // \textsuperscript: render at 65% size with vertical offset
+                let mut sup_spans = Vec::new();
+                nodes_to_spans(content, state.current_font_style, state.current_color, font_size * 0.65, base_font_size, &mut sup_spans, source, labels_ref, citations_ref);
+                for span in &sup_spans {
+                    let sf = span.font_size;
+                    let font_id = font::style_to_font_id(span.style);
+                    for part in span.text.split_whitespace() {
+                        let w = font::measure_text(part, font_id, sf);
+                        words.push(StyledWord { text: part.to_string(), style: span.style, color: span.color, font_size, width: w, math: None, superscript: true, underline: false, strikethrough: false });
+                    }
+                }
+            }
             Node::Cref(label, capitalize) => {
                 let num = state.label_map.get(label).cloned().unwrap_or_else(|| "??".to_string());
                 let type_name = state.label_types.get(label).map(|s| s.as_str()).unwrap_or("section");
