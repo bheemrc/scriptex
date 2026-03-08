@@ -82,19 +82,19 @@ pub(super) fn layout_list(
                 0 => {
                     // Filled circle bullet (•) - radius ~1.5pt for 10pt font
                     let bullet_r = fs * 0.17;
-                    let bx = marker_x + bullet_r + 3.0;
+                    let bx = marker_x + bullet_r + fs * 0.3;
                     state.emit_rounded_rect(bx - bullet_r, by - bullet_r, bullet_r * 2.0, bullet_r * 2.0, Some(Color::BLACK), None, bullet_r);
                 }
                 1 => {
                     // En-dash (–) for second level
                     let dash_w = fs * 0.5;
-                    let dash_x = marker_x + 2.0;
+                    let dash_x = marker_x + fs * 0.2;
                     state.emit_line(dash_x, by, dash_x + dash_w, by, 0.5, Color::BLACK);
                 }
                 _ => {
                     // Small filled circle for deeper levels
                     let bullet_r = fs * 0.10;
-                    let bx = marker_x + bullet_r + 3.0;
+                    let bx = marker_x + bullet_r + fs * 0.3;
                     state.emit_rounded_rect(bx - bullet_r, by - bullet_r, bullet_r * 2.0, bullet_r * 2.0, Some(Color::BLACK), None, bullet_r);
                 }
             }
@@ -160,7 +160,7 @@ pub(super) fn layout_description_list(
             layout_rich_paragraph(&item.content[..inline_end], state, source, false)?;
         }
         if inline_end < item.content.len() {
-            state.set_indent(state.indent + 20.0);
+            state.set_indent(state.indent + state.base_font_size * 2.0);
             state.current_x = state.text_left();
             for node in &item.content[inline_end..] {
                 if super::is_inline_node(node) {

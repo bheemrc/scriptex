@@ -405,7 +405,7 @@ impl LayoutState {
             fn_span_lists.push(spans);
         }
 
-        let total_height = total_lines * fn_line_height + 10.0;
+        let total_height = total_lines * fn_line_height + self.base_font_size * 1.0;
         let orig_max_y = self.page_setup.height - self.page_setup.margin_bottom
             - self.page_setup.footer_height;
         let fn_y_start = orig_max_y - total_height;
@@ -625,7 +625,7 @@ impl LayoutState {
                 }
                 // Header rule
                 if self.fancy_head_rule > 0.0 {
-                    let rule_y = header_y + 4.0;
+                    let rule_y = header_y + header_font_size * 0.4;
                     self.all_elements.push(PageElement::Line {
                         x1: left_x, y1: rule_y, x2: right_x, y2: rule_y,
                         width_1000: (self.fancy_head_rule * 1000.0) as u16, color: Color::BLACK,
@@ -633,10 +633,10 @@ impl LayoutState {
                 }
 
                 // Footer
-                let footer_y = self.page_setup.height - self.page_setup.margin_bottom + 10.0;
+                let footer_y = self.page_setup.height - self.page_setup.margin_bottom + self.base_font_size * 1.0;
                 // Footer rule
                 if self.fancy_foot_rule > 0.0 {
-                    let rule_y = footer_y - 6.0;
+                    let rule_y = footer_y - header_font_size * 0.6;
                     self.all_elements.push(PageElement::Line {
                         x1: left_x, y1: rule_y, x2: right_x, y2: rule_y,
                         width_1000: (self.fancy_foot_rule * 1000.0) as u16, color: Color::BLACK,

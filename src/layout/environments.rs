@@ -155,7 +155,7 @@ pub(super) fn layout_algorithm(
         state.ensure_space(line_height);
         line_num += 1;
 
-        let x = left + num_gutter + indent_unit * line.indent as f32 + 4.0;
+        let x = left + num_gutter + indent_unit * line.indent as f32 + font_size * 0.4;
 
         // Emit line number in the gutter
         if line_numbered {
@@ -206,7 +206,8 @@ pub(super) fn layout_code_block(text: &str, language: Option<&str>, state: &mut 
     let metrics = FontMetrics::new(font_size, FontStyle::Monospace);
     let line_h = metrics.line_height();
     let text_lines: Vec<&str> = text.lines().collect();
-    let total_height = text_lines.len() as f32 * line_h + 12.0;
+    let pad = (state.base_font_size * 0.4).max(3.0);
+    let total_height = text_lines.len() as f32 * line_h + pad * 3.0;
     let remaining_space = state.cached_max_y - state.current_y;
     let needs_page_breaks = total_height > remaining_space;
 
@@ -214,8 +215,8 @@ pub(super) fn layout_code_block(text: &str, language: Option<&str>, state: &mut 
     if !needs_page_breaks {
         state.ensure_space(total_height);
         state.emit_rect(
-            state.text_left() - 4.0, state.current_y - 4.0,
-            state.text_width() + 8.0, total_height,
+            state.text_left() - pad, state.current_y - pad,
+            state.text_width() + pad * 2.0, total_height,
             Some(Color::rgb(0.96, 0.96, 0.96)), Some(Color::LIGHT_GRAY),
         );
 
@@ -223,7 +224,7 @@ pub(super) fn layout_code_block(text: &str, language: Option<&str>, state: &mut 
             let highlighted = crate::highlight::get_highlighter().highlight(text, lang);
             if !highlighted.is_empty() {
                 for line_spans in &highlighted {
-                    state.current_x = state.text_left() + 4.0;
+                    state.current_x = state.text_left() + pad;
                     for span in line_spans {
                         let style = if span.bold { FontStyle::Bold } else { FontStyle::Monospace };
                         let color = span.color;
@@ -240,28 +241,28 @@ pub(super) fn layout_code_block(text: &str, language: Option<&str>, state: &mut 
                     }
                     state.current_y += line_h;
                 }
-                state.add_vertical_space(10.0);
+                state.add_vertical_space(state.base_font_size * 0.8);
                 state.current_x = state.text_left();
                 return Ok(());
             }
         }
 
         for line in &text_lines {
-            state.current_x = state.text_left() + 4.0;
+            state.current_x = state.text_left() + pad;
             state.emit_text(line, font_size, FontStyle::Monospace, Color::DARK_GRAY);
             state.current_y += line_h;
         }
-        state.add_vertical_space(10.0);
+        state.add_vertical_space(state.base_font_size * 0.8);
         state.current_x = state.text_left();
         return Ok(());
     }
 
     // Slow path: block spans pages — per-line ensure_space with per-page bg rects
     let emit_bg = |n_lines: usize, state: &mut LayoutState| {
-        let h = n_lines as f32 * line_h + 8.0;
+        let h = n_lines as f32 * line_h + pad * 2.0;
         state.emit_rect(
-            state.text_left() - 4.0, state.current_y - 4.0,
-            state.text_width() + 8.0, h,
+            state.text_left() - pad, state.current_y - pad,
+            state.text_width() + pad * 2.0, h,
             Some(Color::rgb(0.96, 0.96, 0.96)), Some(Color::LIGHT_GRAY),
         );
     };
@@ -278,7 +279,7 @@ pub(super) fn layout_code_block(text: &str, language: Option<&str>, state: &mut 
                     emit_bg(chunk_len, state);
                     chunk_start = li + chunk_len;
                 }
-                state.current_x = state.text_left() + 4.0;
+                state.current_x = state.text_left() + pad;
                 for span in line_spans {
                     let style = if span.bold { FontStyle::Bold } else { FontStyle::Monospace };
                     let color = span.color;
@@ -295,7 +296,7 @@ pub(super) fn layout_code_block(text: &str, language: Option<&str>, state: &mut 
                 }
                 state.current_y += line_h;
             }
-            state.add_vertical_space(10.0);
+            state.add_vertical_space(state.base_font_size * 0.8);
             state.current_x = state.text_left();
             return Ok(());
         }
@@ -310,7 +311,7 @@ pub(super) fn layout_code_block(text: &str, language: Option<&str>, state: &mut 
             emit_bg(chunk_len, state);
             chunk_start = li + chunk_len;
         }
-        state.current_x = state.text_left() + 4.0;
+        state.current_x = state.text_left() + pad;
         state.emit_text(line, font_size, FontStyle::Monospace, Color::DARK_GRAY);
         state.current_y += line_h;
     }

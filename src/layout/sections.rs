@@ -255,9 +255,9 @@ pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
     state.ensure_space(heading_size * 1.2);
     state.current_x = state.text_left();
     state.emit_text("Contents", heading_size, FontStyle::Bold, Color::BLACK);
-    state.current_y += heading_size * 1.2 + 6.0;
+    state.current_y += heading_size * 1.2 + base * 0.6;
     state.emit_line(state.text_left(), state.current_y, state.text_left() + state.text_width(), state.current_y, 0.5, Color::BLACK);
-    state.current_y += 8.0;
+    state.current_y += base * 0.8;
 
     let entries = std::mem::take(&mut state.toc_entries);
     // Dot leaders: use evenly spaced dots like LaTeX
@@ -267,7 +267,7 @@ pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
 
     for (toc_idx, entry) in entries.iter().enumerate() {
         let depth = entry.level.depth();
-        let indent = match depth { d if d <= 1 => 0.0, 2 => 15.0, 3 => 30.0, _ => 45.0 };
+        let indent = match depth { d if d <= 1 => 0.0, 2 => base * 1.5, 3 => base * 3.0, _ => base * 4.5 };
         let font_size = match depth { d if d <= 1 => base, 2 => base * 0.95, _ => base * 0.9 };
         let style = if depth <= 1 { FontStyle::Bold } else { FontStyle::Regular };
         let line_height = font_size * 1.4;
@@ -291,8 +291,8 @@ pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
         state.current_x = x;
         if text_w <= available - page_num_width - 10.0 {
             state.emit_text(text, font_size, style, Color::BLACK);
-            let after_text_x = x + text_w + 4.0;
-            let dot_end = right_edge - page_num_width - 4.0;
+            let after_text_x = x + text_w + base * 0.4;
+            let dot_end = right_edge - page_num_width - base * 0.4;
             // Align dots to a grid so they line up across TOC entries (LaTeX convention)
             let grid_start = state.text_left(); // align to left margin
             let first_dot_x = {
@@ -338,7 +338,7 @@ pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
 
         state.current_y += line_height;
         state.current_x = state.text_left();
-        if depth <= 1 { state.current_y += 2.0; }
+        if depth <= 1 { state.current_y += base * 0.2; }
     }
 
     state.toc_entries = entries;

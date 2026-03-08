@@ -136,7 +136,7 @@ fn jpeg_dimensions(data: &[u8]) -> Option<(u32, u32)> {
 pub(super) fn layout_tikz_diagram(tikz_source: &str, state: &mut LayoutState, _doc: &crate::document::Document) -> Result<()> {
     use crate::tikz_render::{self, TikzElement};
 
-    state.add_vertical_space(10.0);
+    state.add_vertical_space(state.base_font_size * 1.0);
 
     if tikz_source.contains("\\begin{axis}") {
         if let Some((plot_elems, total_w, total_h)) = crate::pgfplots::render_pgfplot(tikz_source) {
@@ -149,14 +149,15 @@ pub(super) fn layout_tikz_diagram(tikz_source: &str, state: &mut LayoutState, _d
     if result.elements.is_empty() {
         let placeholder = "[TikZ diagram]";
         let box_h = 60.0;
-        state.ensure_space(box_h + 20.0);
+        let base = state.base_font_size;
+        state.ensure_space(box_h + base * 2.0);
         let x = state.text_left() + (state.text_width() - 300.0) / 2.0;
         state.emit_rect(x, state.current_y, 300.0, box_h,
             Some(Color::rgb(0.95, 0.95, 0.98)), Some(Color::rgb(0.6, 0.6, 0.8)));
-        let tw = font::measure_text(placeholder, FontId::TimesRoman, 10.0);
+        let tw = font::measure_text(placeholder, FontId::TimesRoman, base);
         state.current_x = x + (300.0 - tw) / 2.0;
-        state.emit_text(placeholder, 10.0, FontStyle::Italic, Color::GRAY);
-        state.current_y += box_h + 10.0;
+        state.emit_text(placeholder, base, FontStyle::Italic, Color::GRAY);
+        state.current_y += box_h + base * 1.0;
         state.current_x = state.text_left();
         return Ok(());
     }
@@ -164,7 +165,7 @@ pub(super) fn layout_tikz_diagram(tikz_source: &str, state: &mut LayoutState, _d
     let available_w = state.text_width() * 0.9;
     let scale = (available_w / result.width).min(2.0);
     let scaled_h = result.height * scale;
-    state.ensure_space(scaled_h + 20.0);
+    state.ensure_space(scaled_h + state.base_font_size * 2.0);
 
     let base_x = state.text_left() + (state.text_width() - result.width * scale) / 2.0;
     let base_y = state.current_y;
@@ -205,9 +206,9 @@ pub(super) fn layout_tikz_diagram(tikz_source: &str, state: &mut LayoutState, _d
         }
     }
 
-    state.current_y = base_y + scaled_h + 10.0;
+    state.current_y = base_y + scaled_h + state.base_font_size * 1.0;
     state.current_x = state.text_left();
-    state.add_vertical_space(10.0);
+    state.add_vertical_space(state.base_font_size * 1.0);
     Ok(())
 }
 
@@ -218,7 +219,7 @@ pub(super) fn layout_pgfplot_elements(elems: &[crate::pgfplots::PlotElement], to
     let scale = (available_w / total_w).min(1.5);
     let scaled_w = total_w * scale;
     let scaled_h = total_h * scale;
-    state.ensure_space(scaled_h + 20.0);
+    state.ensure_space(scaled_h + state.base_font_size * 2.0);
 
     let base_x = state.text_left() + (available_w - scaled_w) / 2.0;
     let base_y = state.current_y;
@@ -266,8 +267,8 @@ pub(super) fn layout_pgfplot_elements(elems: &[crate::pgfplots::PlotElement], to
         }
     }
 
-    state.current_y = base_y + scaled_h + 10.0;
+    state.current_y = base_y + scaled_h + state.base_font_size * 1.0;
     state.current_x = state.text_left();
-    state.add_vertical_space(10.0);
+    state.add_vertical_space(state.base_font_size * 1.0);
     Ok(())
 }

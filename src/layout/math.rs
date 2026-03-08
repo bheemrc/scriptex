@@ -65,7 +65,7 @@ fn layout_display_math_simple(math_nodes: &[MathNode], numbered: bool, state: &m
 
     if math_box.width <= avail_width {
         let total_height = math_box.height + math_box.depth;
-        state.ensure_space(total_height + 16.0);
+        state.ensure_space(total_height + state.base_font_size * 1.6);
         let cx = state.text_left() + (avail_width - math_box.width) / 2.0;
         let baseline_y = state.current_y + math_box.height;
         emit_math_elements(&math_box, cx, baseline_y, state);
@@ -84,7 +84,7 @@ fn layout_display_math_simple(math_nodes: &[MathNode], numbered: bool, state: &m
 
         if break_indices.is_empty() {
             let total_height = math_box.height + math_box.depth;
-            state.ensure_space(total_height + 16.0);
+            state.ensure_space(total_height + state.base_font_size * 1.6);
             let baseline_y = state.current_y + math_box.height;
             emit_math_elements(&math_box, state.text_left(), baseline_y, state);
             state.current_y = baseline_y + math_box.depth;
@@ -164,7 +164,7 @@ fn layout_multline_math(math_nodes: &[MathNode], numbered: bool, state: &mut Lay
     let num_lines = lines.len();
     let eq_number_width = if numbered { 40.0 } else { 0.0 };
     let total_height = step * num_lines as f32;
-    state.ensure_space(total_height + 16.0);
+    state.ensure_space(total_height + state.base_font_size * 1.6);
 
     for (line_idx, line_nodes) in lines.iter().enumerate() {
         if line_nodes.is_empty() { continue; }
@@ -174,10 +174,10 @@ fn layout_multline_math(math_nodes: &[MathNode], numbered: bool, state: &mut Lay
 
         let x = if line_idx == 0 {
             // First line: left-aligned (with small indent)
-            text_left + 15.0
+            text_left + font_size * 1.5
         } else if line_idx == num_lines - 1 {
             // Last line: right-aligned (before equation number)
-            (text_left + text_width - line_width - eq_number_width - 15.0).max(text_left)
+            (text_left + text_width - line_width - eq_number_width - font_size * 1.5).max(text_left)
         } else {
             // Middle lines: centered
             text_left + (text_width - line_width) / 2.0
@@ -279,7 +279,7 @@ fn layout_aligned_math(math_nodes: &[MathNode], numbered: bool, state: &mut Layo
     let eq_num_width = if numbered { 40.0 } else { 0.0 };
     let avail_width = state.text_width() - eq_num_width;
 
-    state.ensure_space(total_height + 16.0);
+    state.ensure_space(total_height + state.base_font_size * 1.6);
 
     let base_x = if total_content_width > avail_width {
         state.text_left()

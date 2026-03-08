@@ -628,7 +628,7 @@ fn layout_colorbox(boxdata: &ColorBoxData, state: &mut LayoutState, doc: &Docume
             layout_node(tn, state, doc, source)?;
             state.current_color = saved_color;
         }
-        state.current_y = title_bar_y + title_height + 4.0;
+        state.current_y = title_bar_y + title_height + state.base_font_size * 0.4;
         state.current_x = state.text_left();
     } else {
         state.current_y += padding;
@@ -888,7 +888,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                     (img_w, img_h)
                 };
 
-                state.ensure_space(img_h + 10.0);
+                state.ensure_space(img_h + state.base_font_size * 1.0);
 
                 let image_idx = state.images.len() as u32;
                 state.images.push(embedded);
@@ -897,7 +897,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 state.all_elements.push(PageElement::Image {
                     x, y: state.current_y, width: img_w, height: img_h, image_idx,
                 });
-                state.current_y += img_h + 6.0;
+                state.current_y += img_h + state.base_font_size * 0.6;
                 state.current_x = state.text_left();
             } else {
                 let img_w = img.width.unwrap_or(200.0).min(state.text_width());
@@ -910,7 +910,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                     (state.text_width(), img_h * s)
                 } else { (img_w, img_h) };
 
-                state.ensure_space(img_h + 10.0);
+                state.ensure_space(img_h + state.base_font_size * 1.0);
                 let x = state.text_left() + (state.text_width() - img_w) / 2.0;
                 state.emit_rect(x, state.current_y, img_w, img_h,
                     Some(Color::rgb(0.95, 0.95, 0.95)), Some(Color::LIGHT_GRAY));
@@ -919,7 +919,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 let cx = x + (img_w - tw) / 2.0;
                 state.current_x = cx;
                 state.emit_text(&label, 8.0, FontStyle::Italic, Color::GRAY);
-                state.current_y += img_h + 6.0;
+                state.current_y += img_h + state.base_font_size * 0.6;
                 state.current_x = state.text_left();
             }
         }
@@ -1206,7 +1206,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             state.cached_text_left = state.page_setup.margin_left + state.indent;
 
             // If next sibling is also a SubFigure, stay on same row
-            state.current_x = sub_left + sub_w + 4.0;
+            state.current_x = sub_left + sub_w + state.base_font_size * 0.4;
             // If we overflowed the line, wrap to next line
             if state.current_x + sub_w * 0.3 > state.page_setup.width - state.page_setup.margin_right {
                 state.current_x = state.text_left();
