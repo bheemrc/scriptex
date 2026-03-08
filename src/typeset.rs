@@ -31,10 +31,10 @@ impl FontMetrics {
     pub fn char_width(&self) -> f32 {
         let base = match self.style {
             FontStyle::Monospace => 0.6,
-            FontStyle::SmallCaps => 0.55,
-            FontStyle::Bold | FontStyle::BoldItalic => 0.56,
+            FontStyle::SmallCaps => 0.50,
+            FontStyle::Bold | FontStyle::BoldItalic | FontStyle::TimesBold => 0.50,
             FontStyle::Symbol => 0.5,
-            _ => 0.5,
+            _ => 0.47,
         };
         self.size * base
     }
@@ -65,9 +65,10 @@ impl FontMetrics {
         }
     }
 
-    /// Measure text width
+    /// Measure text width using actual font metrics
     pub fn measure_text(&self, text: &str) -> f32 {
-        text.chars().map(|c| self.measure_char(c)).sum()
+        let font_id = crate::font::style_to_font_id(self.style);
+        crate::font::measure_text(text, font_id, self.size)
     }
 
     /// Line height (leading)
@@ -119,11 +120,11 @@ pub fn wrap_text(text: &str, metrics: &FontMetrics, max_width: f32) -> Vec<Strin
         return vec![String::new()];
     }
 
-    // Fast average char width for this font
+    // Fast average char width for this font (Times Roman metrics)
     let avg_width = metrics.size * match metrics.style {
         FontStyle::Monospace => 0.6,
-        FontStyle::Bold | FontStyle::BoldItalic => 0.52,
-        _ => 0.48,
+        FontStyle::Bold | FontStyle::BoldItalic | FontStyle::TimesBold => 0.50,
+        _ => 0.47,
     };
     let space_width = metrics.size * 0.25;
 

@@ -524,8 +524,8 @@ impl SectionLevel {
         match self {
             SectionLevel::Part => 36.0,
             SectionLevel::Chapter => 30.0,
-            SectionLevel::Section => 22.0,
-            SectionLevel::Subsection => 16.0,
+            SectionLevel::Section => 18.0,   // LaTeX: 3.5ex ≈ 15pt + glue
+            SectionLevel::Subsection => 14.0, // LaTeX: 3.25ex ≈ 14pt
             SectionLevel::Subsubsection => 12.0,
             SectionLevel::Paragraph => 10.0,
             SectionLevel::Subparagraph => 8.0,

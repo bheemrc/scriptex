@@ -28,17 +28,22 @@ pub(super) fn justify_line_ext(line: &[u8], available_width: f32, avg_width: f32
     let num_spaces = memchr::memchr_iter(b' ', line).count();
     if num_spaces == 0 { return 0; }
 
-    // Always use per-glyph font metrics for accurate justification
-    let natural_width = if line.len() <= 500 {
-        let widths = crate::font::font_widths(font_id);
-        let scale = font_size / 1000.0;
-        let mut w = 0.0f32;
-        for &b in line {
-            w += widths[b as usize] as f32 * scale;
+    // Use per-glyph font metrics when line is close to full width
+    // (where justification accuracy matters most)
+    let natural_width = {
+        let est_width = line.len() as f32 * avg_width;
+        let est_slack = (available_width - est_width).abs();
+        if est_slack < font_size * 2.0 && line.len() <= 200 {
+            let widths = crate::font::font_widths(font_id);
+            let scale = font_size / 1000.0;
+            let mut w = 0.0f32;
+            for &b in line {
+                w += widths[b as usize] as f32 * scale;
+            }
+            w
+        } else {
+            est_width
         }
-        w
-    } else {
-        line.len() as f32 * avg_width
     };
 
     let extra = available_width - natural_width;
