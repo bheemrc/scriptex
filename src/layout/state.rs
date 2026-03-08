@@ -95,6 +95,8 @@ pub(super) struct LayoutState {
     pub text_buf: String,
     pub label_map: HashMap<String, String>,
     pub label_types: HashMap<String, String>,
+    /// Maps label names to (page_index, y_position) for clickable cross-references
+    pub label_positions: HashMap<String, (u32, f32)>,
     pub citation_map: HashMap<String, u32>,
     /// Map from citation key to (author_short, year) for natbib-style citations
     pub author_year_map: HashMap<String, (String, String)>,
@@ -203,6 +205,7 @@ impl LayoutState {
             text_buf: String::with_capacity(4096),
             label_map: HashMap::new(),
             label_types: HashMap::new(),
+            label_positions: HashMap::new(),
             citation_map: HashMap::new(),
             author_year_map: HashMap::new(),
             equation_counter: 0,

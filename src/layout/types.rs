@@ -14,7 +14,9 @@ pub struct LinkAnnotation {
     pub y: f32,
     pub width: f32,
     pub height: f32,
-    pub url: String,
+    pub url: String,           // external URL (empty for internal links)
+    pub dest_page: Option<u32>, // internal destination page (0-indexed)
+    pub dest_y: f32,           // internal destination y position
 }
 
 /// A PDF bookmark/outline entry

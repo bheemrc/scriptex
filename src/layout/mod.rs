@@ -1159,8 +1159,20 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             } else {
                 "??".to_string()
             };
-            state.emit_text(&ref_text, state.current_font_size, FontStyle::Regular, Color::BLACK);
-            state.current_x += font::measure_text(&ref_text, FontId::TimesRoman, state.current_font_size);
+            let ref_color = Color::from_rgb_u8(140, 0, 0);
+            let start_x = state.current_x;
+            let text_w = font::measure_text(&ref_text, FontId::TimesRoman, state.current_font_size);
+            state.emit_text(&ref_text, state.current_font_size, FontStyle::Regular, ref_color);
+            state.current_x += text_w;
+            // Create clickable internal link if label position is known
+            if let Some(&(dest_page, dest_y)) = state.label_positions.get(label) {
+                state.links.push(LinkAnnotation {
+                    page: state.page_bounds.len() as u32, x: start_x,
+                    y: state.current_y - state.current_font_size * 0.8,
+                    width: text_w, height: state.current_font_size * 1.2,
+                    url: String::new(), dest_page: Some(dest_page), dest_y,
+                });
+            }
         }
 
         Node::EqRef(label) => {
@@ -1169,8 +1181,19 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             } else {
                 "(??)".to_string()
             };
-            state.emit_text(&ref_text, state.current_font_size, FontStyle::Regular, Color::BLACK);
-            state.current_x += font::measure_text(&ref_text, FontId::TimesRoman, state.current_font_size);
+            let ref_color = Color::from_rgb_u8(140, 0, 0);
+            let start_x = state.current_x;
+            let text_w = font::measure_text(&ref_text, FontId::TimesRoman, state.current_font_size);
+            state.emit_text(&ref_text, state.current_font_size, FontStyle::Regular, ref_color);
+            state.current_x += text_w;
+            if let Some(&(dest_page, dest_y)) = state.label_positions.get(label) {
+                state.links.push(LinkAnnotation {
+                    page: state.page_bounds.len() as u32, x: start_x,
+                    y: state.current_y - state.current_font_size * 0.8,
+                    width: text_w, height: state.current_font_size * 1.2,
+                    url: String::new(), dest_page: Some(dest_page), dest_y,
+                });
+            }
         }
 
         Node::Cref(label, capitalize) => {
@@ -1199,8 +1222,19 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             } else {
                 format!("{}~{}", prefix, num)
             };
-            state.emit_text(&ref_text, state.current_font_size, FontStyle::Regular, Color::BLACK);
-            state.current_x += font::measure_text(&ref_text, FontId::TimesRoman, state.current_font_size);
+            let ref_color = Color::from_rgb_u8(140, 0, 0);
+            let start_x = state.current_x;
+            let text_w = font::measure_text(&ref_text, FontId::TimesRoman, state.current_font_size);
+            state.emit_text(&ref_text, state.current_font_size, FontStyle::Regular, ref_color);
+            state.current_x += text_w;
+            if let Some(&(dest_page, dest_y)) = state.label_positions.get(label) {
+                state.links.push(LinkAnnotation {
+                    page: state.page_bounds.len() as u32, x: start_x,
+                    y: state.current_y - state.current_font_size * 0.8,
+                    width: text_w, height: state.current_font_size * 1.2,
+                    url: String::new(), dest_page: Some(dest_page), dest_y,
+                });
+            }
         }
 
         Node::Href { url, content } => {
@@ -1223,6 +1257,8 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 width: end_x - start_x,
                 height: state.current_font_size * 1.2,
                 url: url.clone(),
+                dest_page: None,
+                dest_y: 0.0,
             });
             state.current_color = saved_color;
         }
@@ -1265,7 +1301,13 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             }
         }
 
-        Node::Label(_) | Node::Raw(_) | Node::BibItem(_) | Node::DefineColor { .. } => {}
+        Node::Label(name) => {
+            // Record label position for internal cross-reference links
+            let page = state.page_bounds.len() as u32;
+            let y = state.current_y;
+            state.label_positions.insert(name.clone(), (page, y));
+        }
+        Node::Raw(_) | Node::BibItem(_) | Node::DefineColor { .. } => {}
 
         Node::SetCounter(name, val) => {
             let (counter_name, is_add) = if let Some(n) = name.strip_prefix("add:") {

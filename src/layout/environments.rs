@@ -203,20 +203,80 @@ pub(super) fn layout_code_block(text: &str, language: Option<&str>, state: &mut 
     state.add_vertical_space(6.0);
     let font_size = state.base_font_size * 0.85;
     let metrics = FontMetrics::new(font_size, FontStyle::Monospace);
+    let line_h = metrics.line_height();
     let text_lines: Vec<&str> = text.lines().collect();
-    let total_height = text_lines.len() as f32 * metrics.line_height() + 12.0;
-    state.ensure_space(total_height);
+    let total_height = text_lines.len() as f32 * line_h + 12.0;
+    let remaining_space = state.cached_max_y - state.current_y;
+    let needs_page_breaks = total_height > remaining_space;
 
-    state.emit_rect(
-        state.text_left() - 4.0, state.current_y - 4.0,
-        state.text_width() + 8.0, total_height,
-        Some(Color::rgb(0.96, 0.96, 0.96)), Some(Color::LIGHT_GRAY),
-    );
+    // Fast path: block fits on current page — single ensure_space + single bg rect
+    if !needs_page_breaks {
+        state.ensure_space(total_height);
+        state.emit_rect(
+            state.text_left() - 4.0, state.current_y - 4.0,
+            state.text_width() + 8.0, total_height,
+            Some(Color::rgb(0.96, 0.96, 0.96)), Some(Color::LIGHT_GRAY),
+        );
+
+        if let Some(lang) = language {
+            let highlighted = crate::highlight::get_highlighter().highlight(text, lang);
+            if !highlighted.is_empty() {
+                for line_spans in &highlighted {
+                    state.current_x = state.text_left() + 4.0;
+                    for span in line_spans {
+                        let style = if span.bold { FontStyle::Bold } else { FontStyle::Monospace };
+                        let color = span.color;
+                        let w = font::measure_text(&span.text, FontId::Courier, font_size);
+                        let offset = (state.all_text.len() - state.current_page_text_start as usize) as u32;
+                        state.all_text.push_str(&span.text);
+                        state.all_elements.push(PageElement::Text {
+                            x: state.current_x, y: state.current_y, text_offset: offset,
+                            text_len: span.text.len().min(65535) as u16,
+                            font_size_100: (font_size * 100.0) as u16,
+                            font_style: style, color, word_spacing_50: 0,
+                        });
+                        state.current_x += w;
+                    }
+                    state.current_y += line_h;
+                }
+                state.add_vertical_space(10.0);
+                state.current_x = state.text_left();
+                return Ok(());
+            }
+        }
+
+        for line in &text_lines {
+            state.current_x = state.text_left() + 4.0;
+            state.emit_text(line, font_size, FontStyle::Monospace, Color::DARK_GRAY);
+            state.current_y += line_h;
+        }
+        state.add_vertical_space(10.0);
+        state.current_x = state.text_left();
+        return Ok(());
+    }
+
+    // Slow path: block spans pages — per-line ensure_space with per-page bg rects
+    let emit_bg = |n_lines: usize, state: &mut LayoutState| {
+        let h = n_lines as f32 * line_h + 8.0;
+        state.emit_rect(
+            state.text_left() - 4.0, state.current_y - 4.0,
+            state.text_width() + 8.0, h,
+            Some(Color::rgb(0.96, 0.96, 0.96)), Some(Color::LIGHT_GRAY),
+        );
+    };
 
     if let Some(lang) = language {
         let highlighted = crate::highlight::get_highlighter().highlight(text, lang);
         if !highlighted.is_empty() {
-            for line_spans in &highlighted {
+            let mut chunk_start = 0usize;
+            for (li, line_spans) in highlighted.iter().enumerate() {
+                state.ensure_space(line_h);
+                if li == 0 || chunk_start == li {
+                    let rem = ((state.cached_max_y - state.current_y) / line_h) as usize;
+                    let chunk_len = rem.min(highlighted.len() - li);
+                    emit_bg(chunk_len, state);
+                    chunk_start = li + chunk_len;
+                }
                 state.current_x = state.text_left() + 4.0;
                 for span in line_spans {
                     let style = if span.bold { FontStyle::Bold } else { FontStyle::Monospace };
@@ -232,7 +292,7 @@ pub(super) fn layout_code_block(text: &str, language: Option<&str>, state: &mut 
                     });
                     state.current_x += w;
                 }
-                state.current_y += metrics.line_height();
+                state.current_y += line_h;
             }
             state.add_vertical_space(10.0);
             state.current_x = state.text_left();
@@ -240,10 +300,18 @@ pub(super) fn layout_code_block(text: &str, language: Option<&str>, state: &mut 
         }
     }
 
-    for line in text_lines {
+    let mut chunk_start = 0usize;
+    for (li, line) in text_lines.iter().enumerate() {
+        state.ensure_space(line_h);
+        if li == 0 || chunk_start == li {
+            let rem = ((state.cached_max_y - state.current_y) / line_h) as usize;
+            let chunk_len = rem.min(text_lines.len() - li);
+            emit_bg(chunk_len, state);
+            chunk_start = li + chunk_len;
+        }
         state.current_x = state.text_left() + 4.0;
         state.emit_text(line, font_size, FontStyle::Monospace, Color::DARK_GRAY);
-        state.current_y += metrics.line_height();
+        state.current_y += line_h;
     }
     state.add_vertical_space(10.0);
     state.current_x = state.text_left();
@@ -254,11 +322,22 @@ pub(super) fn layout_centered(content: &[Node], state: &mut LayoutState, doc: &D
     for node in content {
         match node {
             Node::Paragraph(children) => {
-                state.text_buf.clear();
-                for child in children { node_to_text(child, &mut state.text_buf, source); }
-                let text: &str = unsafe { &*(state.text_buf.trim() as *const str) };
-                if text.is_empty() { continue; }
-                layout_centered_text(text, state)?;
+                // Check if paragraph has rich formatting (bold, italic, etc.)
+                let has_formatting = children.iter().any(|n| matches!(n,
+                    Node::Bold(_) | Node::Italic(_) | Node::Emph(_) | Node::Monospace(_)
+                    | Node::Colored { .. } | Node::SmallCaps(_) | Node::Underline(_)
+                    | Node::InlineMath(_) | Node::FontStyleDecl(_) | Node::FontSize { .. }
+                ));
+                if has_formatting {
+                    // Render each child preserving formatting, centered
+                    layout_centered_rich(children, state, doc, source)?;
+                } else {
+                    state.text_buf.clear();
+                    for child in children { node_to_text(child, &mut state.text_buf, source); }
+                    let text: &str = unsafe { &*(state.text_buf.trim() as *const str) };
+                    if text.is_empty() { continue; }
+                    layout_centered_text(text, state)?;
+                }
             }
             Node::TextParagraph(offset, len) | Node::TextRef(offset, len) => {
                 let text = source[*offset as usize..(*offset as usize + *len as usize)].trim();
@@ -276,7 +355,7 @@ pub(super) fn layout_centered(content: &[Node], state: &mut LayoutState, doc: &D
     Ok(())
 }
 
-fn layout_centered_text(text: &str, state: &mut LayoutState) -> Result<()> {
+pub(super) fn layout_centered_text(text: &str, state: &mut LayoutState) -> Result<()> {
     let font_size = state.current_font_size;
     let font_style = state.current_font_style;
     let color = state.current_color;
@@ -321,6 +400,129 @@ fn layout_centered_text(text: &str, state: &mut LayoutState) -> Result<()> {
         state.emit_text(remaining, font_size, font_style, color);
         state.current_y += line_h * state.line_spacing;
     }
+    state.add_vertical_space(font_size * 0.2);
+    Ok(())
+}
+
+/// Layout a paragraph with rich formatting (bold, italic, etc.) centered.
+/// Collects styled segments, measures total width, and centers on each line.
+fn layout_centered_rich(children: &[Node], state: &mut LayoutState, _doc: &Document, source: &str) -> Result<()> {
+    let font_size = state.current_font_size;
+    let base_style = state.current_font_style;
+    let base_color = state.current_color;
+    let line_h = font_size * 1.2;
+    let para_width = state.text_width();
+
+    // Collect segments with their style info
+    struct Segment { text: String, style: FontStyle, color: Color, font_size: f32 }
+    let mut segments: Vec<Segment> = Vec::new();
+
+    fn collect_segments(nodes: &[Node], style: FontStyle, color: Color, font_size: f32, source: &str, out: &mut Vec<Segment>) {
+        for node in nodes {
+            match node {
+                Node::Text(s) => { out.push(Segment { text: s.clone(), style, color, font_size }); }
+                Node::TextRef(o, l) => {
+                    let t = &source[*o as usize..(*o as usize + *l as usize)];
+                    out.push(Segment { text: t.to_string(), style, color, font_size });
+                }
+                Node::Bold(c) => { collect_segments(c, FontStyle::Bold, color, font_size, source, out); }
+                Node::Italic(c) | Node::Emph(c) => { collect_segments(c, FontStyle::Italic, color, font_size, source, out); }
+                Node::Monospace(c) => { collect_segments(c, FontStyle::Monospace, color, font_size, source, out); }
+                Node::SmallCaps(c) => { collect_segments(c, FontStyle::SmallCaps, color, font_size, source, out); }
+                Node::Colored { color: c, content } => { collect_segments(content, style, *c, font_size, source, out); }
+                Node::FontSize { size, content } => {
+                    let pts = size.to_points(font_size);
+                    collect_segments(content, style, color, pts, source, out);
+                }
+                _ => {
+                    // Fallback: extract text
+                    let mut buf = String::new();
+                    super::text::node_to_text(node, &mut buf, source);
+                    if !buf.is_empty() { out.push(Segment { text: buf, style, color, font_size }); }
+                }
+            }
+        }
+    }
+
+    collect_segments(children, base_style, base_color, font_size, source, &mut segments);
+
+    // Measure total width of all segments
+    let mut total_w = 0.0f32;
+    for seg in &segments {
+        let fid = font::style_to_font_id(seg.style);
+        total_w += font::measure_text(&seg.text, fid, seg.font_size);
+    }
+
+    // Simple case: fits on one line — center it
+    if total_w <= para_width {
+        state.ensure_space(line_h);
+        state.current_x = state.text_left() + (para_width - total_w) / 2.0;
+        for seg in &segments {
+            state.emit_text(&seg.text, seg.font_size, seg.style, seg.color);
+            let fid = font::style_to_font_id(seg.style);
+            state.current_x += font::measure_text(&seg.text, fid, seg.font_size);
+        }
+        state.current_y += line_h * state.line_spacing;
+    } else {
+        // Multi-line: word-wrap segments and center each line
+        // Flatten into words with style info
+        struct StyledPiece { text: String, style: FontStyle, color: Color, font_size: f32, width: f32, is_space: bool }
+        let mut pieces: Vec<StyledPiece> = Vec::new();
+        for seg in &segments {
+            let fid = font::style_to_font_id(seg.style);
+            for word in seg.text.split_inclusive(' ') {
+                let trimmed = word.trim_end();
+                if !trimmed.is_empty() {
+                    let w = font::measure_text(trimmed, fid, seg.font_size);
+                    pieces.push(StyledPiece { text: trimmed.to_string(), style: seg.style, color: seg.color, font_size: seg.font_size, width: w, is_space: false });
+                }
+                if word.ends_with(' ') {
+                    let sw = font::measure_text(" ", fid, seg.font_size);
+                    pieces.push(StyledPiece { text: " ".to_string(), style: seg.style, color: seg.color, font_size: seg.font_size, width: sw, is_space: true });
+                }
+            }
+        }
+
+        // Word-wrap into lines
+        let mut lines: Vec<(usize, usize)> = Vec::new(); // (start, end) into pieces
+        let mut line_start = 0;
+        let mut line_w = 0.0f32;
+        for (i, p) in pieces.iter().enumerate() {
+            if p.is_space { line_w += p.width; continue; }
+            if line_w > 0.0 && line_w + p.width > para_width {
+                lines.push((line_start, i));
+                line_start = i;
+                line_w = p.width;
+            } else {
+                line_w += p.width;
+            }
+        }
+        if line_start < pieces.len() { lines.push((line_start, pieces.len())); }
+
+        for (start, end) in &lines {
+            // Measure line content width (excluding trailing spaces)
+            let mut lw = 0.0f32;
+            for p in &pieces[*start..*end] {
+                lw += p.width;
+            }
+            // Trim trailing spaces from measurement
+            let mut trim_end = *end;
+            while trim_end > *start && pieces[trim_end - 1].is_space { trim_end -= 1; lw -= pieces[trim_end].width; }
+
+            state.ensure_space(line_h);
+            state.current_x = state.text_left() + (para_width - lw).max(0.0) / 2.0;
+            for p in &pieces[*start..trim_end] {
+                if p.is_space {
+                    state.current_x += p.width;
+                } else {
+                    state.emit_text(&p.text, p.font_size, p.style, p.color);
+                    state.current_x += p.width;
+                }
+            }
+            state.current_y += line_h * state.line_spacing;
+        }
+    }
+
     state.add_vertical_space(font_size * 0.2);
     Ok(())
 }

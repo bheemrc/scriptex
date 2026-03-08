@@ -38,12 +38,26 @@ pub(super) fn layout_title(state: &mut LayoutState, doc: &Document, source: &str
     if let Some(author) = &doc.preamble.author {
         let size = state.base_font_size * 1.2;
         let metrics = FontMetrics::new(size, FontStyle::Regular);
-        let tw = metrics.measure_text(author);
-        let cx = state.text_left() + (state.text_width() - tw) / 2.0;
-        state.ensure_space(metrics.line_height());
-        state.current_x = cx;
-        state.emit_text(author, size, FontStyle::Regular, Color::BLACK);
-        state.current_y += metrics.line_height();
+        let para_width = state.text_width();
+        // Split by \and or , for multi-author, then word-wrap each line
+        let parts: Vec<&str> = if author.contains("\\and") {
+            author.split("\\and").map(|s| s.trim()).collect()
+        } else {
+            vec![author.as_str()]
+        };
+        for part in &parts {
+            let tw = metrics.measure_text(part);
+            if tw <= para_width {
+                let cx = state.text_left() + (para_width - tw) / 2.0;
+                state.ensure_space(metrics.line_height());
+                state.current_x = cx;
+                state.emit_text(part, size, FontStyle::Regular, Color::BLACK);
+                state.current_y += metrics.line_height();
+            } else {
+                // Word-wrap long author names
+                super::environments::layout_centered_text(part, state)?;
+            }
+        }
         state.add_vertical_space(6.0);
     }
 

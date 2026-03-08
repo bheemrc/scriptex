@@ -272,6 +272,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
             let fid = if style == FontStyle::Bold { FontId::TimesBold } else { FontId::TimesRoman };
 
             // Use pre-computed math box if available (for cells with inline math/dingbats)
+            // rule_sep is already included in row height, so text starts at y + cell_padding
             if let Some(Some(ref math_box)) = cell_math.get(row_idx).and_then(|r| r.get(cell_idx)) {
                 let display_w = math_box.width;
                 let text_x = match align {
@@ -279,8 +280,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
                     ColumnSpec::Right => cx + cell_content_width - display_w,
                     _ => cx,
                 };
-                let rule_sep = if row.hline_before { font_size * 0.9 } else { 0.0 };
-                let text_y = y + cell_padding + rule_sep;
+                let text_y = y + cell_padding;
                 emit_math_elements(math_box, text_x, text_y + math_box.height, state);
             } else {
                 for (line_idx, line_text) in cell_lines.iter().enumerate() {
@@ -290,8 +290,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
                         ColumnSpec::Right => cx + cell_content_width - display_w,
                         _ => cx,
                     };
-                    let rule_sep = if row.hline_before { font_size * 0.9 } else { 0.0 };
-                    let text_y = y + cell_padding + rule_sep + line_idx as f32 * line_h;
+                    let text_y = y + cell_padding + line_idx as f32 * line_h;
                     state.current_x = text_x;
                     state.current_y = text_y;
                     state.emit_text(line_text, state.current_font_size, style, Color::BLACK);

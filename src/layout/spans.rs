@@ -559,6 +559,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
     let total_lines = lines.len();
     let mut first_line = true;
     let mut prev_max_below = text_descent;
+    let mut prev_hyphen: Option<(usize, usize)> = None; // (word_index, break_point) from previous line
     for (line_idx, line) in lines.iter().enumerate() {
         if !first_line {
             let effective_step = (prev_max_below + line.max_above).max(step);
@@ -582,17 +583,25 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 if word.text == " " {
                     space_count += 1;
                     content_w += word.width;
+                } else if let Some((prev_wi, prev_bp)) = prev_hyphen {
+                    if wi == prev_wi {
+                        // Use suffix width, not full word width
+                        let fid = crate::font::style_to_font_id(word.style);
+                        content_w += crate::font::measure_text(&word.text[prev_bp..], fid, word.font_size);
+                    } else {
+                        content_w += word.width;
+                    }
                 } else {
                     content_w += word.width;
                 }
             }
             if space_count > 0 {
                 let slack = available - content_w;
-                // Justify if line is at least 55% full (TeX-like threshold)
-                if slack > 0.0 && slack < available * 0.45 {
+                // Justify if line is at least 70% full (TeX badness ~200 equivalent)
+                if slack > 0.0 && slack < available * 0.30 {
                     extra_per_space = slack / space_count as f32;
-                    // Allow up to 0.6em stretch per space for professional justification
-                    extra_per_space = extra_per_space.min(font_size * 0.6);
+                    // Allow up to 0.4em stretch per space to avoid rivers
+                    extra_per_space = extra_per_space.min(font_size * 0.4);
                 } else if slack < 0.0 && slack > -font_size * 1.5 {
                     // Allow slight compression for overfull lines
                     extra_per_space = slack / space_count as f32;
@@ -613,6 +622,19 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 let right_edge = state.text_left() + text_width;
                 line_x = (right_edge - remaining_w).max(line_x);
                 continue;
+            }
+            // Handle suffix of a word hyphenated on the previous line
+            if let Some((prev_wi, prev_bp)) = prev_hyphen {
+                if wi == prev_wi {
+                    let suffix = &word.text[prev_bp..];
+                    if !suffix.is_empty() {
+                        state.current_x = line_x;
+                        state.emit_text(suffix, word.font_size, word.style, word.color);
+                        let fid = crate::font::style_to_font_id(word.style);
+                        line_x += crate::font::measure_text(suffix, fid, word.font_size);
+                    }
+                    continue;
+                }
             }
             if let Some((hyph_wi, bp)) = line.hyphen {
                 if wi == hyph_wi {
@@ -654,9 +676,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
             line_x += word.width;
         }
 
-        if let Some((hyph_wi, bp)) = line.hyphen {
-            let _ = (hyph_wi, bp);
-        }
+        prev_hyphen = line.hyphen;
         prev_max_below = line.max_below;
         first_line = false;
     }

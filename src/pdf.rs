@@ -337,8 +337,22 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
         let y2 = layout.height - link.y;
         let x1 = link.x;
         let x2 = link.x + link.width;
-        write!(w, "<< /Type /Annot /Subtype /Link /Rect [{:.1} {:.1} {:.1} {:.1}] /Border [0 0 0] /A << /Type /Action /S /URI /URI ({}) >> >>\nendobj\n",
-            x1, y1, x2, y2, escape_pdf_string(&link.url))?;
+        if link.url.is_empty() {
+            // Internal cross-reference link
+            if let Some(dest_page) = link.dest_page {
+                let dest_page_idx = (dest_page as usize).min(page_ids.len().saturating_sub(1));
+                let dest_y_pdf = layout.height - link.dest_y;
+                write!(w, "<< /Type /Annot /Subtype /Link /Rect [{:.1} {:.1} {:.1} {:.1}] /Border [0 0 0] /Dest [{} 0 R /XYZ 0 {:.0} 0] >>\nendobj\n",
+                    x1, y1, x2, y2, page_ids[dest_page_idx], dest_y_pdf)?;
+            } else {
+                write!(w, "<< /Type /Annot /Subtype /Link /Rect [{:.1} {:.1} {:.1} {:.1}] /Border [0 0 0] >>\nendobj\n",
+                    x1, y1, x2, y2)?;
+            }
+        } else {
+            // External URL link
+            write!(w, "<< /Type /Annot /Subtype /Link /Rect [{:.1} {:.1} {:.1} {:.1}] /Border [0 0 0] /A << /Type /Action /S /URI /URI ({}) >> >>\nendobj\n",
+                x1, y1, x2, y2, escape_pdf_string(&link.url))?;
+        }
     }
 
     // Write outline objects (PDF bookmarks)
