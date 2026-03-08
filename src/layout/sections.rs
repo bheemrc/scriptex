@@ -30,7 +30,13 @@ pub(super) fn layout_section(
     let line_height = font_size * super::state::baselineskip_factor(state.base_font_size);
     // Ensure heading + spacing + at least 3 lines of body text fit on current page
     // This prevents orphaned headings near page bottoms (LaTeX \clubpenalty equivalent)
-    state.ensure_space(line_height + level.spacing_after() + state.cached_line_height * 3.5);
+    let min_body_lines = match level {
+        SectionLevel::Section | SectionLevel::Chapter | SectionLevel::Part => 3.5,
+        SectionLevel::Subsection => 2.5,
+        SectionLevel::Subsubsection => 2.0,
+        _ => 1.5, // paragraph, subparagraph
+    };
+    state.ensure_space(line_height + level.spacing_after() + state.cached_line_height * min_body_lines);
 
     state.text_buf.clear();
     if numbered {

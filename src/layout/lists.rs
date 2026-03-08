@@ -46,8 +46,8 @@ pub(super) fn layout_list(
         let line_h = state.current_font_size * 1.2;
         state.ensure_space(line_h);
 
-        let marker_x = state.text_left() - 15.0;
-        state.current_x = marker_x;
+        let fs = state.current_font_size;
+        let marker_gap = fs * 0.3; // gap between marker and text
         if numbered {
             state.text_buf.clear();
             match depth {
@@ -72,29 +72,32 @@ pub(super) fn layout_list(
                 }
             }
             let marker: &str = unsafe { &*(state.text_buf.as_str() as *const str) };
-            state.emit_text(marker, state.current_font_size, FontStyle::Regular, Color::BLACK);
+            // Right-align numbered marker before text boundary
+            let marker_w = font::measure_text(marker, FontId::TimesRoman, fs);
+            state.current_x = state.text_left() - marker_gap - marker_w;
+            state.emit_text(marker, fs, FontStyle::Regular, Color::BLACK);
         } else {
             // LaTeX itemize bullets: level 0 = filled circle (textbullet),
             // level 1 = en-dash, level 2 = filled small triangle, level 3+ = centered dot
-            let fs = state.current_font_size;
+            let bullet_base_x = state.text_left() - fs * 1.0; // bullet area starts ~1em before text
             let by = state.current_y - fs * 0.3; // vertical center of x-height (above baseline)
             match depth {
                 0 => {
                     // Filled circle bullet (•) - radius ~1.5pt for 10pt font
                     let bullet_r = fs * 0.17;
-                    let bx = marker_x + bullet_r + fs * 0.3;
+                    let bx = bullet_base_x + bullet_r + fs * 0.3;
                     state.emit_rounded_rect(bx - bullet_r, by - bullet_r, bullet_r * 2.0, bullet_r * 2.0, Some(Color::BLACK), None, bullet_r);
                 }
                 1 => {
                     // En-dash (–) for second level
                     let dash_w = fs * 0.5;
-                    let dash_x = marker_x + fs * 0.2;
+                    let dash_x = bullet_base_x + fs * 0.2;
                     state.emit_line(dash_x, by, dash_x + dash_w, by, 0.5, Color::BLACK);
                 }
                 _ => {
                     // Small filled circle for deeper levels
                     let bullet_r = fs * 0.10;
-                    let bx = marker_x + bullet_r + fs * 0.3;
+                    let bx = bullet_base_x + bullet_r + fs * 0.3;
                     state.emit_rounded_rect(bx - bullet_r, by - bullet_r, bullet_r * 2.0, bullet_r * 2.0, Some(Color::BLACK), None, bullet_r);
                 }
             }
