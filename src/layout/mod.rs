@@ -1282,7 +1282,8 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
 
         Node::Citation(key, opt, style) => {
             let cite_text = resolve_citations(key, opt.as_deref(), &state.citation_map, *style, &state.author_year_map);
-            state.emit_text(&cite_text, state.current_font_size, FontStyle::Regular, Color::BLACK);
+            let cite_color = state.cite_color;
+            state.emit_text(&cite_text, state.current_font_size, FontStyle::Regular, cite_color);
             state.current_x += font::measure_text(&cite_text, FontId::TimesRoman, state.current_font_size);
         }
 

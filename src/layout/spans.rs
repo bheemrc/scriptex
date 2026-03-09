@@ -212,7 +212,18 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
             }
             Node::Citation(key, opt, cite_style) => {
                 let cite_text = resolve_citations(key, opt.as_deref(), citations, *cite_style, author_year_map);
-                out.push(StyledSpan { text: cite_text, style, color, font_size, underline: false, strikethrough: false });
+                // Citations use cite_color (hyperref default: dark green)
+                let cite_color = Color::from_rgb_u8(0, 100, 0);
+                out.push(StyledSpan { text: cite_text, style, color: cite_color, font_size, underline: false, strikethrough: false });
+            }
+            Node::Ref(_) | Node::EqRef(_) | Node::Cref(..) => {
+                let mut t = String::new();
+                node_to_text_resolved(node, &mut t, source, labels);
+                if !t.is_empty() {
+                    // Cross-references use link_color (hyperref default: dark red)
+                    let link_color = Color::from_rgb_u8(128, 0, 0);
+                    out.push(StyledSpan { text: t, style, color: link_color, font_size, underline: false, strikethrough: false });
+                }
             }
             Node::Href { content, .. } => {
                 let link_color = Color::from_rgb_u8(0, 0, 180);
