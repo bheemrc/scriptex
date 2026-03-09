@@ -630,6 +630,24 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
     let fn_count_after = state.footnotes.len();
     for _ in fn_count_before..fn_count_after { state.reserve_footnote_space(); }
 
+    // Italic correction: insert a thin space when transitioning from italic to upright text
+    // This prevents visual collision between slanted and upright glyphs (LaTeX \/ command)
+    {
+        let mut i = 0;
+        while i + 1 < words.len() {
+            let is_italic_prev = matches!(words[i].style, FontStyle::Italic | FontStyle::BoldItalic)
+                && words[i].text != " " && !words[i].text.is_empty();
+            let is_upright_next = !matches!(words[i+1].style, FontStyle::Italic | FontStyle::BoldItalic)
+                && words[i+1].text != " " && !words[i+1].text.is_empty();
+            if is_italic_prev && is_upright_next {
+                // TeX italic correction ≈ 0.02-0.04em; use 0.03em as a reasonable average
+                let ic = words[i].font_size * 0.03;
+                words[i].width += ic;
+            }
+            i += 1;
+        }
+    }
+
     let base_font_id = font::style_to_font_id(FontStyle::Regular);
     let text_ascent = font::font_ascent(base_font_id, font_size);
     let text_descent = font::font_descent(base_font_id, font_size);
