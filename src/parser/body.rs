@@ -871,8 +871,8 @@ impl<'a> Parser<'a> {
             | "\\sloppy" | "\\fussy"
             | "\\selectfont" | "\\frenchspacing"
             | "\\nonfrenchspacing" | "\\newblock"
-            | "\\/" | "\\-" | "\\ignorespaces" | "\\leavevmode"
-            | "\\unskip" | "\\null" => Ok(None),
+            | "\\/" | "\\ignorespaces" | "\\leavevmode"
+            | "\\unskip" | "\\null" | "\\-" => Ok(None),
             "\\strut" => {
                 // Zero-width box with full font height — ensures consistent line/row height
                 Ok(Some(Node::Rule { width: 0.0, height: 0.0 }))

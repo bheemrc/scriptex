@@ -422,6 +422,9 @@ impl LayoutState {
         if fn_y_start < self.current_y + 20.0 {
             // Not enough space — defer to next page
             self.footnotes = footnotes;
+            // Restore cached_max_y since footnote space won't be used on this page
+            self.cached_max_y = orig_max_y;
+            self.footnote_reserved = 0.0;
             return;
         }
 

@@ -849,20 +849,19 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
 
             // Check float placement hint
             let placement = &fig.placement;
-            let has_h = placement.contains('h') || placement.contains('H');
             let force_h = placement.contains('H');
-            let has_t = placement.contains('t') || placement.contains('b') || placement.contains('p');
+            let has_h = placement.contains('h') || force_h;
+            let has_float = placement.contains('t') || placement.contains('b') || placement.contains('p');
 
             if force_h {
                 // [H] = force here, no deferral
                 layout_figure_inline(fig, state, doc, source)?;
             } else if has_h {
-                // [htbp] or [h]: try here, but if insufficient space, defer
+                // [htbp] or [h]: try here, but if insufficient space, defer to top of next page
                 let remaining = state.cached_max_y - state.current_y;
                 let min_space = state.base_font_size * 5.0;
                 let full_page = state.cached_max_y - state.cached_start_y;
                 if remaining < min_space && remaining < full_page * 0.8 {
-                    // Not enough space here — defer to top of next page
                     use state::DeferredFloat;
                     state.deferred_top_floats.push(DeferredFloat {
                         content: fig.content.clone(),
@@ -873,8 +872,8 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 } else {
                     layout_figure_inline(fig, state, doc, source)?;
                 }
-            } else if has_t {
-                // [t] only: defer to top of next page
+            } else if has_float {
+                // [t], [b], or [p]: defer to top of next page
                 use state::DeferredFloat;
                 state.deferred_top_floats.push(DeferredFloat {
                     content: fig.content.clone(),
@@ -995,6 +994,10 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
         }
 
         Node::PageBreak => {
+            // Flush deferred floats before page break (same as \clearpage)
+            if state.should_render_top_floats() {
+                render_top_floats(state, doc, source)?;
+            }
             state.new_page();
         }
 

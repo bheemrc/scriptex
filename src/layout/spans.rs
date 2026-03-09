@@ -700,7 +700,25 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 // O(1) line width via prefix sums
                 let lw = pw(end) - pw(start) - trail_sp;
 
-                let max_w = if is_first_line && a == 0 { text_width - first_line_used } else { text_width };
+                let mut max_w = if is_first_line && a == 0 { text_width - first_line_used } else { text_width };
+
+                // Hanging punctuation: allow trailing punctuation to protrude into right margin
+                // This produces optically even right margins (microtype protrusion)
+                let last_content = end.checked_sub(1).and_then(|i| {
+                    if i >= seg_start && words[i].text != " " { Some(i) } else if i > seg_start { Some(i - 1) } else { None }
+                });
+                if let Some(lci) = last_content {
+                    let lt = &words[lci].text;
+                    let last_char = lt.as_bytes().last().copied().unwrap_or(0);
+                    let protrusion = match last_char {
+                        b'.' | b',' => font_size * 0.05,   // 50% of typical glyph width
+                        b'-' => font_size * 0.04,
+                        b':' | b';' => font_size * 0.03,
+                        b')' | b'\'' | b'"' => font_size * 0.03,
+                        _ => 0.0,
+                    };
+                    max_w += protrusion;
+                }
 
                 // Prune: earlier starts only make lines wider
                 if lw > max_w * 1.3 && j > a + 1 { break; }
@@ -838,7 +856,9 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 step  // Normal text — use standard baselineskip
             };
             state.current_y += effective_step;
-            state.ensure_space(line_height);
+            // Use actual line height (ascent + descent) instead of estimated line_height
+            let actual_line_h = line.max_above + line.max_below;
+            state.ensure_space(actual_line_h.max(line_height));
         } else if line.max_above > text_ascent {
             state.current_y += line.max_above - text_ascent;
         }
@@ -869,11 +889,42 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 content_w += word.width;
             }
         }
+        // Hanging punctuation: widen available space for lines ending/starting with punctuation
+        let mut hang_right = 0.0f32;
+        let mut hang_left = 0.0f32;
+        if align == crate::document::AlignmentMode::Justify || align == crate::document::AlignmentMode::FlushLeft {
+            // Right-side protrusion for trailing punctuation
+            let last_content_idx = (line.start..line.end).rev().find(|&i| words[i].text != " ");
+            if let Some(lci) = last_content_idx {
+                let last_byte = words[lci].text.as_bytes().last().copied().unwrap_or(0);
+                hang_right = match last_byte {
+                    b'.' | b',' => font_size * 0.05,
+                    b'-' => font_size * 0.04,
+                    b':' | b';' => font_size * 0.03,
+                    b')' | b'\'' | b'"' => font_size * 0.03,
+                    _ => 0.0,
+                };
+            }
+            // Left-side protrusion for opening punctuation
+            let first_content_idx = (line.start..line.end).find(|&i| words[i].text != " ");
+            if let Some(fci) = first_content_idx {
+                let first_byte = words[fci].text.as_bytes().first().copied().unwrap_or(0);
+                hang_left = match first_byte {
+                    b'(' | b'[' => font_size * 0.03,
+                    _ => 0.0,
+                };
+            }
+        }
+        let effective_available = available + hang_right + hang_left;
+        if hang_left > 0.0 {
+            line_x -= hang_left;
+        }
+
         if align == crate::document::AlignmentMode::Justify && !is_last_line {
             if space_count > 0 {
-                let slack = available - content_w;
+                let slack = effective_available - content_w;
                 // Justify if line is at least 35% full (TeX justifies aggressively)
-                if slack > 0.0 && slack < available * 0.65 {
+                if slack > 0.0 && slack < effective_available * 0.65 {
                     extra_per_space = slack / space_count as f32;
                     // TeX inter-word stretch: ~1.67pt for 10pt font (0.167em)
                     // Allow more for very few spaces, but keep tight for even text color

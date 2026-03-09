@@ -636,7 +636,7 @@ impl FontSizeSpec {
     pub fn to_points(&self, base: f32) -> f32 {
         match self {
             FontSizeSpec::Tiny => base * 0.5,
-            FontSizeSpec::Scriptsize => base * 0.6,
+            FontSizeSpec::Scriptsize => base * 0.7,  // LaTeX: 7pt at 10pt base
             FontSizeSpec::Footnotesize => base * 0.8,  // LaTeX: 8pt at 10pt base
             FontSizeSpec::Small => base * 0.9,       // LaTeX: 9pt at 10pt base
             FontSizeSpec::Normalsize => base,
