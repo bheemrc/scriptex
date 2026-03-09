@@ -72,7 +72,10 @@ fn layout_display_math_simple(math_nodes: &[MathNode], numbered: bool, state: &m
     let owned: Vec<MathNode> = filtered.into_iter().cloned().collect();
     let math_box = math_layout::layout_math(&owned, state.current_font_size);
 
-    let eq_num_width = if numbered { 40.0 } else { 0.0 };
+    // Reserve space for equation number: measure "(99)" as typical width + margin
+    let eq_num_width = if numbered {
+        crate::font::measure_text("(99)", crate::font::FontId::TimesRoman, state.current_font_size) + 8.0
+    } else { 0.0 };
     let avail_width = state.text_width() - eq_num_width;
 
     if math_box.width <= avail_width {
@@ -287,7 +290,9 @@ fn layout_aligned_math(math_nodes: &[MathNode], numbered: bool, state: &mut Layo
     let row_spacing = font_size * 1.6;
     let total_content_width: f32 = col_widths.iter().sum::<f32>() + col_gap * (num_cols.max(1) - 1) as f32;
     let total_height = row_spacing * rows.len() as f32;
-    let eq_num_width = if numbered { 40.0 } else { 0.0 };
+    let eq_num_width = if numbered {
+        crate::font::measure_text("(99)", crate::font::FontId::TimesRoman, font_size) + 8.0
+    } else { 0.0 };
     let avail_width = state.text_width() - eq_num_width;
 
     state.ensure_space(total_height + state.base_font_size * 1.6);
@@ -335,12 +340,12 @@ fn layout_aligned_math(math_nodes: &[MathNode], numbered: bool, state: &mut Layo
                     state.equation_counter += 1;
                     format!("({})", state.equation_counter)
                 };
-                let num_x = state.text_left() + state.text_width() - 30.0;
+                let num_w = crate::font::measure_text(&eq_text, crate::font::FontId::TimesRoman, font_size);
+                let num_x = state.text_left() + state.text_width() - num_w;
                 let offset = (state.all_text.len() - state.current_page_text_start as usize) as u32;
                 state.all_text.push_str(&eq_text);
-                let max_h = row_boxes.iter().map(|b| b.height).fold(0.0f32, f32::max);
                 state.all_elements.push(PageElement::Text {
-                    x: num_x, y: baseline_y + max_h,
+                    x: num_x, y: baseline_y,
                     text_offset: offset, text_len: eq_text.len().min(65535) as u16,
                     font_size_100: (font_size * 100.0) as u16, font_style: FontStyle::Regular,
                     color: Color::BLACK, word_spacing_50: 0,
