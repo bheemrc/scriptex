@@ -51,11 +51,11 @@ fn emit_smallcaps_spans(text: &str, style: FontStyle, color: Color, font_size: f
     }
 }
 
-pub(super) fn nodes_to_spans(nodes: &[Node], style: FontStyle, color: Color, font_size: f32, base_size: f32, out: &mut Vec<StyledSpan>, source: &str, labels: &HashMap<String, String>, citations: &HashMap<String, u32>) {
-    nodes_to_spans_sc(nodes, style, color, font_size, base_size, false, out, source, labels, citations);
+pub(super) fn nodes_to_spans(nodes: &[Node], style: FontStyle, color: Color, font_size: f32, base_size: f32, out: &mut Vec<StyledSpan>, source: &str, labels: &HashMap<String, String>, citations: &HashMap<String, u32>, author_year_map: &HashMap<String, (String, String)>) {
+    nodes_to_spans_sc(nodes, style, color, font_size, base_size, false, out, source, labels, citations, author_year_map);
 }
 
-fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: f32, base_size: f32, smallcaps: bool, out: &mut Vec<StyledSpan>, source: &str, labels: &HashMap<String, String>, citations: &HashMap<String, u32>) {
+fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: f32, base_size: f32, smallcaps: bool, out: &mut Vec<StyledSpan>, source: &str, labels: &HashMap<String, String>, citations: &HashMap<String, u32>, author_year_map: &HashMap<String, (String, String)>) {
     let mut style = style;
     let mut color = color;
     let mut font_size = font_size;
@@ -101,11 +101,11 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
             }
             Node::Bold(children) => {
                 let s = match style { FontStyle::Italic => FontStyle::BoldItalic, _ => FontStyle::Bold };
-                nodes_to_spans_sc(children, s, color, font_size, base_size, smallcaps, out, source, labels, citations);
+                nodes_to_spans_sc(children, s, color, font_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
             }
             Node::Italic(children) => {
                 let s = match style { FontStyle::Bold => FontStyle::BoldItalic, _ => FontStyle::Italic };
-                nodes_to_spans_sc(children, s, color, font_size, base_size, smallcaps, out, source, labels, citations);
+                nodes_to_spans_sc(children, s, color, font_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
             }
             Node::Emph(children) => {
                 // \emph toggles: italic→upright, upright→italic (LaTeX convention)
@@ -115,7 +115,7 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
                     FontStyle::Bold => FontStyle::BoldItalic,
                     _ => FontStyle::Italic,
                 };
-                nodes_to_spans_sc(children, s, color, font_size, base_size, smallcaps, out, source, labels, citations);
+                nodes_to_spans_sc(children, s, color, font_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
             }
             Node::Monospace(children) => {
                 let mut t = String::new();
@@ -129,22 +129,22 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
                     FontStyle::BoldItalic | FontStyle::SansSerifBoldItalic => FontStyle::SansSerifBoldItalic,
                     _ => FontStyle::SansSerif,
                 };
-                nodes_to_spans_sc(children, sf_style, color, font_size, base_size, smallcaps, out, source, labels, citations);
+                nodes_to_spans_sc(children, sf_style, color, font_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
             }
             Node::Code(s) => {
                 out.push(StyledSpan { text: s.clone(), style: FontStyle::Monospace, color, font_size, underline: false, strikethrough: false });
             }
             Node::SmallCaps(children) => {
-                nodes_to_spans_sc(children, style, color, font_size, base_size, true, out, source, labels, citations);
+                nodes_to_spans_sc(children, style, color, font_size, base_size, true, out, source, labels, citations, author_year_map);
             }
             Node::Underline(children) => {
                 let start_idx = out.len();
-                nodes_to_spans_sc(children, style, color, font_size, base_size, smallcaps, out, source, labels, citations);
+                nodes_to_spans_sc(children, style, color, font_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
                 for span in &mut out[start_idx..] { span.underline = true; }
             }
             Node::Strikethrough(children) => {
                 let start_idx = out.len();
-                nodes_to_spans_sc(children, style, color, font_size, base_size, smallcaps, out, source, labels, citations);
+                nodes_to_spans_sc(children, style, color, font_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
                 for span in &mut out[start_idx..] { span.strikethrough = true; }
             }
             Node::Dingbat(code) => {
@@ -153,17 +153,17 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
                 out.push(StyledSpan { text, style: FontStyle::ZapfDingbats, color, font_size, underline: false, strikethrough: false });
             }
             Node::Group(children) | Node::Superscript(children) | Node::Subscript(children) => {
-                nodes_to_spans_sc(children, style, color, font_size, base_size, smallcaps, out, source, labels, citations);
+                nodes_to_spans_sc(children, style, color, font_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
             }
             Node::Colored { content, color: c } => {
-                nodes_to_spans_sc(content, style, *c, font_size, base_size, smallcaps, out, source, labels, citations);
+                nodes_to_spans_sc(content, style, *c, font_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
             }
             Node::FontSize { size, content } => {
                 let new_size = size.to_points(base_size);
-                nodes_to_spans_sc(content, style, color, new_size, base_size, smallcaps, out, source, labels, citations);
+                nodes_to_spans_sc(content, style, color, new_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
             }
             Node::Paragraph(children) => {
-                nodes_to_spans_sc(children, style, color, font_size, base_size, smallcaps, out, source, labels, citations);
+                nodes_to_spans_sc(children, style, color, font_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
             }
             Node::NonBreakingSpace => {
                 // Non-breaking space: use \x02 as marker to prevent line-breaking
@@ -194,13 +194,12 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
                 inline_math_to_spans(math, color, font_size, out);
             }
             Node::Citation(key, opt, cite_style) => {
-                // For spans, use numeric style (author-year handled at layout level)
-                let cite_text = resolve_citations(key, opt.as_deref(), citations, *cite_style, &std::collections::HashMap::new());
+                let cite_text = resolve_citations(key, opt.as_deref(), citations, *cite_style, author_year_map);
                 out.push(StyledSpan { text: cite_text, style, color, font_size, underline: false, strikethrough: false });
             }
             Node::Href { content, .. } => {
                 let link_color = Color::from_rgb_u8(0, 0, 180);
-                nodes_to_spans_sc(content, style, link_color, font_size, base_size, smallcaps, out, source, labels, citations);
+                nodes_to_spans_sc(content, style, link_color, font_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
             }
             _ => {
                 let mut t = String::new();
@@ -453,6 +452,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
     let fn_count_before = state.footnotes.len();
     let labels_ref: &HashMap<String, String> = &state.label_map;
     let citations_ref: &HashMap<String, u32> = &state.citation_map;
+    let ay_map_ref: &HashMap<String, (String, String)> = &state.author_year_map;
 
     for child in children {
         match child {
@@ -482,7 +482,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
             Node::Superscript(content) => {
                 // \textsuperscript: render at 65% size with vertical offset
                 let mut sup_spans = Vec::new();
-                nodes_to_spans(content, state.current_font_style, state.current_color, font_size * 0.65, base_font_size, &mut sup_spans, source, labels_ref, citations_ref);
+                nodes_to_spans(content, state.current_font_style, state.current_color, font_size * 0.65, base_font_size, &mut sup_spans, source, labels_ref, citations_ref, ay_map_ref);
                 for span in &sup_spans {
                     let sf = span.font_size;
                     let font_id = font::style_to_font_id(span.style);
@@ -523,7 +523,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 let mut node_spans = Vec::new();
                 let node_style = state.current_font_style;
                 let node_color = state.current_color;
-                nodes_to_spans(&[child.clone()], node_style, node_color, font_size, base_font_size, &mut node_spans, source, labels_ref, citations_ref);
+                nodes_to_spans(&[child.clone()], node_style, node_color, font_size, base_font_size, &mut node_spans, source, labels_ref, citations_ref, ay_map_ref);
                 for span in &node_spans {
                     let sf = span.font_size;
                     let font_id = crate::font::style_to_font_id(span.style);

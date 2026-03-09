@@ -37,6 +37,32 @@ impl<'a> Parser<'a> {
         Ok(nodes)
     }
 
+    /// Parse math nodes until \] is encountered (for \[...\] display math)
+    pub(crate) fn parse_math_until_close_bracket(&mut self) -> Result<Vec<MathNode>> {
+        let mut nodes = Vec::new();
+        loop {
+            match self.current().kind {
+                TokenKind::Eof => bail!("Unexpected end in \\[...\\] display math"),
+                TokenKind::Command => {
+                    let cmd = self.current_text();
+                    if cmd == "\\]" {
+                        self.advance();
+                        break;
+                    }
+                    if let Some(node) = self.parse_math_node()? {
+                        nodes.push(node);
+                    }
+                }
+                _ => {
+                    if let Some(node) = self.parse_math_node()? {
+                        nodes.push(node);
+                    }
+                }
+            }
+        }
+        Ok(nodes)
+    }
+
     pub(crate) fn parse_math_node(&mut self) -> Result<Option<MathNode>> {
         match self.current().kind {
             TokenKind::Eof => Ok(None),

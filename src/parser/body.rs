@@ -458,6 +458,10 @@ impl<'a> Parser<'a> {
                     padding: 3.0,
                 }))))
             }
+            "\\centerline" => {
+                let content = self.read_braced_nodes()?;
+                Ok(Some(Node::Center(content)))
+            }
             "\\mbox" => {
                 let content = self.read_braced_nodes()?;
                 Ok(Some(Node::Group(content)))
@@ -611,6 +615,20 @@ impl<'a> Parser<'a> {
                     _ => Ok(Some(Node::Text(c))),
                 }
             }
+            // \[...\] display math
+            "\\[" => {
+                let math = self.parse_math_until_close_bracket()?;
+                return Ok(Some(Node::DisplayMath(Box::new(DisplayMathData {
+                    nodes: math,
+                    numbered: false,
+                    env_type: MathEnvType::DollarDollar,
+                }))));
+            }
+            "\\]" => {
+                // Stray \] without matching \[, skip
+                return Ok(None);
+            }
+
             "\\\\" => Ok(Some(Node::Backslash)),
             "\\textbackslash" => Ok(Some(Node::Backslash)),
             "\\S" => Ok(Some(Node::Text("\u{00A7}".to_string()))),

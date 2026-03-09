@@ -14,6 +14,14 @@ struct MacroDef {
     default_first: Option<String>,
 }
 
+/// Dimension-setting commands extracted from .sty files to inject into the preamble.
+/// These are lines like \setlength\textwidth{...}, \addtolength\topmargin{...}, etc.
+#[derive(Debug, Clone)]
+pub struct StyleDimensions {
+    /// Raw lines to inject before \begin{document}
+    pub lines: Vec<String>,
+}
+
 /// Environment definition (from \newenvironment)
 #[derive(Debug, Clone)]
 struct EnvDef {
@@ -54,7 +62,10 @@ impl MacroEngine {
 
     /// Collect macro definitions from local .sty files referenced by \usepackage.
     /// Only collects "safe" user-facing macros (no @ internals).
-    pub fn collect_style_definitions(&mut self, source: &str, base_dir: &std::path::Path) {
+    /// Also extracts dimension-setting commands (\setlength, \addtolength, etc.)
+    /// and returns them for injection into the preamble.
+    pub fn collect_style_definitions(&mut self, source: &str, base_dir: &std::path::Path) -> Vec<String> {
+        let mut dim_lines = Vec::new();
         // Find preamble (before \begin{document})
         let preamble_end = source.find("\\begin{document}")
             .unwrap_or(source.len().min(50000));
@@ -99,12 +110,22 @@ impl MacroEngine {
                                         self.environments.insert(name, def);
                                     }
                                 }
+                                // Extract dimension-setting commands from style file
+                                extract_dimension_commands(&content, &mut dim_lines);
                             }
                         }
                     }
                 }
             }
         }
+        dim_lines
+    }
+
+    /// Collect dimension commands from .sty file content and store them for injection.
+    /// Handles \setlength, \addtolength, and raw TeX dimension assignments.
+    #[allow(dead_code)]
+    pub fn style_dimensions(&self) -> &[String] {
+        &[]
     }
 
     /// Collect all macro definitions from source (preamble + body)
@@ -859,14 +880,16 @@ pub fn expand(source: &str) -> String {
 /// Returns None if no expansion was needed (caller can use original source).
 pub fn expand_with_base_dir(source: &str, base_dir: Option<&std::path::Path>) -> Option<String> {
     let mut engine = MacroEngine::new();
+    let mut dim_lines = Vec::new();
 
     // Collect macros from local .sty files referenced by \usepackage
     if let Some(dir) = base_dir {
-        engine.collect_style_definitions(source, dir);
+        dim_lines = engine.collect_style_definitions(source, dir);
     }
 
     let has_source_macros = MacroEngine::has_macros(source);
-    if !has_source_macros && engine.macros.is_empty() && engine.environments.is_empty() {
+    let has_dims = !dim_lines.is_empty();
+    if !has_source_macros && engine.macros.is_empty() && engine.environments.is_empty() && !has_dims {
         return None;
     }
 
@@ -875,22 +898,79 @@ pub fn expand_with_base_dir(source: &str, base_dir: Option<&std::path::Path>) ->
     }
 
     let has_builtins = source.contains("\\today");
-    if engine.macros.is_empty() && engine.environments.is_empty() && !has_builtins {
+    if engine.macros.is_empty() && engine.environments.is_empty() && !has_builtins && !has_dims {
         return None;
     }
 
     // Single-pass expansion is sufficient for most documents.
-    // User macros typically expand to builtins (\mathcal, \operatorname, etc.)
-    // which the parser handles. Two-pass only needed if user macros expand
-    // to other user macros.
     let pass1 = engine.expand(source);
 
     // Quick check: does the expanded text still contain user macros?
-    // If so, do a second expansion pass.
-    let needs_pass2 = engine.macros.keys().any(|name| pass1.contains(name.as_str()));
-    if needs_pass2 {
-        return Some(engine.expand(&pass1));
+    let result = if engine.macros.keys().any(|name| pass1.contains(name.as_str())) {
+        engine.expand(&pass1)
+    } else {
+        pass1
+    };
+
+    // Inject dimension-setting commands from .sty files before \begin{document}
+    if has_dims {
+        if let Some(bd_pos) = result.find("\\begin{document}") {
+            let mut out = String::with_capacity(result.len() + dim_lines.iter().map(|l| l.len() + 1).sum::<usize>());
+            out.push_str(&result[..bd_pos]);
+            out.push('\n');
+            for line in &dim_lines {
+                out.push_str(line);
+                out.push('\n');
+            }
+            out.push_str(&result[bd_pos..]);
+            return Some(out);
+        }
     }
 
-    Some(pass1)
+    Some(result)
+}
+
+/// Extract dimension-setting commands from a .sty file.
+/// Looks for \setlength, \addtolength, and raw TeX dimension assignments.
+fn extract_dimension_commands(content: &str, out: &mut Vec<String>) {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        // Skip comments and empty lines
+        if trimmed.starts_with('%') || trimmed.is_empty() { continue; }
+        // \setlength\textheight{9.0in} or \setlength{\textwidth}{6.75in}
+        if trimmed.starts_with("\\setlength") {
+            // Only keep lines setting known layout dimensions
+            if trimmed.contains("textwidth") || trimmed.contains("textheight")
+                || trimmed.contains("topmargin") || trimmed.contains("oddsidemargin")
+                || trimmed.contains("evensidemargin") || trimmed.contains("columnsep")
+                || trimmed.contains("headheight") || trimmed.contains("headsep")
+            {
+                out.push(trimmed.to_string());
+            }
+        }
+        // \addtolength{\topmargin}{-0.29in}
+        else if trimmed.starts_with("\\addtolength") {
+            if trimmed.contains("textwidth") || trimmed.contains("textheight")
+                || trimmed.contains("topmargin") || trimmed.contains("oddsidemargin")
+                || trimmed.contains("evensidemargin") || trimmed.contains("columnsep")
+            {
+                out.push(trimmed.to_string());
+            }
+        }
+        // Raw TeX assignments: \evensidemargin -0.23in
+        else if trimmed.starts_with("\\evensidemargin") || trimmed.starts_with("\\oddsidemargin") {
+            // Convert to \setlength form: \setlength\evensidemargin{-0.23in}
+            let parts: Vec<&str> = trimmed.splitn(2, char::is_whitespace).collect();
+            if parts.len() == 2 {
+                let val = parts[1].trim();
+                if !val.is_empty() && !val.starts_with('\\') {
+                    out.push(format!("\\setlength{{{}}}{{{}}}", parts[0], val));
+                }
+            }
+        }
+        // \twocolumn command anywhere on the line
+        if trimmed.contains("\\twocolumn") {
+            out.push("\\twocolumn".to_string());
+        }
+    }
 }

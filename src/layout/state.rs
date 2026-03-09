@@ -399,7 +399,7 @@ impl LayoutState {
             super::spans::nodes_to_spans(
                 fn_content, FontStyle::Regular, Color::BLACK,
                 fn_size, fn_size, &mut spans, source_ref,
-                &labels, &citations,
+                &labels, &citations, &self.author_year_map,
             );
             // Estimate number of lines from total text width
             let text_w: f32 = spans.iter().map(|s| {

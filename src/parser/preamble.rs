@@ -356,6 +356,10 @@ impl<'a> Parser<'a> {
                                 }
                             }
                         }
+                        "\\twocolumn" => {
+                            self.advance();
+                            preamble.page_setup.columns = 2;
+                        }
                         "\\thispagestyle"
                         | "\\newcommand" | "\\def"
                         | "\\DeclareMathOperator"

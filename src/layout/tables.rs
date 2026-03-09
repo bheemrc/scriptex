@@ -11,12 +11,12 @@ use super::math::emit_math_elements;
 
 use anyhow::Result;
 
-/// Check if cell content contains inline math or dingbats (requires special font handling)
+/// Check if cell content contains inline math, dingbats, or citations (requires special layout)
 fn cell_has_math(content: &[Node]) -> bool {
     fn check(nodes: &[Node]) -> bool {
         for n in nodes {
             match n {
-                Node::InlineMath(_) | Node::Dingbat(_) => return true,
+                Node::InlineMath(_) | Node::Dingbat(_) | Node::Citation(..) => return true,
                 Node::Bold(c) | Node::Italic(c) | Node::Emph(c) | Node::Group(c)
                 | Node::Underline(c) | Node::Monospace(c) | Node::SmallCaps(c)
                 | Node::SansSerif(c)
@@ -139,7 +139,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
             let fid = if style == FontStyle::Bold { FontId::TimesBold } else { FontId::TimesRoman };
             // For cells with math, compute math box for accurate width
             let (w, math_box) = if has_math {
-                let mb = layout_cell_with_math(&cell.content, font_size, source, &state.label_map);
+                let mb = layout_cell_with_math(&cell.content, font_size, source, &state.label_map, &state.citation_map, &state.author_year_map);
                 let w = mb.width;
                 (w, Some(mb))
             } else {
@@ -423,16 +423,27 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     Ok(())
 }
 
-/// Layout a cell that contains inline math/dingbats as a horizontal sequence of text + math boxes
-fn layout_cell_with_math(content: &[Node], font_size: f32, source: &str, label_map: &std::collections::HashMap<String, String>) -> math_layout::MathBox {
+/// Layout a cell that contains inline math/dingbats/citations as a horizontal sequence of text + math boxes
+fn layout_cell_with_math(
+    content: &[Node], font_size: f32, source: &str,
+    label_map: &std::collections::HashMap<String, String>,
+    citation_map: &std::collections::HashMap<String, u32>,
+    author_year_map: &std::collections::HashMap<String, (String, String)>,
+) -> math_layout::MathBox {
     let mut result = math_layout::MathBox { width: 0.0, height: font_size, depth: 0.0, elements: Vec::new() };
     let mut x = 0.0f32;
-    layout_cell_nodes(&mut result, &mut x, content, font_size, source, label_map);
+    layout_cell_nodes(&mut result, &mut x, content, font_size, source, label_map, citation_map, author_year_map, Color::BLACK);
     result.width = x;
     result
 }
 
-fn layout_cell_nodes(result: &mut math_layout::MathBox, x: &mut f32, nodes: &[Node], font_size: f32, source: &str, label_map: &std::collections::HashMap<String, String>) {
+fn layout_cell_nodes(
+    result: &mut math_layout::MathBox, x: &mut f32, nodes: &[Node], font_size: f32, source: &str,
+    label_map: &std::collections::HashMap<String, String>,
+    citation_map: &std::collections::HashMap<String, u32>,
+    author_year_map: &std::collections::HashMap<String, (String, String)>,
+    color: Color,
+) {
     for node in nodes {
         match node {
             Node::InlineMath(math_nodes) => {
@@ -456,7 +467,15 @@ fn layout_cell_nodes(result: &mut math_layout::MathBox, x: &mut f32, nodes: &[No
                 let text = String::from(char::from(*code));
                 let tw = font::char_width_1000(FontId::ZapfDingbats, *code) as f32 * font_size / 1000.0;
                 result.elements.push(math_layout::MathElement::Text {
-                    x: *x, y: 0.0, text, font_size, font_id: FontId::ZapfDingbats, color: Color::BLACK,
+                    x: *x, y: 0.0, text, font_size, font_id: FontId::ZapfDingbats, color,
+                });
+                *x += tw;
+            }
+            Node::Citation(key, opt, style) => {
+                let cite_text = super::text::resolve_citations(key, opt.as_deref(), citation_map, *style, author_year_map);
+                let tw = font::measure_text(&cite_text, FontId::TimesRoman, font_size);
+                result.elements.push(math_layout::MathElement::Text {
+                    x: *x, y: 0.0, text: cite_text, font_size, font_id: FontId::TimesRoman, color,
                 });
                 *x += tw;
             }
@@ -464,10 +483,13 @@ fn layout_cell_nodes(result: &mut math_layout::MathBox, x: &mut f32, nodes: &[No
             Node::Bold(c) | Node::Italic(c) | Node::Emph(c) | Node::Group(c)
             | Node::Underline(c) | Node::Monospace(c) | Node::SmallCaps(c) | Node::SansSerif(c)
             | Node::Strikethrough(c) | Node::Paragraph(c) | Node::Superscript(c) | Node::Subscript(c) => {
-                layout_cell_nodes(result, x, c, font_size, source, label_map);
+                layout_cell_nodes(result, x, c, font_size, source, label_map, citation_map, author_year_map, color);
             }
-            Node::Colored { content, .. } | Node::FontSize { content, .. } => {
-                layout_cell_nodes(result, x, content, font_size, source, label_map);
+            Node::Colored { content, color: node_color, .. } => {
+                layout_cell_nodes(result, x, content, font_size, source, label_map, citation_map, author_year_map, *node_color);
+            }
+            Node::FontSize { content, .. } => {
+                layout_cell_nodes(result, x, content, font_size, source, label_map, citation_map, author_year_map, color);
             }
             _ => {
                 let mut text = String::new();
@@ -476,7 +498,7 @@ fn layout_cell_nodes(result: &mut math_layout::MathBox, x: &mut f32, nodes: &[No
                 if !text.is_empty() {
                     let tw = font::measure_text(&text, FontId::TimesRoman, font_size);
                     result.elements.push(math_layout::MathElement::Text {
-                        x: *x, y: 0.0, text, font_size, font_id: FontId::TimesRoman, color: Color::BLACK,
+                        x: *x, y: 0.0, text, font_size, font_id: FontId::TimesRoman, color,
                     });
                     *x += tw;
                 }

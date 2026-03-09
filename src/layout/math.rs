@@ -51,15 +51,14 @@ fn is_math_break_point(node: &MathNode) -> bool {
 }
 
 fn display_math_skip(state: &LayoutState) -> f32 {
-    // LaTeX \abovedisplayskip: 10pt + 2pt + 4pt for 10pt (≈ 1.0em)
+    // LaTeX \abovedisplayskip: 10pt + 2pt + 4pt for 10pt (≈ 1.6em)
     // LaTeX \abovedisplayshortskip: 0pt + 3pt for 10pt (≈ 0.3em)
-    // Short skip is used when preceding line ends before the equation starts —
-    // this is the common case for centered equations, so use shorter skip by default
+    // We use a middle ground: slightly less than full skip for visual compactness
     let fs = state.current_font_size;
     if state.text_width() < 300.0 {
-        fs * 0.5 // two-column or narrow layout
+        fs * 0.6 // two-column or narrow layout: more compact
     } else {
-        fs * 0.6 // slightly less than full skip — most equations follow short lines
+        fs * 0.8 // standard layout: closer to LaTeX abovedisplayskip
     }
 }
 
