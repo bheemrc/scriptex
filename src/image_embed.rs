@@ -265,8 +265,6 @@ fn compute_display_size(pixel_w: u32, pixel_h: u32, target_w: Option<f32>, targe
 /// Write image XObject to PDF
 /// Returns the number of bytes written and a Vec of objects written
 pub fn write_image_xobject(img: &EmbeddedImage, obj_id: u32, buf: &mut Vec<u8>) {
-    let itoa = itoa::Buffer::new();
-
     // Image XObject
     buf.extend_from_slice(itoa::Buffer::new().format(obj_id).as_bytes());
     buf.extend_from_slice(b" 0 obj\n<< /Type /XObject /Subtype /Image");

@@ -440,7 +440,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         font_size * baselineskip_factor(font_size)
     };
     let step = line_height * state.line_spacing;
-    let space_width = crate::font::measure_text(" ", crate::font::FontId::TimesRoman, font_size);
+    let _space_width = crate::font::measure_text(" ", crate::font::FontId::TimesRoman, font_size);
     let text_width = state.text_width();
     let indent = if with_indent { state.paragraph_indent } else { 0.0 };
 

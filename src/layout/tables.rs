@@ -8,7 +8,6 @@ use crate::math_layout;
 use super::state::LayoutState;
 use super::text::node_to_text_resolved;
 use super::math::emit_math_elements;
-use super::spans;
 
 use anyhow::Result;
 

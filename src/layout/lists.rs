@@ -5,7 +5,6 @@ use crate::document::*;
 use crate::typeset::FontStyle;
 use crate::font::{self, FontId};
 use super::state::LayoutState;
-use super::text::node_to_text;
 use super::spans::layout_rich_paragraph;
 
 use anyhow::Result;

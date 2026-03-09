@@ -19,17 +19,19 @@ pub(super) fn layout_paragraph(children: &[Node], state: &mut LayoutState, _doc:
 
 /// Calculate word spacing for justified text.
 #[inline]
+#[allow(dead_code)]
 pub(super) fn justify_line(line: &[u8], available_width: f32, avg_width: f32, font_size: f32, is_last_line: bool) -> i16 {
     justify_line_ext(line, available_width, avg_width, font_size, is_last_line, crate::font::FontId::TimesRoman)
 }
 
+#[allow(dead_code)]
 pub(super) fn justify_line_ext(line: &[u8], available_width: f32, avg_width: f32, font_size: f32, is_last_line: bool, font_id: crate::font::FontId) -> i16 {
     justify_line_with_width(line, available_width, avg_width, font_size, is_last_line, font_id, None)
 }
 
 /// Justify a line, optionally using a pre-computed pixel width to avoid re-measuring.
 #[inline]
-fn justify_line_with_width(line: &[u8], available_width: f32, avg_width: f32, font_size: f32, is_last_line: bool, font_id: crate::font::FontId, precomputed_width: Option<f32>) -> i16 {
+fn justify_line_with_width(line: &[u8], available_width: f32, avg_width: f32, font_size: f32, is_last_line: bool, _font_id: crate::font::FontId, precomputed_width: Option<f32>) -> i16 {
     if is_last_line { return 0; }
     let num_spaces = memchr::memchr_iter(b' ', line).count();
     if num_spaces == 0 { return 0; }
@@ -456,6 +458,7 @@ pub(super) fn layout_text_content_no_indent(text: &str, state: &mut LayoutState)
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(super) fn layout_text_line(text: &str, state: &mut LayoutState) {
     state.emit_text(text, state.current_font_size, state.current_font_style, state.current_color);
 }
@@ -464,6 +467,7 @@ pub(super) fn layout_text_line(text: &str, state: &mut LayoutState) {
 // Plain text extraction (node_to_text, math_to_text, etc.)
 // ============================================================
 
+#[allow(dead_code)]
 pub(super) fn nodes_to_text_buf(nodes: &[Node], buf: &mut String, source: &str) {
     buf.clear();
     for node in nodes {
@@ -471,6 +475,7 @@ pub(super) fn nodes_to_text_buf(nodes: &[Node], buf: &mut String, source: &str) 
     }
 }
 
+#[allow(dead_code)]
 pub fn nodes_to_text(nodes: &[Node], source: &str) -> String {
     if nodes.len() == 1 {
         if let Node::Text(s) = &nodes[0] {
@@ -724,6 +729,7 @@ pub(super) fn math_to_text_buf(nodes: &[MathNode], out: &mut String) {
     for node in nodes { math_node_to_text(node, out); }
 }
 
+#[allow(dead_code)]
 pub(super) fn math_to_text(nodes: &[MathNode]) -> String {
     let mut result = String::new();
     math_to_text_buf(nodes, &mut result);

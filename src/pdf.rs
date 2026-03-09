@@ -992,7 +992,7 @@ fn write_image_xobject<W: Write>(w: &mut CountingWriter<W>, img: &crate::layout:
         ImageFormat::Png => {
             // PNG: decode to raw pixels and embed with FlateDecode
             // Simple approach: extract IDAT chunks and re-deflate raw RGB data
-            if let Some((rgb_data, has_alpha)) = decode_png_to_rgb(&img.data) {
+            if let Some((rgb_data, _has_alpha)) = decode_png_to_rgb(&img.data) {
                 let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&rgb_data, 6);
                 let cs = "/DeviceRGB";
                 w.write_all(b"<< /Type /XObject /Subtype /Image")?;

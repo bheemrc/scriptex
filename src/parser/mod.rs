@@ -441,7 +441,7 @@ impl<'a> Parser<'a> {
             match self.current().kind {
                 TokenKind::Eof => break,
                 TokenKind::Command if self.current().cmd == cmd_id::END => {
-                    let save = self.pos;
+                    let _save = self.pos;
                     self.advance();
                     self.skip_whitespace_and_comments();
                     if self.current().kind == TokenKind::OpenBrace {

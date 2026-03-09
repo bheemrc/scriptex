@@ -260,7 +260,6 @@ fn layout_math_node(node: &MathNode, font_size: f32, display: bool) -> MathBox {
             let inner = layout_math(content, font_size);
             let pad = font_size * 0.15;
             let bw = inner.width + 2.0 * pad;
-            let bh = inner.height + inner.depth + 2.0 * pad;
             let mut result = MathBox {
                 width: bw,
                 height: inner.height + pad,
@@ -646,7 +645,7 @@ fn layout_symbol(symbol: &str, font_size: f32) -> MathBox {
             let width = font::char_width_pt(FontId::Symbol, sym_byte, font_size);
             // Use per-glyph height estimates rather than full font bbox
             // Greek lowercase (α-ω): x-height; uppercase (Α-Ω): cap-height
-            let is_lowercase_greek = matches!(ch, 'α'..='ω' | 'ϑ' | 'ϕ' | 'ϖ' | 'ϰ' | 'ϱ' | 'ε' | 'ϵ');
+            let is_lowercase_greek = matches!(ch, 'α'..='ω' | 'ϑ' | 'ϕ' | 'ϖ' | 'ϰ' | 'ϱ' | 'ϵ');
             let gh = if is_lowercase_greek { font_size * 0.45 } else { font_size * 0.7 };
             let gd = if matches!(ch, 'β' | 'γ' | 'μ' | 'ρ' | 'φ' | 'χ' | 'ψ' | 'ξ' | 'ζ' | 'η' | 'ϕ') {
                 font_size * 0.2 // descending Greek letters
@@ -974,7 +973,7 @@ fn layout_delimited_group(left: &str, right: &str, content: &[MathNode], font_si
     let content_depth = inner.depth.max(font_size * 0.2);
     let extra = font_size * 0.1; // slight extra clearance
 
-    let mut left_box = layout_delimiter(left, font_size, content_height + extra, content_depth + extra);
+    let left_box = layout_delimiter(left, font_size, content_height + extra, content_depth + extra);
     let mut right_box = layout_delimiter(right, font_size, content_height + extra, content_depth + extra);
 
     // Position: left delimiter, then content, then right delimiter

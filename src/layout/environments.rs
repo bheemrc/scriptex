@@ -105,7 +105,7 @@ pub(super) fn layout_algorithm(
     lines: &[AlgoLine],
     line_numbered: bool,
     state: &mut LayoutState,
-    doc: &Document,
+    _doc: &Document,
 ) -> Result<()> {
     state.add_vertical_space(state.base_font_size * 1.2);
     let font_size = state.current_font_size;
