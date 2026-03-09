@@ -88,10 +88,12 @@ pub(super) fn layout_proof(header: Option<&str>, content: &[Node], state: &mut L
 
     super::layout_nodes(content, state, doc, source)?;
 
-    // QED square — filled rectangle flush right
+    // QED square — filled rectangle flush right, vertically centered on x-height
     let sq = font_size * 0.45;
     let qed_x = state.text_left() + state.text_width() - sq;
-    let qed_y = state.current_y - sq;
+    // Position at half x-height above the last baseline (visually centered on text)
+    let x_height = font::font_info(FontId::TimesRoman).x_height as f32 * font_size / 1000.0;
+    let qed_y = state.current_y - (x_height + sq) / 2.0;
     state.emit_rect(qed_x, qed_y, sq, sq, Some(Color::BLACK), None);
     state.add_vertical_space(state.base_font_size * 0.8);
     Ok(())
