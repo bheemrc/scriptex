@@ -349,6 +349,7 @@ fn layout_nodes(nodes: &[Node], state: &mut LayoutState, doc: &Document, source:
             | Node::NonBreakingSpace | Node::Enquote(..) | Node::Url { .. }
             | Node::Copyright | Node::Registered | Node::Trademark
             | Node::EnDash | Node::EmDash | Node::Ellipsis | Node::Dingbat(_)
+            | Node::LaTeXLogo | Node::TeXLogo
         ));
         if has_loose_inlines {
             let grouped = group_inline_nodes(nodes);
@@ -719,7 +720,8 @@ fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Documen
     state.add_vertical_space(state.base_font_size * 0.8);
     let saved_indent = state.indent;
     let saved_font_size = state.current_font_size;
-    layout_nodes(&fig.content, state, doc, source)?;
+    // Layout figure content, handling side-by-side images
+    layout_figure_content(&fig.content, state, doc, source)?;
     if let Some(cap) = &fig.caption {
         state.figure_counter += 1;
         let fig_num = state.figure_counter;
@@ -751,6 +753,128 @@ fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Documen
     state.current_x = state.text_left();
     state.add_vertical_space(state.base_font_size * 0.8);
     state.suppress_next_indent = true;
+    Ok(())
+}
+
+/// Layout figure content with side-by-side image detection.
+/// When multiple Image nodes are found separated by HFill/HSpace, lay them out horizontally.
+fn is_whitespace_node(node: &Node, source: &str) -> bool {
+    match node {
+        Node::TextRef(offset, len) => {
+            let s = &source[*offset as usize..(*offset as usize + *len as usize)];
+            s.trim().is_empty()
+        }
+        Node::Text(s) => s.trim().is_empty(),
+        _ => false,
+    }
+}
+
+fn layout_figure_content(nodes: &[Node], state: &mut LayoutState, doc: &Document, source: &str) -> Result<()> {
+    // Collect runs of images separated by HFill/HSpace/whitespace for side-by-side layout
+    let mut i = 0;
+    while i < nodes.len() {
+        // Check if this starts a side-by-side image group
+        if matches!(&nodes[i], Node::Image(_)) {
+            let group_start = i;
+            let mut group_end = i + 1;
+            // Scan ahead: Image, (whitespace|HFill|HSpace)*, Image, ...
+            while group_end < nodes.len() {
+                match &nodes[group_end] {
+                    Node::HFill | Node::HSpace(_) => {
+                        group_end += 1;
+                    }
+                    n if is_whitespace_node(n, source) => {
+                        group_end += 1;
+                    }
+                    Node::Image(_) => {
+                        group_end += 1;
+                    }
+                    _ => break,
+                }
+            }
+            let image_count = nodes[group_start..group_end].iter()
+                .filter(|n| matches!(n, Node::Image(_)))
+                .count();
+            if image_count > 1 {
+                layout_images_side_by_side(&nodes[group_start..group_end], state, doc)?;
+                i = group_end;
+                continue;
+            }
+        }
+        // Default: layout node normally
+        layout_node(&nodes[i], state, doc, source)?;
+        i += 1;
+    }
+    Ok(())
+}
+
+/// Layout multiple images side-by-side within a figure
+fn layout_images_side_by_side(nodes: &[Node], state: &mut LayoutState, doc: &Document) -> Result<()> {
+    // Collect image data
+    let mut images: Vec<(f32, f32, usize)> = Vec::new(); // (width, height, image_idx)
+    let text_width = state.text_width();
+
+    for node in nodes {
+        if let Node::Image(img) = node {
+            let img_loaded = load_image_for_pdf(&img.path, state, &doc.preamble.graphics_paths);
+            if let Some((embedded, native_w, native_h)) = img_loaded {
+                let (eff_w, eff_h) = (native_w as f32, native_h as f32);
+                let (img_w, img_h) = if let Some(w) = img.width {
+                    if let Some(h) = img.height {
+                        (w, h)
+                    } else {
+                        let ratio = eff_h / eff_w;
+                        (w, w * ratio)
+                    }
+                } else if let Some(h) = img.height {
+                    let ratio = eff_w / eff_h;
+                    (h * ratio, h)
+                } else if let Some(scale) = img.scale {
+                    (eff_w * scale, eff_h * scale)
+                } else {
+                    (eff_w, eff_h)
+                };
+                let image_idx = state.images.len() as u32;
+                state.images.push(embedded);
+                images.push((img_w, img_h, image_idx as usize));
+            }
+        }
+    }
+
+    if images.is_empty() { return Ok(()); }
+
+    // Calculate total width and scale if needed
+    let total_w: f32 = images.iter().map(|(w, _, _)| *w).sum();
+    let gap = state.base_font_size * 0.5;
+    let total_with_gaps = total_w + gap * (images.len() - 1) as f32;
+    let scale = if total_with_gaps > text_width {
+        text_width / total_with_gaps
+    } else {
+        1.0
+    };
+
+    // Find max height for vertical centering
+    let max_h: f32 = images.iter().map(|(_, h, _)| *h * scale).fold(0.0f32, |a, b| a.max(b));
+    state.ensure_space(max_h + state.base_font_size * 1.0);
+
+    // Center the group horizontally
+    let actual_total = total_w * scale + gap * (images.len() - 1) as f32;
+    let mut x = state.text_left() + (text_width - actual_total) / 2.0;
+
+    for (w, h, idx) in &images {
+        let sw = *w * scale;
+        let sh = *h * scale;
+        // Vertically center within the row
+        let y_offset = (max_h - sh) / 2.0;
+        state.all_elements.push(PageElement::Image {
+            x, y: state.current_y + y_offset, width: sw, height: sh,
+            image_idx: *idx as u32, angle: 0.0,
+        });
+        x += sw + gap;
+    }
+
+    state.current_y += max_h + state.base_font_size * 0.6;
+    state.current_x = state.text_left();
     Ok(())
 }
 

@@ -325,7 +325,7 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
                         let mut we = ws_skip;
                         while we < len && bytes[we] > b' ' { we += 1; }
                         let next_word = &bytes[ws_skip..we];
-                        if next_word.len() >= 5 {
+                        if next_word.len() >= 7 {
                             let hyphen_w = widths[b'-' as usize] as f32 * scale;
                             let max_prefix_px = slack_px - hyphen_w - space_w;
                             let max_prefix = (max_prefix_px / avg_width).max(0.0) as usize;

@@ -247,21 +247,26 @@ pub(super) fn layout_bibliography(nodes: &[Node], state: &mut LayoutState, doc: 
     Ok(())
 }
 
-fn layout_bib_entry(num: u32, nodes: &[&Node], state: &mut LayoutState, doc: &Document, source: &str, indent: f32) -> Result<()> {
+fn layout_bib_entry(num: u32, nodes: &[&Node], state: &mut LayoutState, doc: &Document, source: &str, _indent: f32) -> Result<()> {
     state.ensure_space(state.current_font_size * 1.2);
     let font_size = if state.is_amsart { state.current_font_size * 0.85 } else { state.current_font_size * 0.9 };
 
     let mut ibuf = itoa::Buffer::new();
     let marker = format!("[{}]", ibuf.format(num));
     let marker_w = font::measure_text(&marker, FontId::TimesRoman, font_size);
-    let marker_x = state.text_left() + indent - marker_w - state.base_font_size * 0.4;
-    state.current_x = marker_x.max(state.text_left());
+    // Compute hanging indent from actual marker width + gap
+    let gap = state.base_font_size * 0.5;
+    let hang_indent = marker_w + gap;
+
+    // Emit marker at current left margin
+    state.current_x = state.text_left();
     state.emit_text(&marker, font_size, FontStyle::Regular, Color::BLACK);
 
     let saved_indent = state.indent;
     let saved_font_size = state.current_font_size;
-    state.set_indent(state.text_left() + indent);
-    state.current_x = state.text_left() + indent;
+    // set_indent takes absolute offset from margin_left, so add to current indent
+    state.set_indent(saved_indent + hang_indent);
+    state.current_x = state.text_left();
     state.current_font_size = font_size;
 
     let para_nodes = merge_adjacent_text(nodes, source);

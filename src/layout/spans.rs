@@ -840,7 +840,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 if next_wi < seg_end {
                     let next_word = &words[next_wi];
                     let wb = next_word.text.as_bytes();
-                    if wb.len() >= 5 && wb.iter().all(|&b| b.is_ascii_alphanumeric()) {
+                    if wb.len() >= 7 && wb.iter().all(|&b| b.is_ascii_alphanumeric()) {
                         let avail = slack - font_size * 0.1;
                         let fid = font::style_to_font_id(next_word.style);
                         let hyph_w = font::measure_text("-", fid, next_word.font_size);

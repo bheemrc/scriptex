@@ -13,7 +13,7 @@ pub fn best_break(word: &[u8], max_prefix_chars: usize) -> Option<usize> {
         wlen -= 1;
     }
 
-    if max_prefix_chars < 2 || wlen < 5 {
+    if max_prefix_chars < 3 || wlen < 7 {
         return None;
     }
 
@@ -146,6 +146,16 @@ pub fn best_break(word: &[u8], max_prefix_chars: usize) -> Option<usize> {
                     (b't', b'h') | (b'w', b'h') | (b'c', b'h') | (b'q', b'u') |
                     (b'g', b'n') | (b'k', b'n')) {
             if i + 1 < 32 { scores[i + 1] = -5; }
+        }
+    }
+
+    // Morpheme-aware rules for common words with tricky breaks
+    // Break "graph" words correctly: -graph- not -gra|ph-
+    for i in 0..n.saturating_sub(4) {
+        if w[i..].starts_with(b"graph") {
+            // Prefer break before "graph", block break within it
+            if i >= 2 && i < 32 { scores[i] = scores[i].max(5); }
+            if i + 2 < 32 { scores[i + 2] = -5; } // don't break gra|ph
         }
     }
 
