@@ -100,16 +100,17 @@ impl<'a> Parser<'a> {
         let num_str = &tok_text[..i];
         let value: f32 = num_str.parse().unwrap_or(0.0);
 
+        let fs = self.base_font_size;
         let points = match unit_str {
             "pt" => value,
             "mm" => value * 2.83465,
             "cm" => value * 28.3465,
             "in" => value * 72.0,
-            "em" => value * 10.0,
-            "ex" => value * 5.0,
+            "em" => value * fs,
+            "ex" => value * fs * 0.45,
             "bp" => value,
             "pc" => value * 12.0,
-            "mu" => value * 10.0 / 18.0,
+            "mu" => value * fs / 18.0,
             _ => value,
         };
 
@@ -133,11 +134,11 @@ impl<'a> Parser<'a> {
                             "mm" => value * 2.83465,
                             "cm" => value * 28.3465,
                             "in" => value * 72.0,
-                            "em" => value * 10.0,
-                            "ex" => value * 5.0,
+                            "em" => value * fs,
+                            "ex" => value * fs * 0.45,
                             "bp" => value,
                             "pc" => value * 12.0,
-                            "mu" => value * 10.0 / 18.0,
+                            "mu" => value * fs / 18.0,
                             _ => value,
                         };
                         if unit_len < next_text.len() {
@@ -194,13 +195,14 @@ impl<'a> Parser<'a> {
         };
 
         let value: f32 = num_str.trim().parse().ok()?;
+        let fs = self.base_font_size;
         let points = match unit {
             "pt" => value,
             "mm" => value * 2.83465,
             "cm" => value * 28.3465,
             "in" => value * 72.0,
-            "em" => value * 10.0,
-            "ex" => value * 5.0,
+            "em" => value * fs,
+            "ex" => value * fs * 0.45,
             "bp" => value,
             "pc" => value * 12.0,
             _ => value,

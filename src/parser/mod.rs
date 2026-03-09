@@ -26,6 +26,7 @@ pub struct Parser<'a> {
     pub(super) body_keywords: Option<String>,
     pub(super) body_subjclass: Option<(String, String)>, // (year, text)
     pub(super) custom_colors: std::collections::HashMap<String, Color>,
+    pub(super) base_font_size: f32, // for em/ex unit conversion
 }
 
 impl<'a> Parser<'a> {
@@ -44,6 +45,7 @@ impl<'a> Parser<'a> {
             body_keywords: None,
             body_subjclass: None,
             custom_colors: std::collections::HashMap::new(),
+            base_font_size: 10.0, // default, updated from preamble
         }
     }
 
@@ -55,6 +57,15 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Document> {
         self.skip_whitespace_and_comments();
         let class = self.parse_document_class()?;
+        // Set base_font_size from document class options for em/ex unit conversion
+        for opt in &class.options {
+            match opt.as_str() {
+                "10pt" => self.base_font_size = 10.0,
+                "11pt" => self.base_font_size = 11.0,
+                "12pt" => self.base_font_size = 12.0,
+                _ => {}
+            }
+        }
         let mut preamble = self.parse_preamble()?;
         let body = self.parse_body()?;
         // Apply body-time title/author (amsart places these after \begin{document})

@@ -618,8 +618,8 @@ impl FontSizeSpec {
         match self {
             FontSizeSpec::Tiny => base * 0.5,
             FontSizeSpec::Scriptsize => base * 0.6,
-            FontSizeSpec::Footnotesize => base * 0.7,
-            FontSizeSpec::Small => base * 0.85,
+            FontSizeSpec::Footnotesize => base * 0.8,  // LaTeX: 8pt at 10pt base
+            FontSizeSpec::Small => base * 0.9,       // LaTeX: 9pt at 10pt base
             FontSizeSpec::Normalsize => base,
             FontSizeSpec::Large => base * 1.2,
             FontSizeSpec::LargeX => base * 1.44,
