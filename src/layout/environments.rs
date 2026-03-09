@@ -164,7 +164,7 @@ pub(super) fn layout_algorithm(
             let num_str = ibuf.format(line_num);
             let num_w = font::measure_text(num_str, FontId::TimesRoman, num_font_size);
             // Right-align in gutter
-            state.current_x = left + num_gutter - num_w - 4.0;
+            state.current_x = left + num_gutter - num_w - font_size * 0.4;
             state.emit_text(num_str, num_font_size, FontStyle::Regular, Color::GRAY);
         }
 

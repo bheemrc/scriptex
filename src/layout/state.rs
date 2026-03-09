@@ -346,7 +346,7 @@ impl LayoutState {
         let fn_size = self.base_font_size * 0.8;
         let fn_line_height = fn_size * baselineskip_factor(fn_size);
         if self.footnote_reserved == 0.0 {
-            self.footnote_reserved = 10.0 + fn_line_height;
+            self.footnote_reserved = self.base_font_size + fn_line_height;
         } else {
             self.footnote_reserved += fn_line_height;
         }

@@ -356,7 +356,7 @@ impl<'a> Parser<'a> {
             "\\textsc" => { let n = self.read_braced_nodes()?; Ok(Some(Node::SmallCaps(n))) }
             "\\underline" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Underline(n))) }
             "\\sout" | "\\st" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Strikethrough(n))) }
-            "\\textrm" | "\\textnormal" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Group(n))) }
+            "\\textrm" | "\\textnormal" | "\\textup" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Group(n))) }
             "\\textsf" => { let n = self.read_braced_nodes()?; Ok(Some(Node::SansSerif(n))) }
             "\\textsl" => { let n = self.read_braced_nodes()?; Ok(Some(Node::Italic(n))) }
 
@@ -364,7 +364,7 @@ impl<'a> Parser<'a> {
             "\\bf" | "\\bfseries" => Ok(Some(Node::FontStyleDecl(FontDeclType::Bold))),
             "\\it" | "\\itshape" | "\\sl" | "\\slshape" => Ok(Some(Node::FontStyleDecl(FontDeclType::Italic))),
             "\\tt" | "\\ttfamily" => Ok(Some(Node::FontStyleDecl(FontDeclType::Monospace))),
-            "\\rm" | "\\rmfamily" | "\\normalfont" => Ok(Some(Node::FontStyleDecl(FontDeclType::Regular))),
+            "\\rm" | "\\rmfamily" | "\\normalfont" | "\\upshape" => Ok(Some(Node::FontStyleDecl(FontDeclType::Regular))),
             "\\sf" | "\\sffamily" => Ok(Some(Node::FontStyleDecl(FontDeclType::SansSerif))),
             "\\sc" | "\\scshape" => Ok(Some(Node::FontStyleDecl(FontDeclType::SmallCaps))),
 
@@ -433,7 +433,7 @@ impl<'a> Parser<'a> {
             "\\!" => Ok(Some(Node::HSpace(-3.0))),
             "\\ " => Ok(Some(Node::Text(" ".to_string()))), // explicit inter-word space
             "\\hfill" | "\\dotfill" | "\\hrulefill" => Ok(Some(Node::HFill)),
-            "\\vfill" => Ok(Some(Node::VSpace(200.0))),
+            "\\vfill" => Ok(Some(Node::VFill)),
             "\\phantom" | "\\hphantom" => {
                 // Invisible space estimated from content text
                 let text = self.read_braced_text()?;

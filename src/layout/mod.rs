@@ -594,7 +594,7 @@ fn layout_colorbox(boxdata: &ColorBoxData, state: &mut LayoutState, doc: &Docume
     let padding = boxdata.padding;
 
     let start_y = state.current_y;
-    let title_height = if boxdata.title.is_some() { 20.0 } else { 0.0 };
+    let title_height = if boxdata.title.is_some() { state.base_font_size * 2.0 } else { 0.0 };
 
     // Narrow content area using indent
     let saved_indent = state.indent;
@@ -607,7 +607,7 @@ fn layout_colorbox(boxdata: &ColorBoxData, state: &mut LayoutState, doc: &Docume
 
     if let Some(ref title) = boxdata.title {
         // Title bar
-        state.current_y += 2.0;
+        state.current_y += state.base_font_size * 0.2;
         let title_bar_y = state.current_y;
         if boxdata.corner_radius > 0.0 {
             state.emit_rounded_rect(
@@ -715,6 +715,10 @@ fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Documen
     if let Some(cap) = &fig.caption {
         state.figure_counter += 1;
         let fig_num = state.figure_counter;
+        // Register label for cross-references
+        if let Some(ref label) = fig.label {
+            state.label_map.insert(label.clone(), fig_num.to_string());
+        }
         // LaTeX \abovecaptionskip = 10pt default
         state.current_y += state.base_font_size * 1.0;
 
@@ -788,7 +792,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
         Node::ListOfFigures | Node::ListOfTables => {
             // Stub — emit heading, content not yet tracked
             let title = if matches!(node, Node::ListOfFigures) { "List of Figures" } else { "List of Tables" };
-            state.emit_section_heading(title, 14.0);
+            state.emit_section_heading(title, state.base_font_size * 1.44);
         }
 
         Node::PageNumbering(style) => {
@@ -846,11 +850,31 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             // Check float placement hint
             let placement = &fig.placement;
             let has_h = placement.contains('h') || placement.contains('H');
-            let has_t = placement.contains('t');
+            let force_h = placement.contains('H');
+            let has_t = placement.contains('t') || placement.contains('b') || placement.contains('p');
 
-            // If placement is purely [t] (no [h]), defer to top of next page
-            if has_t && !has_h {
-                // Defer: store content for top-of-next-page placement
+            if force_h {
+                // [H] = force here, no deferral
+                layout_figure_inline(fig, state, doc, source)?;
+            } else if has_h {
+                // [htbp] or [h]: try here, but if insufficient space, defer
+                let remaining = state.cached_max_y - state.current_y;
+                let min_space = state.base_font_size * 5.0;
+                let full_page = state.cached_max_y - state.cached_start_y;
+                if remaining < min_space && remaining < full_page * 0.8 {
+                    // Not enough space here — defer to top of next page
+                    use state::DeferredFloat;
+                    state.deferred_top_floats.push(DeferredFloat {
+                        content: fig.content.clone(),
+                        caption: fig.caption.clone(),
+                        label: fig.label.clone(),
+                        is_table: false,
+                    });
+                } else {
+                    layout_figure_inline(fig, state, doc, source)?;
+                }
+            } else if has_t {
+                // [t] only: defer to top of next page
                 use state::DeferredFloat;
                 state.deferred_top_floats.push(DeferredFloat {
                     content: fig.content.clone(),
@@ -859,7 +883,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                     is_table: false,
                 });
             } else {
-                // Inline placement (default, [h], [H], [htbp], etc.)
+                // No placement hint or unknown — inline
                 layout_figure_inline(fig, state, doc, source)?;
             }
 
@@ -944,6 +968,14 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
 
         Node::VSpace(pts) => {
             state.add_vertical_space(*pts);
+        }
+
+        Node::VFill => {
+            // Push to bottom of current page (leave space for remaining content)
+            let remaining = state.cached_max_y - state.current_y;
+            if remaining > 0.0 {
+                state.current_y += remaining;
+            }
         }
 
         Node::SetParIndent(pts) => {

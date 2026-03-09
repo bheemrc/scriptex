@@ -148,14 +148,15 @@ pub(super) fn layout_tikz_diagram(tikz_source: &str, state: &mut LayoutState, _d
 
     if result.elements.is_empty() {
         let placeholder = "[TikZ diagram]";
-        let box_h = 60.0;
         let base = state.base_font_size;
+        let box_h = base * 6.0;
+        let box_w = state.text_width() * 0.5;
         state.ensure_space(box_h + base * 2.0);
-        let x = state.text_left() + (state.text_width() - 300.0) / 2.0;
-        state.emit_rect(x, state.current_y, 300.0, box_h,
+        let x = state.text_left() + (state.text_width() - box_w) / 2.0;
+        state.emit_rect(x, state.current_y, box_w, box_h,
             Some(Color::rgb(0.95, 0.95, 0.98)), Some(Color::rgb(0.6, 0.6, 0.8)));
         let tw = font::measure_text(placeholder, FontId::TimesRoman, base);
-        state.current_x = x + (300.0 - tw) / 2.0;
+        state.current_x = x + (box_w - tw) / 2.0;
         state.emit_text(placeholder, base, FontStyle::Italic, Color::GRAY);
         state.current_y += box_h + base * 1.0;
         state.current_x = state.text_left();
@@ -187,7 +188,7 @@ pub(super) fn layout_tikz_diagram(tikz_source: &str, state: &mut LayoutState, _d
                 let px2 = base_x + x2 * scale; let py2 = base_y + y2 * scale;
                 state.emit_line(px1, py1, px2, py2, *width, *color);
                 let angle = (py2 - py1).atan2(px2 - px1);
-                let arr_len = 7.0;
+                let arr_len = *width * 3.5 + 3.5;
                 let a1x = px2 - arr_len * (angle - 0.35).cos();
                 let a1y = py2 - arr_len * (angle - 0.35).sin();
                 let a2x = px2 - arr_len * (angle + 0.35).cos();

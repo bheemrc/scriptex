@@ -212,7 +212,7 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
         let scale = font_size / 1000.0;
         let space_w = widths[b' ' as usize] as f32 * scale;
 
-        let x_first = state.text_left() + inline_offset;
+        let _x_first = state.text_left() + inline_offset;
         let x_rest = state.text_left();
         let first_line_width = full_text_width - inline_offset;
         // Use wider search window (narrow char width) to avoid breaking lines too early

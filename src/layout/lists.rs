@@ -28,12 +28,12 @@ pub(super) fn layout_list(
     let saved_para_indent = state.paragraph_indent;
     let depth = state.list_depth;
     state.list_depth += 1;
+    let base = state.base_font_size;
     // LaTeX default indent: ~25pt for enumerate, ~18pt for itemize
-    let list_indent = if numbered { 22.0 } else { 18.0 };
+    let list_indent = if numbered { base * 2.2 } else { base * 1.8 };
     state.set_indent(state.indent + list_indent);
     state.paragraph_indent = 0.0;
     // LaTeX \topsep: 8pt + \partopsep(2pt) for 10pt, scales with base size
-    let base = state.base_font_size;
     let topsep = if depth == 0 { base * 0.8 } else { base * 0.3 };
     state.add_vertical_space(topsep);
 
@@ -252,7 +252,7 @@ fn layout_bib_entry(num: u32, nodes: &[&Node], state: &mut LayoutState, doc: &Do
     let mut ibuf = itoa::Buffer::new();
     let marker = format!("[{}]", ibuf.format(num));
     let marker_w = font::measure_text(&marker, FontId::TimesRoman, font_size);
-    let marker_x = state.text_left() + indent - marker_w - 4.0;
+    let marker_x = state.text_left() + indent - marker_w - state.base_font_size * 0.4;
     state.current_x = marker_x.max(state.text_left());
     state.emit_text(&marker, font_size, FontStyle::Regular, Color::BLACK);
 

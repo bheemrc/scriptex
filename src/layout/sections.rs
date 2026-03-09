@@ -306,7 +306,7 @@ pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
         let available = state.text_width() - indent;
 
         state.current_x = x;
-        if text_w <= available - page_num_width - 10.0 {
+        if text_w <= available - page_num_width - base {
             state.emit_text(text, font_size, style, Color::BLACK);
             let after_text_x = x + text_w + base * 0.4;
             let dot_end = right_edge - page_num_width - base * 0.4;
@@ -333,7 +333,7 @@ pub(super) fn layout_table_of_contents(state: &mut LayoutState) -> Result<()> {
             state.toc_fixups.push(TocFixup { elem_idx, text_offset, toc_idx: toc_idx as u32 });
         } else {
             let metrics = FontMetrics::new(font_size, style);
-            let truncated_avail = available - page_num_width - 10.0;
+            let truncated_avail = available - page_num_width - base;
             if truncated_avail > 0.0 {
                 let lines = wrap_text(text, &metrics, truncated_avail);
                 if let Some(first) = lines.first() { state.emit_text(first, font_size, style, Color::BLACK); }

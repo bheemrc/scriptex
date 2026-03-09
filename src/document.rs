@@ -203,6 +203,8 @@ pub enum Node {
 
     /// Vertical space
     VSpace(f32),
+    /// Vertical fill: push to bottom of page
+    VFill,
     /// Set paragraph indent
     SetParIndent(f32),
     /// Set paragraph skip (\parskip)
