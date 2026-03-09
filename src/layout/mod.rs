@@ -700,6 +700,14 @@ fn layout_caption_paragraph(combined: &[Node], state: &mut LayoutState, source: 
 
 /// Render a figure/table float inline at the current position
 fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Document, source: &str) -> Result<()> {
+    // Page-fit check: if very little space remains, start a new page
+    // (figures shouldn't start in the last ~3 lines of a page)
+    let remaining_space = state.cached_max_y - state.current_y;
+    let min_figure_space = state.base_font_size * 5.0; // at least ~5 lines for a figure
+    let full_page_height = state.cached_max_y - state.cached_start_y;
+    if remaining_space < min_figure_space && remaining_space < full_page_height * 0.8 {
+        state.new_page();
+    }
     state.add_vertical_space(state.base_font_size * 1.2);
     let saved_indent = state.indent;
     let saved_font_size = state.current_font_size;
