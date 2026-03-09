@@ -710,9 +710,11 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         }
         let pw = |idx: usize| -> f32 { prefix[idx - seg_start] };
 
-        // DP: cost[i] = minimum badness to optimally break words up to bp[i]
+        // DP: cost[i] = minimum demerits to optimally break words up to bp[i]
+        // Uses TeX-like demerits with fitness classes for even paragraph texture
         let mut dp_cost: Vec<f64> = vec![f64::MAX; m];
         let mut dp_from: Vec<usize> = vec![0; m];
+        let mut dp_fitness: Vec<u8> = vec![1; m]; // Fitness class: 0=tight, 1=decent, 2=loose, 3=very loose
         dp_cost[0] = 0.0;
 
         for j in 1..m {
@@ -759,7 +761,6 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                         let o = (lw - max_w) as f64; o * o * 1000.0
                     } else {
                         // TeX \parfillskip: penalize very short last lines
-                        // A last line shorter than 15% of text width looks orphaned
                         let ratio = lw as f64 / max_w.max(1.0) as f64;
                         if ratio < 0.15 && j > 1 { 500.0 } else { 0.0 }
                     }
@@ -774,10 +775,18 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                     if ratio > 0.6 { b + 5000.0 } else { b }
                 };
 
-                let total = dp_cost[a] + badness;
+                // TeX fitness class: 0=tight(<-0.5), 1=decent(-0.5..0.5), 2=loose(0.5..1.0), 3=very_loose(>1.0)
+                let adj_ratio = if max_w > 0.0 { ((max_w - lw) / max_w) as f64 } else { 0.0 };
+                let fitness: u8 = if adj_ratio < -0.5 { 0 } else if adj_ratio < 0.5 { 1 } else if adj_ratio < 1.0 { 2 } else { 3 };
+
+                // TeX adj_demerits: penalize adjacent lines with very different fitness classes
+                let fitness_penalty = if (dp_fitness[a] as i8 - fitness as i8).unsigned_abs() > 1 { 3000.0 } else { 0.0 };
+
+                let total = dp_cost[a] + badness + fitness_penalty;
                 if total < dp_cost[j] {
                     dp_cost[j] = total;
                     dp_from[j] = a;
+                    dp_fitness[j] = fitness;
                 }
             }
         }
