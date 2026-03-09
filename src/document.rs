@@ -338,7 +338,12 @@ pub enum Node {
     Label(String),
     Ref(String),
     /// Clever reference — renders as "Type N" (\cref) or "TYPE N" (\Cref)
+    /// String may contain comma-separated labels for multi-ref: "fig:a,fig:b"
     Cref(String, bool),
+    /// Clever reference range: \crefrange{label1}{label2} (capitalize flag)
+    CrefRange(String, String, bool),
+    /// Label-only clever reference: \labelcref{label} — just the number
+    LabelCref(String),
     /// Equation reference — renders as (N)
     EqRef(String),
     /// Citation — key, optional argument text (e.g. "Prop.~1.6"), citation style
@@ -359,6 +364,12 @@ pub enum Node {
     /// Quote/quotation environment
     Quote(Vec<Node>),
     Quotation(Vec<Node>),
+
+    /// csquotes: \enquote{text} — context-sensitive quotation marks
+    /// bool = true for single quotes (\enquote*), nesting level tracked at layout time
+    Enquote(Vec<Node>, bool),
+    /// csquotes: \blockquote{text} — indented block quote
+    BlockQuote(Vec<Node>),
 
     /// Verbatim/code
     Verbatim(String),
@@ -476,6 +487,42 @@ pub enum Node {
         content: Vec<AlgoLine>,
         line_numbered: bool,
     },
+
+    /// Code listing (lstlisting / minted with options)
+    Listing(Box<ListingData>),
+
+    /// Algorithm2e environment
+    Algorithm2e(Box<Algorithm2eData>),
+
+    /// Margin note
+    MarginNote(Vec<Node>),
+
+    /// URL (monospace, with URL-aware line breaking)
+    Url { url: String, clickable: bool },
+
+    /// Custom counter operations
+    NewCounter { name: String, parent: Option<String> },
+    StepCounter(String),
+    RefStepCounter(String),
+    AddToCounter { name: String, value: i32 },
+
+    /// \numberwithin{child}{parent}
+    NumberWithin { child: String, parent: String },
+
+    /// \phantom{text} — invisible box with width+height
+    Phantom(Vec<Node>),
+    /// \vphantom{text} — invisible box with height only
+    VPhantom(Vec<Node>),
+    /// \smash{text} — render text with zero height
+    Smash(Vec<Node>),
+    /// \rlap{text} — overlay text to the right (zero width)
+    Rlap(Vec<Node>),
+    /// \llap{text} — overlay text to the left (zero width)
+    Llap(Vec<Node>),
+    /// \makebox[width][align]{text}
+    MakeBox { width: Option<f32>, align: Option<String>, content: Vec<Node> },
+    /// \raisebox{raise}{text}
+    RaiseBox { raise: f32, content: Vec<Node> },
 }
 
 /// A line in an algorithmic/pseudocode environment
@@ -502,6 +549,46 @@ pub struct ColorBoxData {
     pub corner_radius: f32,  // in points
     pub rule_width: f32,     // frame thickness in points
     pub padding: f32,        // inner padding in points
+}
+
+/// Data for lstlisting / minted code listings
+#[derive(Debug, Clone)]
+pub struct ListingData {
+    pub code: String,
+    pub language: Option<String>,
+    pub caption: Option<String>,
+    pub label: Option<String>,
+    pub numbers: ListingNumbers,
+    pub frame: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ListingNumbers {
+    None,
+    Left,
+    Right,
+}
+
+/// Data for algorithm2e environments
+#[derive(Debug, Clone)]
+pub struct Algorithm2eData {
+    pub body: Vec<Algo2eLine>,
+    pub caption: Option<String>,
+    pub label: Option<String>,
+    pub lined: bool,
+}
+
+/// A line in an algorithm2e environment
+#[derive(Debug, Clone)]
+pub enum Algo2eLine {
+    Text(String),
+    KeywordArg { keyword: String, content: String },
+    ControlFlow { keyword: String, condition: String, body: Vec<Algo2eLine> },
+    Else(Vec<Algo2eLine>),
+    ElseIf { condition: String, body: Vec<Algo2eLine> },
+    Comment(String),
+    Caption(String),
+    Blank,
 }
 
 #[derive(Debug, Clone)]

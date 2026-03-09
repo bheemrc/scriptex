@@ -540,6 +540,7 @@ impl<'a> Parser<'a> {
             | Node::Abstract(_) | Node::Center(_) | Node::FlushLeft(_)
             | Node::FlushRight(_) | Node::Environment(_) | Node::Appendix
             | Node::TwoColumn(_) | Node::OneColumn
+            | Node::Listing(_) | Node::Algorithm2e(_) | Node::BlockQuote(_)
         )
     }
 }

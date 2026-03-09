@@ -288,13 +288,15 @@ fn is_inline_node(node: &Node) -> bool {
             | Node::FontSize { .. } | Node::Superscript(_) | Node::Subscript(_)
             | Node::NonBreakingSpace | Node::HSpace(_) | Node::HFill | Node::Code(_) | Node::Footnote(_)
             | Node::Strikethrough(_) | Node::Dingbat(_)
-            | Node::Citation(..) | Node::BiblatexCitation(..) | Node::Ref(_) | Node::EqRef(_) | Node::Cref(..) | Node::Href { .. }
+            | Node::Citation(..) | Node::BiblatexCitation(..) | Node::Ref(_) | Node::EqRef(_) | Node::Cref(..) | Node::CrefRange(..) | Node::LabelCref(_) | Node::Href { .. }
             | Node::FontStyleDecl(_) | Node::ColorDecl(_)
             | Node::EnDash | Node::EmDash | Node::Ellipsis
             | Node::LeftQuote | Node::RightQuote | Node::LeftDoubleQuote | Node::RightDoubleQuote
             | Node::Ampersand | Node::Percent | Node::Dollar | Node::Hash | Node::Underscore
             | Node::Tilde | Node::Caret | Node::LeftBrace | Node::RightBrace
             | Node::LaTeXLogo | Node::TeXLogo | Node::Rule { .. }
+            | Node::Enquote(..) | Node::BlockQuote(_)
+            | Node::Url { .. } | Node::MarginNote(_)
         ),
     }
 }
@@ -342,8 +344,8 @@ fn layout_nodes(nodes: &[Node], state: &mut LayoutState, doc: &Document, source:
             Node::InlineMath(_) | Node::Bold(_) | Node::Italic(_) | Node::Emph(_)
             | Node::Colored { .. } | Node::Code(_) | Node::SmallCaps(_)
             | Node::Underline(_) | Node::Footnote(_) | Node::FontStyleDecl(_) | Node::ColorDecl(_)
-            | Node::Citation(..) | Node::BiblatexCitation(..) | Node::Ref(_) | Node::EqRef(_) | Node::Cref(..) | Node::Href { .. }
-            | Node::NonBreakingSpace
+            | Node::Citation(..) | Node::BiblatexCitation(..) | Node::Ref(_) | Node::EqRef(_) | Node::Cref(..) | Node::CrefRange(..) | Node::LabelCref(_) | Node::Href { .. }
+            | Node::NonBreakingSpace | Node::Enquote(..) | Node::Url { .. }
         ));
         if has_loose_inlines {
             let grouped = group_inline_nodes(nodes);
@@ -1425,6 +1427,59 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             }
         }
 
+        Node::CrefRange(label1, label2, capitalize) => {
+            let num1 = state.label_map.get(label1).cloned().unwrap_or_else(|| "??".to_string());
+            let num2 = state.label_map.get(label2).cloned().unwrap_or_else(|| "??".to_string());
+            let type_name = state.label_types.get(label1).map(|s| s.as_str()).unwrap_or("section");
+            let prefix = match type_name {
+                "figure" => if *capitalize { "Figures" } else { "figures" },
+                "table" => if *capitalize { "Tables" } else { "tables" },
+                "equation" => if *capitalize { "Equations" } else { "eqs." },
+                _ => if *capitalize { "Sections" } else { "sections" },
+            };
+            let ref_text = format!("{}~{}\u{2013}{}", prefix, num1, num2);
+            let ref_color = state.link_color;
+            let text_w = font::measure_text(&ref_text, FontId::TimesRoman, state.current_font_size);
+            state.emit_text(&ref_text, state.current_font_size, FontStyle::Regular, ref_color);
+            state.current_x += text_w;
+        }
+
+        Node::LabelCref(label) => {
+            let num = state.label_map.get(label).cloned().unwrap_or_else(|| "??".to_string());
+            let ref_color = state.link_color;
+            let text_w = font::measure_text(&num, FontId::TimesRoman, state.current_font_size);
+            state.emit_text(&num, state.current_font_size, FontStyle::Regular, ref_color);
+            state.current_x += text_w;
+        }
+
+        Node::Enquote(content, single) => {
+            let (open, close) = if *single { ("\u{2018}", "\u{2019}") } else { ("\u{201C}", "\u{201D}") };
+            let open_w = font::measure_text(open, FontId::TimesRoman, state.current_font_size);
+            state.emit_text(open, state.current_font_size, FontStyle::Regular, state.current_color);
+            state.current_x += open_w;
+            for child in content {
+                layout_node(child, state, doc, source)?;
+            }
+            let close_w = font::measure_text(close, FontId::TimesRoman, state.current_font_size);
+            state.emit_text(close, state.current_font_size, FontStyle::Regular, state.current_color);
+            state.current_x += close_w;
+        }
+
+        Node::BlockQuote(content) => {
+            let quote_indent = state.base_font_size * 1.5;
+            let saved_indent = state.indent;
+            let saved_right = state.right_indent;
+            state.set_right_indent(state.right_indent + quote_indent);
+            state.set_indent(state.indent + quote_indent);
+            state.current_x = state.text_left();
+            state.add_vertical_space(state.base_font_size * 0.4);
+            layout_nodes(content, state, doc, source)?;
+            state.add_vertical_space(state.base_font_size * 0.4);
+            state.set_right_indent(saved_right);
+            state.set_indent(saved_indent);
+            state.current_x = state.text_left();
+        }
+
         Node::Href { url, content } => {
             let link_color = state.url_color;
             let saved_color = state.current_color;
@@ -1560,6 +1615,178 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
         | Node::Hash | Node::Underscore | Node::Backslash
         | Node::Tilde | Node::Caret | Node::LeftBrace | Node::RightBrace
         | Node::HFill | Node::Dingbat(_) => {}
+
+        Node::Listing(data) => {
+            // Render as verbatim code block with optional caption, line numbers, and frame
+            state.add_vertical_space(state.base_font_size * 0.5);
+            if let Some(ref cap) = data.caption {
+                let cap_text = format!("Listing: {}", cap);
+                let cap_w = font::measure_text(&cap_text, FontId::TimesRoman, state.current_font_size * 0.9);
+                let cap_size = state.current_font_size * 0.9;
+                state.emit_text(&cap_text, cap_size, FontStyle::Bold, state.current_color);
+                state.current_x += cap_w;
+                state.current_x = state.text_left();
+                state.current_y += state.current_font_size * 1.2;
+            }
+            if data.frame {
+                let frame_x = state.text_left() - 2.0;
+                let frame_y = state.current_y - 2.0;
+                let frame_w = state.text_width() + 4.0;
+                let line_count = data.code.lines().count() as f32;
+                let frame_h = line_count * state.current_font_size * 1.1 + 4.0;
+                state.emit_rect(frame_x, frame_y, frame_w, frame_h, None, Some(Color::BLACK));
+            }
+            // Render code as verbatim
+            let code_with_lang = if let Some(ref l) = data.language {
+                format!("%%lang:{}%%\n{}", l, data.code)
+            } else {
+                data.code.clone()
+            };
+            layout_node(&Node::Verbatim(code_with_lang), state, doc, source)?;
+            state.add_vertical_space(state.base_font_size * 0.5);
+        }
+
+        Node::Algorithm2e(data) => {
+            // Render as algorithm float (similar to Algorithm)
+            state.add_vertical_space(state.base_font_size * 0.5);
+            if let Some(ref cap) = data.caption {
+                state.algorithm_counter += 1;
+                let cap_text = format!("Algorithm {}: {}", state.algorithm_counter, cap);
+                let cap_w = font::measure_text(&cap_text, FontId::TimesRoman, state.current_font_size * 0.9);
+                let cap_size = state.current_font_size * 0.9;
+                state.emit_text(&cap_text, cap_size, FontStyle::Bold, state.current_color);
+                state.current_x += cap_w;
+                state.current_x = state.text_left();
+                state.current_y += state.current_font_size * 1.2;
+            }
+            // Render body lines as simple text
+            for line in &data.body {
+                match line {
+                    Algo2eLine::Text(t) | Algo2eLine::Comment(t) | Algo2eLine::Caption(t) => {
+                        let w = font::measure_text(t, FontId::TimesRoman, state.current_font_size);
+                        state.emit_text(t, state.current_font_size, FontStyle::Regular, state.current_color);
+                        state.current_x += w;
+                        state.current_x = state.text_left();
+                        state.current_y += state.current_font_size * 1.2;
+                    }
+                    Algo2eLine::KeywordArg { keyword, content } => {
+                        let kw_text = format!("{}: {}", keyword, content);
+                        let w = font::measure_text(&kw_text, FontId::TimesRoman, state.current_font_size);
+                        state.emit_text(&kw_text, state.current_font_size, FontStyle::Bold, state.current_color);
+                        state.current_x += w;
+                        state.current_x = state.text_left();
+                        state.current_y += state.current_font_size * 1.2;
+                    }
+                    Algo2eLine::Blank => {
+                        state.current_y += state.current_font_size * 0.5;
+                    }
+                    _ => {} // ControlFlow, Else, ElseIf handled as nested text for now
+                }
+            }
+            state.add_vertical_space(state.base_font_size * 0.5);
+        }
+
+        Node::MarginNote(content) => {
+            // Render margin notes as small text in the margin area
+            let saved_x = state.current_x;
+            let margin_x = state.text_left() + state.text_width() + state.base_font_size * 0.5;
+            state.current_x = margin_x;
+            let small_size = state.current_font_size * 0.8;
+            let saved_size = state.current_font_size;
+            state.current_font_size = small_size;
+            for child in content {
+                layout_node(child, state, doc, source)?;
+            }
+            state.current_font_size = saved_size;
+            state.current_x = saved_x;
+        }
+
+        Node::Url { url, clickable } => {
+            let url_color = if *clickable { state.url_color } else { state.current_color };
+            let fid = FontId::Courier;
+            let url_w = font::measure_text(url, fid, state.current_font_size);
+            let start_x = state.current_x;
+            state.emit_text(url, state.current_font_size, FontStyle::Monospace, url_color);
+            state.current_x += url_w;
+            if *clickable {
+                state.links.push(LinkAnnotation {
+                    page: state.page_bounds.len() as u32,
+                    x: start_x,
+                    y: state.current_y - state.current_font_size * 0.8,
+                    width: url_w,
+                    height: state.current_font_size * 1.2,
+                    url: url.clone(),
+                    dest_page: None,
+                    dest_y: 0.0,
+                });
+            }
+        }
+
+        Node::NewCounter { .. } | Node::NumberWithin { .. } => {
+            // Counter definitions are no-ops at layout time (only affect equation numbering etc.)
+        }
+        Node::StepCounter(name) => {
+            match name.as_str() {
+                "equation" => state.equation_counter += 1,
+                "figure" => state.figure_counter += 1,
+                "table" => state.table_counter += 1,
+                "footnote" => state.footnote_counter += 1,
+                _ => {}
+            }
+        }
+        Node::RefStepCounter(name) => {
+            match name.as_str() {
+                "equation" => state.equation_counter += 1,
+                "figure" => state.figure_counter += 1,
+                "table" => state.table_counter += 1,
+                "footnote" => state.footnote_counter += 1,
+                _ => {}
+            }
+        }
+        Node::AddToCounter { name, value } => {
+            match name.as_str() {
+                "equation" => state.equation_counter = (state.equation_counter as i32 + value) as u32,
+                "figure" => state.figure_counter = (state.figure_counter as i32 + value) as u32,
+                "table" => state.table_counter = (state.table_counter as i32 + value) as u32,
+                "footnote" => state.footnote_counter = (state.footnote_counter as i32 + value) as u32,
+                _ => {}
+            }
+        }
+
+        Node::Phantom(content) => {
+            // Invisible box — measure width but don't render
+            let start_x = state.current_x;
+            let saved_page = state.page_bounds.len();
+            for child in content {
+                layout_node(child, state, doc, source)?;
+            }
+            // Remove elements added during layout (we just want the width)
+            let w = state.current_x - start_x;
+            if state.page_bounds.len() == saved_page {
+                // Trim any elements we added and just add the space
+                state.current_x = start_x + w;
+            }
+        }
+        Node::VPhantom(_) | Node::Smash(_) => {
+            // VPhantom: invisible height, Smash: render with zero height - approximate as no-op
+        }
+        Node::Rlap(content) | Node::Llap(content) => {
+            let saved_x = state.current_x;
+            for child in content {
+                layout_node(child, state, doc, source)?;
+            }
+            state.current_x = saved_x; // zero-width overlay
+        }
+        Node::MakeBox { content, .. } => {
+            for child in content {
+                layout_node(child, state, doc, source)?;
+            }
+        }
+        Node::RaiseBox { content, .. } => {
+            for child in content {
+                layout_node(child, state, doc, source)?;
+            }
+        }
     }
 
     Ok(())

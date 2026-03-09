@@ -267,7 +267,7 @@ impl<'a> Parser<'a> {
                 cmd_id::VSPACE => { let dim = self.read_braced_text()?; let pts = self.parse_dimension(&dim).unwrap_or(10.0); Ok(Some(Node::VSpace(pts))) }
                 cmd_id::HSPACE => { let dim = self.read_braced_text()?; let pts = self.parse_dimension(&dim).unwrap_or(10.0); Ok(Some(Node::HSpace(pts))) }
                 cmd_id::HREF => { let url = self.read_braced_text()?; let content = self.read_braced_nodes()?; Ok(Some(Node::Href { url, content })) }
-                cmd_id::URL => { let url = self.read_braced_text()?; Ok(Some(Node::Href { url: url.clone(), content: vec![Node::Monospace(vec![Node::Text(url)])] })) }
+                cmd_id::URL => { let url = self.read_braced_text()?; Ok(Some(Node::Url { url, clickable: true })) }
                 cmd_id::TEXTCOLOR => { let cn = self.read_braced_text()?; let c = self.read_braced_nodes()?; let color = self.resolve_color(&cn).unwrap_or(Color::BLACK); Ok(Some(Node::Colored { color, content: c })) }
                 cmd_id::COLOR => { let cn = self.read_braced_text()?; let color = self.resolve_color(&cn).unwrap_or(Color::BLACK); Ok(Some(Node::ColorDecl(color))) }
                 cmd_id::CAPTION => {
@@ -437,15 +437,16 @@ impl<'a> Parser<'a> {
                 Ok(Some(Node::Text(unit_text)))
             }
             "\\num" => {
-                // \num{number} — format number with proper separators
+                // \num{number} — format number with thin-space digit grouping
                 let _ = self.try_read_optional_arg();
                 let num = self.read_braced_text()?;
                 if let Some(exp_idx) = num.find('e').or_else(|| num.find('E')) {
                     let mantissa = &num[..exp_idx];
                     let exponent = &num[exp_idx+1..];
+                    let formatted = Self::format_num_grouping(mantissa);
                     // Render as mantissa × 10^exponent
                     Ok(Some(Node::InlineMath(vec![
-                        MathNode::Number(mantissa.to_string()),
+                        MathNode::Number(formatted),
                         MathNode::Space(2.0),
                         MathNode::Symbol("\u{00D7}".to_string()), // ×
                         MathNode::Space(2.0),
@@ -453,8 +454,32 @@ impl<'a> Parser<'a> {
                         MathNode::Super(vec![MathNode::Number(exponent.to_string())]),
                     ])))
                 } else {
-                    Ok(Some(Node::Text(num)))
+                    let formatted = Self::format_num_grouping(&num);
+                    Ok(Some(Node::Text(formatted)))
                 }
+            }
+            "\\ang" => {
+                // \ang{degrees;minutes;seconds} or \ang{degrees}
+                let _ = self.try_read_optional_arg();
+                let arg = self.read_braced_text()?;
+                let parts: Vec<&str> = arg.split(';').collect();
+                let mut result = String::new();
+                if let Some(deg) = parts.first() {
+                    let d = deg.trim();
+                    if !d.is_empty() { result.push_str(d); }
+                    result.push('\u{00B0}'); // °
+                }
+                if let Some(min) = parts.get(1) {
+                    let m = min.trim();
+                    if !m.is_empty() { result.push_str(m); }
+                    result.push('\u{2032}'); // ′
+                }
+                if let Some(sec) = parts.get(2) {
+                    let s = sec.trim();
+                    if !s.is_empty() { result.push_str(s); }
+                    result.push('\u{2033}'); // ″
+                }
+                Ok(Some(Node::Text(result)))
             }
 
             // Spacing (starred variants fall through here)
@@ -479,6 +504,20 @@ impl<'a> Parser<'a> {
             "\\vphantom" => {
                 let _content = self.read_braced_nodes()?;
                 Ok(None) // vertical phantom — no horizontal space, just affects line height
+            }
+            "\\smash" => {
+                let _opt = self.try_read_optional_arg(); // optional [t] or [b]
+                let content = self.read_braced_nodes()?;
+                // Render content with zero height contribution
+                Ok(Some(Node::Group(content)))
+            }
+            "\\rlap" => {
+                let content = self.read_braced_nodes()?;
+                Ok(Some(Node::Group(content))) // zero-width overlay right
+            }
+            "\\llap" => {
+                let content = self.read_braced_nodes()?;
+                Ok(Some(Node::Group(content))) // zero-width overlay left
             }
             "\\fbox" | "\\framebox" => {
                 let content = self.read_braced_nodes()?;
@@ -563,10 +602,10 @@ impl<'a> Parser<'a> {
             }
             "\\appendix" => Ok(Some(Node::Appendix)),
             "\\indent" => Ok(Some(Node::HSpace(self.base_font_size * 1.5))), // ~1.5em paragraph indent
-            "\\marginpar" => {
-                // Skip margin notes — they need margin space that may not exist
-                self.skip_command_args();
-                Ok(None)
+            "\\marginpar" | "\\marginnote" => {
+                let _opt = self.try_read_optional_arg(); // optional left-margin text
+                let content = self.read_braced_nodes()?;
+                Ok(Some(Node::MarginNote(content)))
             }
 
             // Rules
@@ -611,9 +650,72 @@ impl<'a> Parser<'a> {
             "\\textquoteright" => Ok(Some(Node::RightQuote)),
             "\\textquotedblleft" => Ok(Some(Node::LeftDoubleQuote)),
             "\\textquotedblright" => Ok(Some(Node::RightDoubleQuote)),
-            "\\copyright" => Ok(Some(Node::Copyright)),
+
+            // csquotes package commands
+            "\\enquote" => {
+                let content = self.read_braced_nodes()?;
+                Ok(Some(Node::Enquote(content, false)))
+            }
+            "\\enquote*" => {
+                let content = self.read_braced_nodes()?;
+                Ok(Some(Node::Enquote(content, true)))
+            }
+            "\\textquote" => {
+                let _ = self.try_read_optional_arg(); // optional cite arg
+                let content = self.read_braced_nodes()?;
+                Ok(Some(Node::Enquote(content, false)))
+            }
+            "\\textquote*" => {
+                let _ = self.try_read_optional_arg();
+                let content = self.read_braced_nodes()?;
+                Ok(Some(Node::Enquote(content, true)))
+            }
+            "\\blockquote" => {
+                let _ = self.try_read_optional_arg(); // optional cite arg
+                let content = self.read_braced_nodes()?;
+                Ok(Some(Node::BlockQuote(content)))
+            }
+
+            "\\copyright" | "\\textcopyright" => Ok(Some(Node::Copyright)),
             "\\textregistered" => Ok(Some(Node::Registered)),
             "\\texttrademark" => Ok(Some(Node::Trademark)),
+
+            // textcomp symbols
+            "\\textdegree" => Ok(Some(Node::Text("\u{00B0}".to_string()))),       // °
+            "\\textcelsius" => Ok(Some(Node::Text("\u{2103}".to_string()))),      // ℃
+            "\\textmu" => Ok(Some(Node::Text("\u{00B5}".to_string()))),           // µ
+            "\\textohm" => Ok(Some(Node::Text("\u{2126}".to_string()))),          // Ω
+            "\\texteuro" => Ok(Some(Node::Text("\u{20AC}".to_string()))),         // €
+            "\\textyen" => Ok(Some(Node::Text("\u{00A5}".to_string()))),          // ¥
+            "\\textsterling" | "\\pounds" => Ok(Some(Node::Text("\u{00A3}".to_string()))), // £
+            "\\textcent" => Ok(Some(Node::Text("\u{00A2}".to_string()))),         // ¢
+            "\\textbullet" => Ok(Some(Node::Text("\u{2022}".to_string()))),       // •
+            "\\textperiodcentered" => Ok(Some(Node::Text("\u{00B7}".to_string()))), // ·
+            "\\textlangle" => Ok(Some(Node::Text("\u{27E8}".to_string()))),       // ⟨
+            "\\textrangle" => Ok(Some(Node::Text("\u{27E9}".to_string()))),       // ⟩
+            "\\textsection" => Ok(Some(Node::Text("\u{00A7}".to_string()))),      // §
+            "\\textparagraph" => Ok(Some(Node::Text("\u{00B6}".to_string()))),    // ¶
+            "\\textdagger" => Ok(Some(Node::Text("\u{2020}".to_string()))),       // †
+            "\\textdaggerdbl" => Ok(Some(Node::Text("\u{2021}".to_string()))),    // ‡
+            "\\checkmark" => Ok(Some(Node::Text("\u{2713}".to_string()))),        // ✓
+            "\\maltese" => Ok(Some(Node::Text("\u{2720}".to_string()))),          // ✠
+            "\\textquotedbl" => Ok(Some(Node::Text("\"".to_string()))),
+
+            // URL commands
+            "\\nolinkurl" => { let url = self.read_braced_text()?; Ok(Some(Node::Url { url, clickable: false })) }
+
+            // xspace — smart spacing after macros
+            "\\xspace" => {
+                self.skip_whitespace_and_comments();
+                let next = self.current();
+                let is_punct = if next.kind == TokenKind::Text {
+                    let t = next.text(self.source);
+                    matches!(t.as_bytes().first(), Some(b'.' | b',' | b';' | b':' | b'!' | b'?' | b')' | b']' | b'\'' | b'-'))
+                } else {
+                    false
+                };
+                if is_punct { Ok(None) } else { Ok(Some(Node::Text(" ".to_string()))) }
+            }
             "\\&" | "\\amp" => Ok(Some(Node::Ampersand)),
             "\\%" => Ok(Some(Node::Percent)),
             "\\$" => Ok(Some(Node::Dollar)),
@@ -847,6 +949,19 @@ impl<'a> Parser<'a> {
             "\\Cref" => {
                 match self.try_read_braced_text() { Some(l) => Ok(Some(Node::Cref(l, true))), None => Ok(None) }
             }
+            "\\crefrange" => {
+                let label1 = self.read_braced_text().unwrap_or_default();
+                let label2 = self.read_braced_text().unwrap_or_default();
+                Ok(Some(Node::CrefRange(label1, label2, false)))
+            }
+            "\\Crefrange" => {
+                let label1 = self.read_braced_text().unwrap_or_default();
+                let label2 = self.read_braced_text().unwrap_or_default();
+                Ok(Some(Node::CrefRange(label1, label2, true)))
+            }
+            "\\labelcref" => {
+                match self.try_read_braced_text() { Some(l) => Ok(Some(Node::LabelCref(l))), None => Ok(None) }
+            }
             "\\pageref" | "\\autoref" | "\\nameref" => {
                 match self.try_read_braced_text() { Some(l) => Ok(Some(Node::Ref(l))), None => Ok(None) }
             }
@@ -1007,6 +1122,24 @@ impl<'a> Parser<'a> {
                 // addtocounter uses negative value trick: -1 means relative add
                 // We'll emit as SetCounter with a sentinel offset
                 Ok(Some(Node::SetCounter(format!("add:{}", name), val)))
+            }
+            "\\stepcounter" => {
+                let name = self.read_braced_text()?;
+                Ok(Some(Node::StepCounter(name)))
+            }
+            "\\refstepcounter" => {
+                let name = self.read_braced_text()?;
+                Ok(Some(Node::RefStepCounter(name)))
+            }
+            "\\newcounter" => {
+                let name = self.read_braced_text()?;
+                let parent = self.try_read_optional_arg();
+                Ok(Some(Node::NewCounter { name, parent }))
+            }
+            "\\numberwithin" => {
+                let child = self.read_braced_text()?;
+                let parent = self.read_braced_text()?;
+                Ok(Some(Node::NumberWithin { child, parent }))
             }
             "\\definecolor" => {
                 let name = self.read_braced_text()?;
@@ -1175,7 +1308,10 @@ impl<'a> Parser<'a> {
 
 
             "\\allowdisplaybreaks" | "\\mathsurround" | "\\hfuzz" => { self.skip_command_args(); Ok(None) }
-            "\\newcommand" | "\\renewcommand" | "\\providecommand" | "\\def" => { self.skip_command_args(); Ok(None) }
+            "\\newcommand" | "\\newcommand*" | "\\renewcommand" | "\\renewcommand*"
+            | "\\providecommand" | "\\providecommand*"
+            | "\\DeclareRobustCommand" | "\\DeclareRobustCommand*"
+            | "\\def" => { self.skip_command_args(); Ok(None) }
             "\\bibliography" | "\\addbibresource" => {
                 let _bib_file = self.read_braced_text()?;
                 // Bibliography loading happens outside the parser
@@ -1272,6 +1408,29 @@ impl<'a> Parser<'a> {
                 }
             }
 
+            "\\mintinline" => {
+                // \mintinline{lang}{code} or \mintinline[opts]{lang}{code}
+                let _opt = self.try_read_optional_arg();
+                let _lang = self.read_braced_text().ok();
+                let code = self.read_braced_text().unwrap_or_default();
+                Ok(Some(Node::Code(code)))
+            }
+            "\\inputminted" => {
+                let _opt = self.try_read_optional_arg();
+                let lang = self.read_braced_text().ok();
+                let file = self.read_braced_text().unwrap_or_default();
+                Ok(Some(Node::Listing(Box::new(ListingData {
+                    code: format!("% inputminted: {}", file),
+                    language: lang.map(|l| l.to_lowercase()),
+                    caption: None, label: None,
+                    numbers: ListingNumbers::None, frame: false,
+                }))))
+            }
+            "\\lstset" => {
+                let _ = self.read_braced_text(); // consume options, no effect for now
+                Ok(None)
+            }
+
             "\\verb" | "\\verb*" | "\\lstinline" => {
                 // \verb|code| or \lstinline|code| or \lstinline{code}
                 // Skip optional arg for \lstinline (e.g., \lstinline[style=foo])
@@ -1345,6 +1504,117 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Some(Node::Section { level, title, numbered }))
+    }
+
+    /// Parse listing options from key=value string (language=Python,numbers=left,caption={...},...)
+    pub(super) fn parse_listing_options(
+        opts: &str,
+        language: &mut Option<String>,
+        caption: &mut Option<String>,
+        label: &mut Option<String>,
+        numbers: &mut ListingNumbers,
+        frame: &mut bool,
+    ) {
+        for part in opts.split(',') {
+            let part = part.trim();
+            if let Some((key, val)) = part.split_once('=') {
+                let key = key.trim().to_lowercase();
+                let val = val.trim().trim_matches(|c| c == '{' || c == '}');
+                match key.as_str() {
+                    "language" => *language = Some(val.to_lowercase()),
+                    "caption" => *caption = Some(val.to_string()),
+                    "label" => *label = Some(val.to_string()),
+                    "numbers" => {
+                        *numbers = match val {
+                            "left" => ListingNumbers::Left,
+                            "right" => ListingNumbers::Right,
+                            _ => ListingNumbers::None,
+                        };
+                    }
+                    "frame" => {
+                        *frame = val != "none";
+                    }
+                    _ => {}
+                }
+            } else if part == "linenos" {
+                *numbers = ListingNumbers::Left;
+            } else if part == "frame" {
+                *frame = true;
+            }
+        }
+    }
+
+    /// Format a number string with thin-space digit grouping (siunitx \num convention).
+    /// Groups digits in threes from the decimal point outward.
+    /// "12345.6789" → "12\u{2009}345.678\u{2009}9"
+    fn format_num_grouping(num: &str) -> String {
+        let num = num.trim();
+        // Split into integer and fractional parts
+        let (int_part, frac_part) = if let Some(dot_idx) = num.find('.') {
+            (&num[..dot_idx], Some(&num[dot_idx+1..]))
+        } else {
+            (num, None)
+        };
+
+        // Handle optional sign
+        let (sign, digits) = if int_part.starts_with('-') || int_part.starts_with('+') {
+            (&int_part[..1], &int_part[1..])
+        } else {
+            ("", int_part)
+        };
+
+        let mut result = String::with_capacity(num.len() + 4);
+        result.push_str(sign);
+
+        // Group integer part from right (only if > 4 digits, per SI convention)
+        if digits.len() > 4 {
+            let mut i = 0;
+            let offset = digits.len() % 3;
+            for ch in digits.chars() {
+                if i > 0 && (i - offset) % 3 == 0 && i != digits.len() {
+                    // For offset==0, first group at position 3, otherwise at offset
+                    if offset == 0 || i >= offset {
+                        result.push('\u{2009}'); // thin space
+                    }
+                }
+                if offset > 0 && i == offset && i > 0 {
+                    result.push('\u{2009}');
+                }
+                result.push(ch);
+                i += 1;
+            }
+            // Simpler approach: rebuild
+            result.truncate(sign.len());
+            let d: Vec<char> = digits.chars().collect();
+            let rem = d.len() % 3;
+            for (i, &ch) in d.iter().enumerate() {
+                if i > 0 && i % 3 == rem && rem > 0 {
+                    result.push('\u{2009}');
+                } else if i > 0 && rem == 0 && i % 3 == 0 {
+                    result.push('\u{2009}');
+                }
+                result.push(ch);
+            }
+        } else {
+            result.push_str(digits);
+        }
+
+        // Fractional part: group from left (only if > 4 digits)
+        if let Some(frac) = frac_part {
+            result.push('.');
+            if frac.len() > 4 {
+                for (i, ch) in frac.chars().enumerate() {
+                    if i > 0 && i % 3 == 0 {
+                        result.push('\u{2009}');
+                    }
+                    result.push(ch);
+                }
+            } else {
+                result.push_str(frac);
+            }
+        }
+
+        result
     }
 }
 

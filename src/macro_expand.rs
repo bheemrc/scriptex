@@ -56,6 +56,7 @@ impl MacroEngine {
             || preamble.contains("\\providecommand")
             || preamble.contains("\\DeclareRobustCommand")
             || preamble.contains("\\newenvironment")
+            || preamble.contains("\\renewenvironment")
             || preamble.contains("\\DeclareMathOperator")
             || preamble.contains("\\today") || source[scan_end..source.len().min(scan_end + 10000)].contains("\\today")
     }
@@ -209,7 +210,7 @@ impl MacroEngine {
 
             // Skip definition commands themselves (don't expand them, they're consumed)
             if source[pos..].starts_with("\\newcommand") || source[pos..].starts_with("\\renewcommand")
-                || source[pos..].starts_with("\\providecommand")
+                || source[pos..].starts_with("\\providecommand") || source[pos..].starts_with("\\DeclareRobustCommand")
             {
                 if let Some(end) = self.skip_newcommand_def(source, pos) {
                     pos = end;

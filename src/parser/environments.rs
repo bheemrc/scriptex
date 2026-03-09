@@ -24,7 +24,7 @@ impl<'a> Parser<'a> {
             "longtable" | "longtable*" => self.parse_longtable_environment(&env_name),
             "table" | "table*" => self.parse_float_environment(&env_name, true),
             "figure" | "figure*" => self.parse_float_environment(&env_name, false),
-            "algorithm" | "algorithm*" => self.parse_algorithm_float(&env_name),
+            "algorithm" | "algorithm*" | "algorithm2e" | "algorithm2e*" => self.parse_algorithm_float(&env_name),
             "algorithmic" | "algpseudocode" => {
                 let (lines, line_numbered) = self.parse_algorithmic_body(&env_name)?;
                 Ok(Some(Node::Algorithm { caption: None, label: None, content: lines, line_numbered }))
@@ -46,36 +46,40 @@ impl<'a> Parser<'a> {
             }
             "verbatim" => self.parse_verbatim_environment(&env_name),
             "lstlisting" => {
-                // Extract language from optional args: \begin{lstlisting}[language=Python]
                 let opt = self.try_read_optional_arg();
-                let lang = opt.as_ref().and_then(|o| {
-                    for part in o.split(',') {
-                        let parts: Vec<&str> = part.split('=').collect();
-                        if parts.len() == 2 && parts[0].trim().eq_ignore_ascii_case("language") {
-                            return Some(parts[1].trim().to_lowercase());
-                        }
-                    }
-                    None
-                });
-                let mut text = String::new();
-                self.read_verbatim_content(&env_name, &mut text)?;
-                // Store language in the verbatim text as a prefix marker
-                if let Some(l) = lang {
-                    Ok(Some(Node::Verbatim(format!("%%lang:{}%%\n{}", l, text))))
-                } else {
-                    Ok(Some(Node::Verbatim(text)))
+                let mut language = None;
+                let mut caption = None;
+                let mut label = None;
+                let mut numbers = ListingNumbers::None;
+                let mut frame = false;
+                if let Some(ref o) = opt {
+                    Self::parse_listing_options(o, &mut language, &mut caption, &mut label, &mut numbers, &mut frame);
                 }
+                let mut code = String::new();
+                self.read_verbatim_content(&env_name, &mut code)?;
+                Ok(Some(Node::Listing(Box::new(ListingData {
+                    code, language, caption, label, numbers, frame,
+                }))))
             }
             "minted" => {
-                // \begin{minted}{python}
+                let opt = self.try_read_optional_arg();
                 let lang = self.read_braced_text().ok();
-                let mut text = String::new();
-                self.read_verbatim_content(&env_name, &mut text)?;
-                if let Some(l) = lang {
-                    Ok(Some(Node::Verbatim(format!("%%lang:{}%%\n{}", l.to_lowercase(), text))))
-                } else {
-                    Ok(Some(Node::Verbatim(text)))
+                let mut numbers = ListingNumbers::None;
+                let mut frame = false;
+                if let Some(ref o) = opt {
+                    for part in o.split(',') {
+                        let part = part.trim();
+                        if part == "linenos" { numbers = ListingNumbers::Left; }
+                        else if part.starts_with("frame=") { frame = true; }
+                    }
                 }
+                let mut code = String::new();
+                self.read_verbatim_content(&env_name, &mut code)?;
+                Ok(Some(Node::Listing(Box::new(ListingData {
+                    code,
+                    language: lang.map(|l| l.to_lowercase()),
+                    caption: None, label: None, numbers, frame,
+                }))))
             }
             "tikzpicture" | "pgfplots" | "pgfonlayer" | "scope"
             | "axis" | "semilogxaxis" | "semilogyaxis" | "loglogaxis"
