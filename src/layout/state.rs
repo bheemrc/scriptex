@@ -499,9 +499,10 @@ impl LayoutState {
         self.render_footnotes();
 
         // LaTeX article class: first page uses \thispagestyle{plain} which shows
-        // a centered page number. But many documents (with title) suppress it.
-        // Use Empty for first page if page_style is Headings (LaTeX convention).
-        let effective_style = if self.first_page && self.page_style == PageStyle::Headings {
+        // a centered page number. amsart: first page has no header/footer at all.
+        let effective_style = if self.first_page && self.is_amsart {
+            PageStyle::Empty
+        } else if self.first_page && self.page_style == PageStyle::Headings {
             PageStyle::Plain
         } else if self.first_page && self.page_style == PageStyle::Fancy {
             PageStyle::Plain
