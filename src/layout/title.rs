@@ -69,7 +69,7 @@ pub(super) fn layout_title(state: &mut LayoutState, doc: &Document, source: &str
         let cx = state.text_left() + (state.text_width() - tw) / 2.0;
         state.ensure_space(metrics.line_height());
         state.current_x = cx;
-        state.emit_text(date, size, FontStyle::Regular, Color::DARK_GRAY);
+        state.emit_text(date, size, FontStyle::Regular, Color::BLACK);
         state.current_y += metrics.line_height();
     }
 
