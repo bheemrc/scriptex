@@ -24,7 +24,7 @@ pub(super) struct StyledSpan {
 
 /// Split text into uppercase (normal size) and lowercase (uppercase at 75% size) spans for small caps
 fn emit_smallcaps_spans(text: &str, style: FontStyle, color: Color, font_size: f32, out: &mut Vec<StyledSpan>) {
-    let sc_size = font_size * 0.75;
+    let sc_size = font_size * 0.70; // LaTeX default: 70% of body size
     let mut seg_start = 0;
     let mut seg_is_lower = text.as_bytes().first().map_or(false, |b| b.is_ascii_lowercase());
 
@@ -488,7 +488,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 state.footnote_counter += 1;
                 let num = state.footnote_counter;
                 let num_str = format!("{}", num);
-                let sup_size = font_size * 0.65;
+                let sup_size = font_size * 0.70;
                 let w = font::measure_text(&num_str, FontId::TimesRoman, sup_size);
                 words.push(StyledWord { text: num_str, style: FontStyle::Regular, color: state.current_color, font_size, width: w, math: None, superscript: true, subscript: false, underline: false, strikethrough: false });
                 state.footnotes.push(content.clone());
@@ -508,9 +508,9 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 }
             }
             Node::Superscript(content) => {
-                // \textsuperscript: render at 65% size with vertical offset
+                // \textsuperscript: render at 70% size with vertical offset (TeX default)
                 let mut sup_spans = Vec::new();
-                nodes_to_spans(content, state.current_font_style, state.current_color, font_size * 0.65, base_font_size, &mut sup_spans, source, labels_ref, citations_ref, ay_map_ref);
+                nodes_to_spans(content, state.current_font_style, state.current_color, font_size * 0.70, base_font_size, &mut sup_spans, source, labels_ref, citations_ref, ay_map_ref);
                 for span in &sup_spans {
                     let sf = span.font_size;
                     let font_id = font::style_to_font_id(span.style);
@@ -521,9 +521,9 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 }
             }
             Node::Subscript(content) => {
-                // \textsubscript: render at 65% size below baseline
+                // \textsubscript: render at 70% size below baseline (TeX default)
                 let mut sub_spans = Vec::new();
-                nodes_to_spans(content, state.current_font_style, state.current_color, font_size * 0.65, base_font_size, &mut sub_spans, source, labels_ref, citations_ref, ay_map_ref);
+                nodes_to_spans(content, state.current_font_style, state.current_color, font_size * 0.70, base_font_size, &mut sub_spans, source, labels_ref, citations_ref, ay_map_ref);
                 for span in &sub_spans {
                     let sf = span.font_size;
                     let font_id = font::style_to_font_id(span.style);
@@ -1023,25 +1023,32 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 state.current_x = saved_x;
                 state.current_y = saved_y;
             } else if word.superscript {
-                let sup_size = word.font_size * 0.65;
+                let sup_size = word.font_size * 0.70;
                 let saved_y = state.current_y;
-                // TeX superscript rise ≈ 0.45 * x-height ≈ 0.2em (not 0.35em)
-                state.current_y -= word.font_size * 0.25;
+                // TeX superscript rise: based on x-height of current font
+                let wfid = font::style_to_font_id(word.style);
+                let x_height = font::font_info(wfid).x_height as f32 * word.font_size / 1000.0;
+                state.current_y -= x_height * 0.55;
                 state.emit_text(&word.text, sup_size, word.style, word.color);
                 state.current_y = saved_y;
             } else if word.subscript {
-                let sub_size = word.font_size * 0.65;
+                let sub_size = word.font_size * 0.70;
                 let saved_y = state.current_y;
-                // TeX subscript drop ≈ 0.25em below baseline
-                state.current_y += word.font_size * 0.15;
+                // TeX subscript drop: proportional to font descent
+                let wfid = font::style_to_font_id(word.style);
+                let descent = font::font_info(wfid).descent.unsigned_abs() as f32 * word.font_size / 1000.0;
+                state.current_y += descent * 0.6;
                 state.emit_text(&word.text, sub_size, word.style, word.color);
                 state.current_y = saved_y;
             } else {
                 state.emit_text(&word.text, word.font_size, word.style, word.color);
             }
             if word.underline && word.text != " " && !word.text.is_empty() {
-                let ul_y = state.current_y + word.font_size * 0.15;
-                let ul_thickness = (word.font_size * 0.05).max(0.4);
+                // Position underline using font descent (just below baseline)
+                let wfid = font::style_to_font_id(word.style);
+                let descent = font::font_info(wfid).descent.unsigned_abs() as f32 * word.font_size / 1000.0;
+                let ul_y = state.current_y + descent * 0.35;
+                let ul_thickness = (word.font_size * 0.04).max(0.4);
                 state.emit_line(line_x, ul_y, line_x + word.width, ul_y, ul_thickness, word.color);
             }
             if word.strikethrough && word.text != " " && !word.text.is_empty() {
