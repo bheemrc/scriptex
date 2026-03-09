@@ -486,7 +486,8 @@ impl<'a> Parser<'a> {
 
             // Breaks
             "\\newline" | "\\linebreak" => Ok(Some(Node::LineBreak)),
-            "\\clearpage" | "\\cleardoublepage" | "\\pagebreak" | "\\newpage" => Ok(Some(Node::PageBreak)),
+            "\\clearpage" | "\\cleardoublepage" => Ok(Some(Node::ClearPage)),
+            "\\pagebreak" | "\\newpage" => Ok(Some(Node::PageBreak)),
             "\\nopagebreak" | "\\nolinebreak" => { self.try_read_optional_arg(); Ok(None) }
             "\\iffalse" => {
                 // Skip everything until \fi

@@ -998,6 +998,14 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             state.new_page();
         }
 
+        Node::ClearPage => {
+            // Flush all deferred floats before page break
+            if state.should_render_top_floats() {
+                render_top_floats(state, doc, source)?;
+            }
+            state.new_page();
+        }
+
         Node::DisplayMath(math_data) => {
             layout_display_math_data(math_data, state)?;
             state.suppress_next_indent = true; // LaTeX: no indent after display math

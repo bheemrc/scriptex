@@ -191,6 +191,8 @@ pub enum Node {
 
     /// Page break
     PageBreak,
+    /// Clear page: flush all pending floats, then break
+    ClearPage,
 
     /// Switch to two-column mode, with optional spanning content
     TwoColumn(Vec<Node>),
