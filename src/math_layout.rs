@@ -762,10 +762,10 @@ fn layout_sqrt(index: Option<&[MathNode]>, radicand: &[MathNode], font_size: f32
         });
     } else {
         // Glyph-based radical using Symbol font (byte 0xD6 = √)
-        // Vertically center the radical glyph
-        let glyph_center_offset = radical_font_size * 0.15;
-        let target_center = (inner.height - inner.depth) / 2.0;
-        let y_shift = glyph_center_offset - target_center;
+        // Center radical glyph on math axis
+        let math_axis = font_size * 0.25;
+        let content_center = (inner.height - inner.depth) / 2.0;
+        let y_shift = math_axis - content_center;
         elements.push(MathElement::Text {
             x: 0.0,
             y: y_shift,
@@ -798,13 +798,14 @@ fn layout_sqrt(index: Option<&[MathNode]>, radicand: &[MathNode], font_size: f32
         elements,
     };
 
-    // Optional index (n-th root)
+    // Optional index (n-th root) — placed in radical shoulder (upper-left)
     if let Some(idx_nodes) = index {
-        let mut idx = layout_math(idx_nodes, font_size * 0.5);
-        idx.translate(font_size * 0.05, -(overline_y * 0.5));
+        let mut idx = layout_math(idx_nodes, font_size * 0.45);
+        // Position in the radical shoulder: left of the radical, near the top
+        let idx_x = (radical_width - idx.width) * 0.3;
+        let idx_y = -(overline_y - font_size * 0.15);
+        idx.translate(idx_x.max(0.0), idx_y);
         result.elements.extend(idx.elements);
-        // Widen if index extends left
-        result.width = result.width.max(idx.width + radical_width);
     }
 
     result
@@ -1030,10 +1031,10 @@ fn layout_delimiter(delim: &str, font_size: f32, content_height: f32, content_de
     if let Some(ch) = unicode_ch {
         if let Some(sym_byte) = font::unicode_to_symbol_byte(ch) {
             let width = font::char_width_pt(FontId::Symbol, sym_byte, ds);
-            // Center vertically: shift so glyph center aligns with math axis
-            let glyph_center_offset = ds * 0.2; // approximate: glyph center is above baseline
-            let target_center = (content_height - content_depth) / 2.0;
-            let y_shift = glyph_center_offset - target_center;
+            // Center delimiter on math axis (half x-height above baseline)
+            let math_axis = font_size * 0.25;
+            let content_center = (content_height - content_depth) / 2.0;
+            let y_shift = math_axis - content_center;
             return MathBox {
                 width,
                 height: content_height,
@@ -1057,9 +1058,9 @@ fn layout_delimiter(delim: &str, font_size: f32, content_height: f32, content_de
     };
 
     let width = font::measure_text(&text, FontId::TimesRoman, ds);
-    let glyph_center_offset = ds * 0.2;
-    let target_center = (content_height - content_depth) / 2.0;
-    let y_shift = glyph_center_offset - target_center;
+    let math_axis = font_size * 0.25;
+    let content_center = (content_height - content_depth) / 2.0;
+    let y_shift = math_axis - content_center;
 
     MathBox {
         width,

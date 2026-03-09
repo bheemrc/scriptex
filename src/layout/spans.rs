@@ -655,6 +655,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 if lw > max_w * 1.3 && j > a + 1 { break; }
 
                 let is_last = j == m - 1;
+                // TeX-like badness: cubic ratio scaled to 10000
                 let badness: f64 = if is_last {
                     if lw > max_w { let o = (lw - max_w) as f64; o * o * 1000.0 } else { 0.0 }
                 } else if lw > max_w {
@@ -662,9 +663,10 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                     o * o * 1000.0
                 } else {
                     let slack = (max_w - lw) as f64;
-                    let ratio = slack / max_w as f64;
-                    if ratio > 0.5 { slack * slack * slack + 10000.0 }
-                    else { slack * slack * slack }
+                    let ratio = slack / max_w.max(1.0) as f64;
+                    // Graduated penalty: TeX uses 100*(ratio^3) capped at 10000
+                    let b = ratio * ratio * ratio * 100.0 * max_w as f64;
+                    if ratio > 0.6 { b + 5000.0 } else { b }
                 };
 
                 let total = dp_cost[a] + badness;
