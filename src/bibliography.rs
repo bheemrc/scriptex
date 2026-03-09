@@ -477,6 +477,77 @@ impl Bibliography {
     }
 }
 
+/// Format a biblatex-style citation for inline rendering.
+/// Supports \textcite, \parencite, \autocite, \Citeauthor, \citetitle, \fullcite, \footcite.
+pub fn format_biblatex_citation(
+    key: &str,
+    opt: Option<&str>,
+    cite_type: &crate::document::BiblatexCiteType,
+    citation_map: &std::collections::HashMap<String, u32>,
+    author_year_map: &std::collections::HashMap<String, (String, String)>,
+) -> String {
+    use crate::document::BiblatexCiteType;
+
+    let keys: Vec<&str> = key.split(',').map(|k| k.trim()).collect();
+    let mut parts = Vec::new();
+
+    for k in &keys {
+        let (author, year) = author_year_map.get(*k)
+            .cloned()
+            .unwrap_or_else(|| ("??".to_string(), "??".to_string()));
+        let num = citation_map.get(*k).copied().unwrap_or(0);
+
+        match cite_type {
+            BiblatexCiteType::TextCite => {
+                // Smith (2024)
+                parts.push(format!("{} ({})", author, year));
+            }
+            BiblatexCiteType::ParenCite => {
+                // (Smith, 2024)
+                parts.push(format!("{}, {}", author, year));
+            }
+            BiblatexCiteType::AutoCite => {
+                // Same as parencite by default
+                parts.push(format!("{}, {}", author, year));
+            }
+            BiblatexCiteType::CiteAuthor => {
+                parts.push(author);
+            }
+            BiblatexCiteType::CiteYear => {
+                parts.push(year);
+            }
+            BiblatexCiteType::CiteTitle => {
+                // We don't have title data in author_year_map, use key as fallback
+                parts.push((*k).to_string());
+            }
+            BiblatexCiteType::FullCite => {
+                // Full reference — fallback to "Author, Year"
+                parts.push(format!("{}, {}", author, year));
+            }
+            BiblatexCiteType::FootCite => {
+                // Footnote citation — rendered inline as number
+                if num > 0 { parts.push(num.to_string()); }
+                else { parts.push((*k).to_string()); }
+            }
+        }
+    }
+
+    let base = parts.join("; ");
+    match cite_type {
+        BiblatexCiteType::ParenCite | BiblatexCiteType::AutoCite => {
+            if let Some(text) = opt {
+                format!("({}; {})", base, text)
+            } else {
+                format!("({})", base)
+            }
+        }
+        BiblatexCiteType::FootCite => {
+            format!("[{}]", base)
+        }
+        _ => base,
+    }
+}
+
 /// Clean LaTeX formatting from bibliography text
 fn clean_bib_text(text: &str) -> String {
     text.replace('{', "")

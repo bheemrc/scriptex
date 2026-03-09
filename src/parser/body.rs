@@ -842,6 +842,70 @@ impl<'a> Parser<'a> {
                 Ok(Some(Node::Citation(key, opt, CitationStyle::AltNoParen)))
             }
 
+            // BibLaTeX citation commands
+            "\\textcite" | "\\Textcite" => {
+                let opt = self.try_read_optional_arg();
+                let key = self.read_braced_text()?;
+                Ok(Some(Node::BiblatexCitation(key, opt, BiblatexCiteType::TextCite)))
+            }
+            "\\parencite" | "\\Parencite" => {
+                let opt = self.try_read_optional_arg();
+                let key = self.read_braced_text()?;
+                Ok(Some(Node::BiblatexCitation(key, opt, BiblatexCiteType::ParenCite)))
+            }
+            "\\autocite" | "\\Autocite" => {
+                let opt = self.try_read_optional_arg();
+                let key = self.read_braced_text()?;
+                Ok(Some(Node::BiblatexCitation(key, opt, BiblatexCiteType::AutoCite)))
+            }
+            "\\Citeauthor" => {
+                let opt = self.try_read_optional_arg();
+                let key = self.read_braced_text()?;
+                Ok(Some(Node::BiblatexCitation(key, opt, BiblatexCiteType::CiteAuthor)))
+            }
+            "\\citetitle" => {
+                let opt = self.try_read_optional_arg();
+                let key = self.read_braced_text()?;
+                Ok(Some(Node::BiblatexCitation(key, opt, BiblatexCiteType::CiteTitle)))
+            }
+            "\\fullcite" => {
+                let opt = self.try_read_optional_arg();
+                let key = self.read_braced_text()?;
+                Ok(Some(Node::BiblatexCitation(key, opt, BiblatexCiteType::FullCite)))
+            }
+            "\\footcite" => {
+                let opt = self.try_read_optional_arg();
+                let key = self.read_braced_text()?;
+                Ok(Some(Node::BiblatexCitation(key, opt, BiblatexCiteType::FootCite)))
+            }
+
+            // Letter class commands
+            "\\opening" => {
+                let text = self.read_braced_text()?;
+                Ok(Some(Node::LetterOpening(text)))
+            }
+            "\\closing" => {
+                let text = self.read_braced_text()?;
+                Ok(Some(Node::LetterClosing(text)))
+            }
+            "\\cc" => {
+                let text = self.read_braced_text()?;
+                Ok(Some(Node::LetterCc(text)))
+            }
+            "\\encl" => {
+                let text = self.read_braced_text()?;
+                Ok(Some(Node::LetterEncl(text)))
+            }
+            "\\ps" => {
+                let content = self.read_braced_nodes()?;
+                Ok(Some(Node::LetterPs(content)))
+            }
+            "\\signature" => {
+                let text = self.read_braced_text()?;
+                self.body_signature = Some(text);
+                Ok(None)
+            }
+
             // Pifont \ding{n} — ZapfDingbats characters (byte code = ding number)
             "\\ding" => {
                 let num_str = self.read_braced_text()?;
@@ -1085,12 +1149,7 @@ impl<'a> Parser<'a> {
             }
             "\\printbibliography" => {
                 self.skip_command_args(); // skip optional [heading=...]
-                // Emit a thebibliography environment node so layout renders the bibliography
-                Ok(Some(Node::Environment(Box::new(EnvironmentData {
-                    name: "thebibliography".to_string(),
-                    args: vec![],
-                    content: vec![],
-                }))))
+                Ok(Some(Node::PrintBibliography))
             }
             "\\nocite" => {
                 self.skip_command_args();
@@ -1102,6 +1161,8 @@ impl<'a> Parser<'a> {
             "\\address" => {
                 let text = self.read_braced_text()?;
                 self.body_addresses.push((expand_latex_accents(&text), None));
+                // Also store as letter sender address (used by letter class layout)
+                self.body_sender_address = Some(expand_latex_accents(&text));
                 Ok(None)
             }
             "\\email" => {

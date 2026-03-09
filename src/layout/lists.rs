@@ -35,8 +35,8 @@ pub(super) fn layout_list(
     state.paragraph_indent = 0.0;
     // Check for compact (nosep/noitemsep) flag from first item
     let compact = items.first().map_or(false, |item| item.compact);
-    // LaTeX \topsep: 8pt + \partopsep(2pt) for 10pt, scales with base size
-    let topsep = if compact { 0.0 } else if depth == 0 { base * 0.8 } else { base * 0.3 };
+    // LaTeX \topsep: 8pt plus 2pt minus 4pt for 10pt; use shrunk value for tighter layout
+    let topsep = if compact { 0.0 } else if depth == 0 { base * 0.5 } else { base * 0.2 };
     state.add_vertical_space(topsep);
 
     for (i, item) in items.iter().enumerate() {
@@ -161,8 +161,8 @@ fn to_roman_lower(mut n: usize) -> String {
 pub(super) fn layout_description_list(
     items: &[ListItem], state: &mut LayoutState, doc: &Document, source: &str,
 ) -> Result<()> {
-    // Match topsep for itemize lists
-    let topsep = state.base_font_size * 0.8;
+    // Match topsep for itemize lists (LaTeX 8pt minus 4pt for 10pt)
+    let topsep = state.base_font_size * 0.5;
     state.add_vertical_space(topsep);
     for item in items {
         state.current_x = state.text_left();

@@ -153,6 +153,8 @@ pub(super) struct LayoutState {
     pub link_color: Color,  // internal cross-references
     pub url_color: Color,   // external URLs
     pub cite_color: Color,  // citations
+    // BibLaTeX configuration (if biblatex package is loaded)
+    pub biblatex_config: Option<BiblatexConfig>,
 }
 
 /// A figure/table deferred for float placement
@@ -265,6 +267,7 @@ impl LayoutState {
             link_color: Color::from_rgb_u8(140, 0, 0),   // dark red (hyperref default)
             url_color: Color::from_rgb_u8(0, 0, 180),    // blue
             cite_color: Color::from_rgb_u8(0, 100, 0),   // dark green
+            biblatex_config: None,
         }
     }
 

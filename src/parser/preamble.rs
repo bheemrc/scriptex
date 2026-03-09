@@ -158,6 +158,21 @@ impl<'a> Parser<'a> {
                                     "siunitx" => {
                                         // SI units — basic support through macro expansion
                                     }
+                                    "biblatex" => {
+                                        // Detect biblatex package and extract style
+                                        let mut style = "numeric".to_string();
+                                        for opt in &options {
+                                            if let Some(s) = opt.strip_prefix("style=") {
+                                                style = s.to_string();
+                                            } else if let Some(s) = opt.strip_prefix("citestyle=") {
+                                                style = s.to_string();
+                                            }
+                                        }
+                                        preamble.biblatex_config = Some(BiblatexConfig {
+                                            style,
+                                            resources: Vec::new(),
+                                        });
+                                    }
                                     _ => {}
                                 }
 
@@ -254,6 +269,32 @@ impl<'a> Parser<'a> {
                             self.advance();
                             if let Ok(style) = self.read_braced_text() {
                                 preamble.page_style = style;
+                            }
+                        }
+                        "\\subject" => {
+                            self.advance();
+                            if let Ok(text) = self.read_braced_text() {
+                                preamble.subject = Some(text);
+                            }
+                        }
+                        "\\addbibresource" => {
+                            self.advance();
+                            if let Ok(resource) = self.read_braced_text() {
+                                if let Some(ref mut config) = preamble.biblatex_config {
+                                    config.resources.push(resource);
+                                }
+                            }
+                        }
+                        "\\address" => {
+                            self.advance();
+                            if let Ok(text) = self.read_braced_text() {
+                                preamble.letter_sender_address = Some(text);
+                            }
+                        }
+                        "\\signature" => {
+                            self.advance();
+                            if let Ok(text) = self.read_braced_text() {
+                                preamble.letter_signature = Some(text);
                             }
                         }
                         "\\fancyhead" => {

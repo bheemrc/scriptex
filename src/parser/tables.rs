@@ -222,6 +222,225 @@ impl<'a> Parser<'a> {
             caption: None,
             label: None,
             centering: true,
+            long: false,
+            header_end: None,
+        }))))
+    }
+
+    pub(crate) fn parse_longtable_environment(&mut self, env_name: &str) -> Result<Option<Node>> {
+        // longtable has optional placement arg like [c]
+        let _placement = self.try_read_optional_arg();
+        // Parse column spec
+        let col_spec_str = self.read_braced_text()?;
+        let columns = self.parse_column_spec(&col_spec_str);
+
+        let mut rows: Vec<TableRow> = Vec::new();
+        let mut current_cells: Vec<TableCell> = Vec::new();
+        let mut current_cell_content: Vec<Node> = Vec::new();
+        let mut hline_before_next = false;
+        let mut hline_after = false;
+        let mut extra_space_next: f32 = 0.0;
+        let mut caption: Option<Vec<Node>> = None;
+        let mut label: Option<String> = None;
+        let mut header_end: Option<usize> = None;
+        let mut cmidrule_pending: Vec<(u32, u32)> = Vec::new();
+
+        loop {
+            match self.current().kind {
+                TokenKind::Eof => bail!("Unexpected end in longtable"),
+                TokenKind::Command => {
+                    let cid = self.current().cmd;
+                    if cid == cmd_id::END {
+                        let save = self.pos;
+                        self.advance();
+                        self.skip_whitespace_and_comments();
+                        if self.current().kind == TokenKind::OpenBrace {
+                            let name = self.read_braced_text()?;
+                            if name == env_name {
+                                // Finish current cell/row
+                                if !current_cell_content.is_empty() || !current_cells.is_empty() {
+                                    current_cells.push(TableCell {
+                                        content: std::mem::take(&mut current_cell_content),
+                                        colspan: 1,
+                                        rowspan: 1,
+                                        alignment: None,
+                                    });
+                                    rows.push(TableRow {
+                                        cells: std::mem::take(&mut current_cells),
+                                        hline_before: hline_before_next,
+                                        hline_after,
+                                        extra_space_before: extra_space_next,
+                                        cmidrules: std::mem::take(&mut cmidrule_pending),
+                                    });
+                                    hline_before_next = false;
+                                    extra_space_next = 0.0;
+                                }
+                                break;
+                            }
+                            self.pos = save;
+                        } else {
+                            self.pos = save;
+                        }
+                    }
+
+                    // longtable header/footer markers
+                    {
+                        let cmd = self.current_text();
+                        if cmd == "\\endhead" {
+                            self.advance();
+                            if !current_cell_content.is_empty() || !current_cells.is_empty() {
+                                current_cells.push(TableCell {
+                                    content: std::mem::take(&mut current_cell_content),
+                                    colspan: 1, rowspan: 1, alignment: None,
+                                });
+                                rows.push(TableRow {
+                                    cells: std::mem::take(&mut current_cells),
+                                    hline_before: hline_before_next,
+                                    hline_after,
+                                    extra_space_before: extra_space_next,
+                                    cmidrules: std::mem::take(&mut cmidrule_pending),
+                                });
+                                hline_before_next = false;
+                                hline_after = false;
+                                extra_space_next = 0.0;
+                            }
+                            header_end = Some(rows.len());
+                            continue;
+                        }
+                        if cmd == "\\endfirsthead" || cmd == "\\endfoot" || cmd == "\\endlastfoot" {
+                            self.advance();
+                            if !current_cell_content.is_empty() || !current_cells.is_empty() {
+                                current_cells.push(TableCell {
+                                    content: std::mem::take(&mut current_cell_content),
+                                    colspan: 1, rowspan: 1, alignment: None,
+                                });
+                                rows.push(TableRow {
+                                    cells: std::mem::take(&mut current_cells),
+                                    hline_before: hline_before_next,
+                                    hline_after,
+                                    extra_space_before: extra_space_next,
+                                    cmidrules: std::mem::take(&mut cmidrule_pending),
+                                });
+                                hline_before_next = false;
+                                hline_after = false;
+                                extra_space_next = 0.0;
+                            }
+                            if cmd == "\\endfirsthead" && header_end.is_none() {
+                                header_end = Some(rows.len());
+                            }
+                            continue;
+                        }
+                    }
+
+                    if cid == cmd_id::CAPTION {
+                        self.advance();
+                        let cap = self.read_braced_nodes()?;
+                        caption = Some(cap);
+                        continue;
+                    }
+                    if cid == cmd_id::LABEL {
+                        self.advance();
+                        let lab = self.read_braced_text()?;
+                        label = Some(lab);
+                        continue;
+                    }
+
+                    if cid == cmd_id::HLINE {
+                        self.advance();
+                        hline_before_next = true;
+                        if !rows.is_empty() {
+                            rows.last_mut().unwrap().hline_after = true;
+                        }
+                        continue;
+                    }
+                    {
+                        let cmd = self.current_text();
+                        if cmd == "\\toprule" || cmd == "\\midrule" || cmd == "\\bottomrule" {
+                            self.advance();
+                            if cmd == "\\bottomrule" {
+                                if let Some(last_row) = rows.last_mut() {
+                                    last_row.hline_after = true;
+                                }
+                            } else {
+                                hline_before_next = true;
+                            }
+                            continue;
+                        }
+                        if cmd == "\\multicolumn" {
+                            self.advance();
+                            let colspan_str = self.read_braced_text()?;
+                            let align_str = self.read_braced_text()?;
+                            let content = self.read_braced_nodes()?;
+                            let alignment = match align_str.trim() {
+                                "c" => Some(ColumnSpec::Center),
+                                "r" => Some(ColumnSpec::Right),
+                                "l" => Some(ColumnSpec::Left),
+                                _ => None,
+                            };
+                            current_cell_content.clear();
+                            current_cells.push(TableCell {
+                                content,
+                                colspan: colspan_str.parse().unwrap_or(1),
+                                rowspan: 1,
+                                alignment,
+                            });
+                            self.skip_whitespace_and_comments();
+                            if self.current().kind == TokenKind::Ampersand {
+                                self.advance();
+                            }
+                            continue;
+                        }
+                    }
+
+                    if let Some(node) = self.parse_node()? {
+                        current_cell_content.push(node);
+                    }
+                }
+                TokenKind::Ampersand => {
+                    self.advance();
+                    current_cells.push(TableCell {
+                        content: std::mem::take(&mut current_cell_content),
+                        colspan: 1,
+                        rowspan: 1,
+                        alignment: None,
+                    });
+                }
+                TokenKind::DoubleBackslash => {
+                    self.advance();
+                    self.try_read_optional_arg();
+                    current_cells.push(TableCell {
+                        content: std::mem::take(&mut current_cell_content),
+                        colspan: 1,
+                        rowspan: 1,
+                        alignment: None,
+                    });
+                    rows.push(TableRow {
+                        cells: std::mem::take(&mut current_cells),
+                        hline_before: hline_before_next,
+                        hline_after,
+                        extra_space_before: extra_space_next,
+                        cmidrules: std::mem::take(&mut cmidrule_pending),
+                    });
+                    hline_before_next = false;
+                    hline_after = false;
+                    extra_space_next = 0.0;
+                }
+                _ => {
+                    if let Some(node) = self.parse_node()? {
+                        current_cell_content.push(node);
+                    }
+                }
+            }
+        }
+
+        Ok(Some(Node::Table(Box::new(Table {
+            columns,
+            rows,
+            caption,
+            label,
+            centering: true,
+            long: true,
+            header_end,
         }))))
     }
 

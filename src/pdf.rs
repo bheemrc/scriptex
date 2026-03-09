@@ -502,6 +502,18 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
         w.write_all(escape_pdf_string(&clean).as_bytes())?;
         w.write_all(b")")?;
     }
+    if let Some(subject) = &doc.preamble.subject {
+        let clean = clean_metadata_text(subject);
+        w.write_all(b" /Subject (")?;
+        w.write_all(escape_pdf_string(&clean).as_bytes())?;
+        w.write_all(b")")?;
+    }
+    if let Some(keywords) = &doc.preamble.keywords {
+        let clean = clean_metadata_text(keywords);
+        w.write_all(b" /Keywords (")?;
+        w.write_all(escape_pdf_string(&clean).as_bytes())?;
+        w.write_all(b")")?;
+    }
     w.write_all(b" /Creator (SonicSpeedLaTeX)")?;
     // Add creation date in PDF date format: D:YYYYMMDDHHmmSS
     {

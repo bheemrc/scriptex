@@ -126,6 +126,9 @@ enum Shape {
     Ellipse,
     Diamond,
     RoundedRect,
+    Star,
+    Trapezium,
+    Cloud,
     None,
 }
 
@@ -145,6 +148,28 @@ struct TikzEdge {
     line_width: f32,
     label: Option<String>,
     path_type: PathType,
+    from_anchor: Option<String>,
+    to_anchor: Option<String>,
+    label_pos: f32, // 0.0..1.0, default 0.5
+}
+
+/// Dash pattern for TikZ lines
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum DashPattern {
+    Solid,
+    Dashed,
+    Dotted,
+    DashDot,
+    DashDotDot,
+}
+
+/// Arrow tip style
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ArrowTip {
+    Stealth,
+    Latex,
+    Triangle,
+    Default,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -394,6 +419,9 @@ fn apply_option_to_style(opt: &str, style: &mut TikzStyle) {
         "circle" => style.shape = Some(Shape::Circle),
         "ellipse" => style.shape = Some(Shape::Ellipse),
         "diamond" => style.shape = Some(Shape::Diamond),
+        "star" | "star, star points=5" => style.shape = Some(Shape::Star),
+        "trapezium" => style.shape = Some(Shape::Trapezium),
+        "cloud" => style.shape = Some(Shape::Cloud),
         "rounded corners" => style.rounded_corners = true,
         "draw" => style.draw_color = Some(Color::BLACK),
         "dashed" => style.dashed = true,
@@ -555,6 +583,9 @@ fn parse_node(stmt: &str, settings: &DiagramSettings) -> Option<TikzNode> {
                 else if opt == "diamond" { node.shape = Shape::Diamond; }
                 else if opt == "ellipse" { node.shape = Shape::Ellipse; }
                 else if opt == "rectangle" { node.shape = Shape::Rectangle; }
+                else if opt == "star" { node.shape = Shape::Star; }
+                else if opt == "trapezium" { node.shape = Shape::Trapezium; }
+                else if opt == "cloud" { node.shape = Shape::Cloud; }
                 else if opt.starts_with("rounded corners") || opt.starts_with("rounded rect") {
                     node.shape = Shape::RoundedRect;
                 }
@@ -958,10 +989,10 @@ fn render_node(node: &TikzNode, min_x: f32, min_y: f32, elements: &mut Vec<TikzE
             if node.fit_nodes.is_empty() {
                 // Only default fill for non-fit nodes
                 match node.shape {
-                    Shape::Rectangle | Shape::RoundedRect => Some(Color::rgb(0.92, 0.95, 1.0)),
-                    Shape::Circle => Some(Color::rgb(1.0, 0.92, 0.92)),
+                    Shape::Rectangle | Shape::RoundedRect | Shape::Trapezium => Some(Color::rgb(0.92, 0.95, 1.0)),
+                    Shape::Circle | Shape::Star => Some(Color::rgb(1.0, 0.92, 0.92)),
                     Shape::Diamond => Some(Color::rgb(0.95, 0.95, 0.88)),
-                    Shape::Ellipse => Some(Color::rgb(0.92, 1.0, 0.92)),
+                    Shape::Ellipse | Shape::Cloud => Some(Color::rgb(0.92, 1.0, 0.92)),
                     Shape::None => None,
                 }
             } else {
@@ -980,7 +1011,8 @@ fn render_node(node: &TikzNode, min_x: f32, min_y: f32, elements: &mut Vec<TikzE
             stroke_width: 0.8,
             corner_radius: match node.shape {
                     Shape::Circle | Shape::Ellipse => node.width.min(node.height) / 2.0,
-                    Shape::RoundedRect => 4.0,
+                    Shape::RoundedRect | Shape::Cloud => 4.0,
+                    Shape::Star => 2.0,
                     _ => 0.0,
                 },
         });
@@ -1227,6 +1259,9 @@ fn parse_draw_command(stmt: &str, edges: &mut Vec<TikzEdge>, settings: &DiagramS
             line_width,
             label: if i == 0 { label.clone() } else { None },
             path_type: pt,
+            from_anchor: None,
+            to_anchor: None,
+            label_pos: 0.5,
         });
     }
 }

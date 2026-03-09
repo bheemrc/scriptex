@@ -27,6 +27,9 @@ pub struct Parser<'a> {
     pub(super) body_subjclass: Option<(String, String)>, // (year, text)
     pub(super) custom_colors: std::collections::HashMap<String, Color>,
     pub(super) base_font_size: f32, // for em/ex unit conversion
+    pub(super) body_signature: Option<String>,
+    pub(super) body_sender_address: Option<String>,
+    pub(super) body_recipient: Option<String>,
 }
 
 impl<'a> Parser<'a> {
@@ -46,6 +49,9 @@ impl<'a> Parser<'a> {
             body_subjclass: None,
             custom_colors: std::collections::HashMap::new(),
             base_font_size: 10.0, // default, updated from preamble
+            body_signature: None,
+            body_sender_address: None,
+            body_recipient: None,
         }
     }
 
@@ -93,6 +99,15 @@ impl<'a> Parser<'a> {
         }
         if let Some(sc) = self.body_subjclass.take() {
             preamble.subjclass = Some(sc);
+        }
+        if let Some(sig) = self.body_signature.take() {
+            preamble.letter_signature = Some(sig);
+        }
+        if let Some(addr) = self.body_sender_address.take() {
+            preamble.letter_sender_address = Some(addr);
+        }
+        if let Some(recip) = self.body_recipient.take() {
+            preamble.letter_recipient = Some(recip);
         }
         Ok(Document { class, preamble, body })
     }

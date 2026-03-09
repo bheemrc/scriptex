@@ -178,6 +178,9 @@ pub fn layout_document_inner(
         }
     }
 
+    // Apply biblatex configuration
+    state.biblatex_config = doc.preamble.biblatex_config.clone();
+
     state.source_ptr = source.as_ptr();
     state.source_len = source.len();
 
@@ -285,7 +288,7 @@ fn is_inline_node(node: &Node) -> bool {
             | Node::FontSize { .. } | Node::Superscript(_) | Node::Subscript(_)
             | Node::NonBreakingSpace | Node::HSpace(_) | Node::HFill | Node::Code(_) | Node::Footnote(_)
             | Node::Strikethrough(_) | Node::Dingbat(_)
-            | Node::Citation(..) | Node::Ref(_) | Node::EqRef(_) | Node::Cref(..) | Node::Href { .. }
+            | Node::Citation(..) | Node::BiblatexCitation(..) | Node::Ref(_) | Node::EqRef(_) | Node::Cref(..) | Node::Href { .. }
             | Node::FontStyleDecl(_) | Node::ColorDecl(_)
             | Node::EnDash | Node::EmDash | Node::Ellipsis
             | Node::LeftQuote | Node::RightQuote | Node::LeftDoubleQuote | Node::RightDoubleQuote
@@ -339,7 +342,7 @@ fn layout_nodes(nodes: &[Node], state: &mut LayoutState, doc: &Document, source:
             Node::InlineMath(_) | Node::Bold(_) | Node::Italic(_) | Node::Emph(_)
             | Node::Colored { .. } | Node::Code(_) | Node::SmallCaps(_)
             | Node::Underline(_) | Node::Footnote(_) | Node::FontStyleDecl(_) | Node::ColorDecl(_)
-            | Node::Citation(..) | Node::Ref(_) | Node::EqRef(_) | Node::Cref(..) | Node::Href { .. }
+            | Node::Citation(..) | Node::BiblatexCitation(..) | Node::Ref(_) | Node::EqRef(_) | Node::Cref(..) | Node::Href { .. }
             | Node::NonBreakingSpace
         ));
         if has_loose_inlines {
@@ -589,8 +592,8 @@ fn render_top_floats(state: &mut LayoutState, doc: &Document, source: &str) -> R
 
 /// Render a tcolorbox / colored framed box
 fn layout_colorbox(boxdata: &ColorBoxData, state: &mut LayoutState, doc: &Document, source: &str) -> Result<()> {
-    // LaTeX \intextsep = 12pt at 10pt base, scales proportionally
-    state.add_vertical_space(state.base_font_size * 1.0);
+    // LaTeX \intextsep = 8pt plus 2pt minus 2pt for 10pt; use shrunk value
+    state.add_vertical_space(state.base_font_size * 0.7);
     let padding = boxdata.padding;
 
     let start_y = state.current_y;
@@ -668,7 +671,7 @@ fn layout_colorbox(boxdata: &ColorBoxData, state: &mut LayoutState, doc: &Docume
         state.all_elements.insert(elem_start, PageElement::Rect(idx));
     }
 
-    state.add_vertical_space(state.base_font_size * 1.0);
+    state.add_vertical_space(state.base_font_size * 0.7);
     state.current_x = state.text_left();
     Ok(())
 }
@@ -708,7 +711,7 @@ fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Documen
     if remaining_space < min_figure_space && remaining_space < full_page_height * 0.8 {
         state.new_page();
     }
-    state.add_vertical_space(state.base_font_size * 1.2);
+    state.add_vertical_space(state.base_font_size * 0.8);
     let saved_indent = state.indent;
     let saved_font_size = state.current_font_size;
     layout_nodes(&fig.content, state, doc, source)?;
@@ -719,8 +722,8 @@ fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Documen
         if let Some(ref label) = fig.label {
             state.label_map.insert(label.clone(), fig_num.to_string());
         }
-        // LaTeX \abovecaptionskip = 10pt default
-        state.current_y += state.base_font_size * 1.0;
+        // LaTeX \abovecaptionskip = 10pt default (with shrink)
+        state.current_y += state.base_font_size * 0.8;
 
         // Caption uses \small font (LaTeX convention)
         let cap_font_size = state.current_font_size * 0.9; // LaTeX \small = 90% of \normalsize
@@ -741,7 +744,7 @@ fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Documen
     state.set_indent(saved_indent);
     state.current_font_size = saved_font_size;
     state.current_x = state.text_left();
-    state.add_vertical_space(state.base_font_size * 1.2);
+    state.add_vertical_space(state.base_font_size * 0.8);
     state.suppress_next_indent = true;
     Ok(())
 }
@@ -1024,10 +1027,10 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             state.set_indent(state.indent + quote_indent);
             state.paragraph_indent = 0.0;
             state.current_x = state.text_left();
-            // LaTeX \topsep for quote = ~6pt at 10pt
-            state.add_vertical_space(state.base_font_size * 0.6);
+            // LaTeX \topsep for quote = 4pt plus 2pt minus 1pt at 10pt
+            state.add_vertical_space(state.base_font_size * 0.4);
             layout_nodes(content, state, doc, source)?;
-            state.add_vertical_space(state.base_font_size * 0.6);
+            state.add_vertical_space(state.base_font_size * 0.4);
             state.paragraph_indent = saved_para_indent;
             state.set_right_indent(saved_right);
             state.set_indent(saved_indent);
@@ -1042,9 +1045,9 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             state.set_right_indent(state.right_indent + quote_indent);
             state.set_indent(state.indent + quote_indent);
             state.current_x = state.text_left();
-            state.add_vertical_space(state.base_font_size * 0.6);
+            state.add_vertical_space(state.base_font_size * 0.4);
             layout_nodes(content, state, doc, source)?;
-            state.add_vertical_space(state.base_font_size * 0.6);
+            state.add_vertical_space(state.base_font_size * 0.4);
             state.set_right_indent(saved_right);
             state.set_indent(saved_indent);
             state.current_x = state.text_left();
@@ -1287,6 +1290,13 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             state.current_x += font::measure_text(&cite_text, FontId::TimesRoman, state.current_font_size);
         }
 
+        Node::BiblatexCitation(key, opt, cite_type) => {
+            let cite_text = crate::bibliography::format_biblatex_citation(key, opt.as_deref(), cite_type, &state.citation_map, &state.author_year_map);
+            let cite_color = state.cite_color;
+            state.emit_text(&cite_text, state.current_font_size, FontStyle::Regular, cite_color);
+            state.current_x += font::measure_text(&cite_text, FontId::TimesRoman, state.current_font_size);
+        }
+
         Node::Ref(label) => {
             let ref_text = if let Some(resolved) = state.label_map.get(label) {
                 resolved.clone()
@@ -1441,6 +1451,28 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             }
         }
 
+        Node::PrintBibliography => {
+            layout_print_bibliography(state, doc, source)?;
+        }
+
+        Node::LetterOpening(text) => {
+            layout_letter_opening(text, state)?;
+        }
+        Node::LetterClosing(text) => {
+            layout_letter_closing(text, state, doc)?;
+        }
+        Node::LetterCc(text) => {
+            layout_letter_list("cc", text, state)?;
+        }
+        Node::LetterEncl(text) => {
+            layout_letter_list("encl", text, state)?;
+        }
+        Node::LetterPs(content) => {
+            state.add_vertical_space(state.base_font_size * 1.0);
+            state.suppress_next_indent = false;
+            layout_nodes(content, state, doc, source)?;
+        }
+
         Node::Label(name) => {
             // Record label position for internal cross-reference links
             let page = state.page_bounds.len() as u32;
@@ -1486,5 +1518,89 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
         | Node::HFill | Node::Dingbat(_) => {}
     }
 
+    Ok(())
+}
+
+// ============================================================
+// Letter document class layout functions
+// ============================================================
+
+fn layout_letter_opening(text: &str, state: &mut LayoutState) -> Result<()> {
+    state.add_vertical_space(state.base_font_size * 2.0);
+    state.suppress_next_indent = true;
+    state.emit_text(text, state.current_font_size, FontStyle::Regular, Color::BLACK);
+    let step = state.current_font_size * 1.2;
+    state.current_y += step;
+    state.add_vertical_space(state.base_font_size * 0.5);
+    state.current_x = state.text_left();
+    Ok(())
+}
+
+fn layout_letter_closing(text: &str, state: &mut LayoutState, doc: &Document) -> Result<()> {
+    state.add_vertical_space(state.base_font_size * 1.5);
+    let indent = state.text_width() * 0.5;
+    state.current_x = state.text_left() + indent;
+    state.emit_text(text, state.current_font_size, FontStyle::Regular, Color::BLACK);
+    let step = state.current_font_size * 1.2;
+    state.current_y += step;
+    state.add_vertical_space(state.base_font_size * 3.0);
+    if let Some(ref sig) = doc.preamble.letter_signature {
+        state.current_x = state.text_left() + indent;
+        state.emit_text(sig, state.current_font_size, FontStyle::Regular, Color::BLACK);
+        state.current_y += step;
+    } else if let Some(ref author) = doc.preamble.author {
+        state.current_x = state.text_left() + indent;
+        state.emit_text(author, state.current_font_size, FontStyle::Regular, Color::BLACK);
+        state.current_y += step;
+    }
+    state.current_x = state.text_left();
+    Ok(())
+}
+
+fn layout_letter_list(label: &str, text: &str, state: &mut LayoutState) -> Result<()> {
+    state.add_vertical_space(state.base_font_size * 1.0);
+    let prefix = format!("{}:", label);
+    let prefix_w = font::measure_text(&prefix, FontId::TimesRoman, state.current_font_size);
+    state.current_x = state.text_left();
+    state.emit_text(&prefix, state.current_font_size, FontStyle::Regular, Color::BLACK);
+    state.current_x = state.text_left() + prefix_w + state.current_font_size * 0.5;
+    let items: Vec<&str> = text.split(',').map(|s| s.trim()).collect();
+    let step = state.current_font_size * 1.2;
+    for (i, item) in items.iter().enumerate() {
+        if i > 0 {
+            state.current_y += step;
+            state.current_x = state.text_left() + prefix_w + state.current_font_size * 0.5;
+        }
+        state.emit_text(item, state.current_font_size, FontStyle::Regular, Color::BLACK);
+    }
+    state.current_y += step;
+    state.current_x = state.text_left();
+    Ok(())
+}
+
+fn layout_print_bibliography(state: &mut LayoutState, _doc: &Document, _source: &str) -> Result<()> {
+    state.add_vertical_space(state.base_font_size * 2.0);
+    let heading = "References";
+    let heading_size = state.base_font_size * 1.2;
+    state.emit_text(heading, heading_size, FontStyle::Bold, Color::BLACK);
+    state.current_y += heading_size * 1.4;
+    state.current_x = state.text_left();
+    state.add_vertical_space(state.base_font_size * 0.5);
+
+    let step = state.current_font_size * 1.2;
+    let keys: Vec<String> = state.citation_map.keys().cloned().collect();
+    for key in &keys {
+        let num = state.citation_map.get(key).copied().unwrap_or(0);
+        let marker = format!("[{}]", num);
+        let marker_w = font::measure_text(&marker, FontId::TimesRoman, state.current_font_size);
+        let indent = state.base_font_size * 2.5;
+        state.current_x = state.text_left() + indent - marker_w;
+        state.emit_text(&marker, state.current_font_size, FontStyle::Regular, Color::BLACK);
+        state.current_x = state.text_left() + indent;
+        state.emit_text(key, state.current_font_size, FontStyle::Regular, Color::BLACK);
+        state.current_y += step;
+        state.current_x = state.text_left();
+    }
+    state.suppress_next_indent = true;
     Ok(())
 }

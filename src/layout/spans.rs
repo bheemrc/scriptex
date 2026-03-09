@@ -216,6 +216,11 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
                 let cite_color = Color::from_rgb_u8(0, 100, 0);
                 out.push(StyledSpan { text: cite_text, style, color: cite_color, font_size, underline: false, strikethrough: false });
             }
+            Node::BiblatexCitation(key, opt, cite_type) => {
+                let cite_text = crate::bibliography::format_biblatex_citation(key, opt.as_deref(), cite_type, citations, author_year_map);
+                let cite_color = Color::from_rgb_u8(0, 100, 0);
+                out.push(StyledSpan { text: cite_text, style, color: cite_color, font_size, underline: false, strikethrough: false });
+            }
             Node::Ref(_) | Node::EqRef(_) | Node::Cref(..) => {
                 let mut t = String::new();
                 node_to_text_resolved(node, &mut t, source, labels);
@@ -434,7 +439,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         | Node::Colored { .. } | Node::Code(_) | Node::SmallCaps(_)
         | Node::Underline(_) | Node::InlineMath(_) | Node::Href { .. }
         | Node::Footnote(_) | Node::FontStyleDecl(_) | Node::ColorDecl(_) | Node::Group(_) | Node::MBox(_)
-        | Node::FontSize { .. } | Node::Citation(..) | Node::Cref(..)
+        | Node::FontSize { .. } | Node::Citation(..) | Node::BiblatexCitation(..) | Node::Cref(..)
         | Node::Dingbat(_)
     ));
 
@@ -782,7 +787,10 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 // TeX adj_demerits: penalize adjacent lines with very different fitness classes
                 let fitness_penalty = if (dp_fitness[a] as i8 - fitness as i8).unsigned_abs() > 1 { 3000.0 } else { 0.0 };
 
-                let total = dp_cost[a] + badness + fitness_penalty;
+                // TeX \linepenalty = 10: adds a per-line cost to discourage extra lines
+                // This encourages tighter packing (fewer, fuller lines)
+                let line_penalty: f64 = 10.0;
+                let total = dp_cost[a] + badness + fitness_penalty + line_penalty;
                 if total < dp_cost[j] {
                     dp_cost[j] = total;
                     dp_from[j] = a;

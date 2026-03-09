@@ -624,11 +624,17 @@ fn node_to_text_ext(node: &Node, out: &mut String, source: &str, labels: Option<
             if let Some(o) = opt { out.push_str(", "); out.push_str(o); }
             out.push(']');
         }
+        Node::BiblatexCitation(key, opt, _cite_type) => {
+            out.push('[');
+            out.push_str(key);
+            if let Some(o) = opt { out.push_str(", "); out.push_str(o); }
+            out.push(']');
+        }
         Node::LaTeXLogo => out.push_str("LaTeX"),
         Node::TeXLogo => out.push_str("TeX"),
         Node::Dingbat(code) => out.push(char::from(*code)),
         Node::Rule { .. } => {} // inline rule has no text content
-        Node::Label(_) | Node::BibItem(_) => {}
+        Node::Label(_) | Node::BibItem(_) | Node::PrintBibliography => {}
         Node::Code(s) => out.push_str(s),
         Node::Href { content, .. } => {
             for c in content { node_to_text_ext(c, out, source, labels); }

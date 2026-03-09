@@ -16,11 +16,13 @@ pub(super) fn layout_display_math_data(math_data: &DisplayMathData, state: &mut 
 
     if has_newlines && matches!(math_data.env_type, MathEnvType::Multline) {
         layout_multline_math(&math_data.nodes, math_data.numbered, state)
-    } else if has_alignment && matches!(math_data.env_type, MathEnvType::Align | MathEnvType::Gather) {
+    } else if matches!(math_data.env_type, MathEnvType::Gather) && has_newlines {
+        layout_gather_math(&math_data.nodes, math_data.numbered, state)
+    } else if has_alignment && matches!(math_data.env_type, MathEnvType::Align) {
         layout_aligned_math(&math_data.nodes, math_data.numbered, state)
     } else if has_newlines && !has_alignment {
-        // split/gather with newlines but no & alignment marks — treat each line as centered
-        layout_aligned_math(&math_data.nodes, math_data.numbered, state)
+        // split with newlines but no & alignment marks — treat each line as centered
+        layout_gather_math(&math_data.nodes, math_data.numbered, state)
     } else {
         layout_display_math_simple(&math_data.nodes, math_data.numbered, state)
     }
@@ -51,14 +53,15 @@ fn is_math_break_point(node: &MathNode) -> bool {
 }
 
 fn display_math_skip(state: &LayoutState) -> f32 {
-    // LaTeX \abovedisplayskip: 10pt + 2pt + 4pt for 10pt (≈ 1.2em base)
+    // LaTeX \abovedisplayskip: 10pt plus 2pt minus 5pt for 10pt
     // LaTeX \belowdisplayskip: same as above
-    // LaTeX \abovedisplayshortskip: 0pt + 3pt for 10pt (≈ 0.3em)
+    // Use the "minus" part aggressively to tighten layout (10pt - 5pt = 5pt = 0.5em)
+    // Compromise: 0.6em for standard, 0.5em for narrow columns
     let fs = state.current_font_size;
     if state.text_width() < 300.0 {
-        fs * 0.8 // two-column or narrow layout: slightly compact
+        fs * 0.5 // two-column or narrow layout: compact
     } else {
-        fs * 1.0 // standard layout: match LaTeX abovedisplayskip (10pt at 10pt)
+        fs * 0.6 // standard layout: LaTeX abovedisplayskip with shrink
     }
 }
 
@@ -213,6 +216,82 @@ fn layout_multline_math(math_nodes: &[MathNode], numbered: bool, state: &mut Lay
             });
         }
 
+        state.current_y += step;
+    }
+
+    state.add_vertical_space(display_math_skip(state));
+    state.current_x = state.text_left();
+    state.suppress_next_indent = true;
+    Ok(())
+}
+
+/// Layout gather environment: all lines centered, no alignment marks.
+fn layout_gather_math(math_nodes: &[MathNode], numbered: bool, state: &mut LayoutState) -> Result<()> {
+    state.add_vertical_space(display_math_skip(state));
+
+    // Split into lines at NewLine nodes
+    let mut lines: Vec<Vec<MathNode>> = vec![vec![]];
+    let mut row_tags: Vec<Option<String>> = Vec::new();
+    let mut current_row_tag: Option<String> = None;
+    for node in math_nodes {
+        match node {
+            MathNode::NewLine => {
+                lines.push(vec![]);
+                row_tags.push(current_row_tag.take());
+            }
+            MathNode::AlignmentMark => {} // ignore alignment marks in gather
+            MathNode::NoTag => { current_row_tag = Some(String::new()); }
+            MathNode::Tag(t) => { current_row_tag = Some(t.clone()); }
+            _ => { lines.last_mut().unwrap().push(node.clone()); }
+        }
+    }
+    row_tags.push(current_row_tag.take());
+    // Remove empty trailing lines
+    while lines.last().map_or(false, |l| l.is_empty()) { lines.pop(); row_tags.pop(); }
+    if lines.is_empty() { return Ok(()); }
+
+    let font_size = state.current_font_size;
+    let step = font_size * 1.6;
+    let text_left = state.text_left();
+    let text_width = state.text_width();
+    let eq_num_width = if numbered {
+        crate::font::measure_text("(99)", crate::font::FontId::TimesRoman, font_size) + 8.0
+    } else { 0.0 };
+    let avail_width = text_width - eq_num_width;
+    let total_height = step * lines.len() as f32;
+    state.ensure_space(total_height + state.base_font_size * 1.6);
+
+    for (line_idx, line_nodes) in lines.iter().enumerate() {
+        if line_nodes.is_empty() { continue; }
+
+        let math_box = math_layout::layout_math(line_nodes, font_size);
+        // Center each line
+        let x = text_left + (avail_width - math_box.width).max(0.0) / 2.0;
+        let baseline_y = state.current_y + math_box.height;
+        emit_math_elements(&math_box, x, baseline_y, state);
+
+        if numbered {
+            let tag = row_tags.get(line_idx).and_then(|t| t.as_deref());
+            let suppress = tag == Some("");
+            if !suppress {
+                let eq_text = if let Some(ct) = tag.filter(|t| !t.is_empty()) {
+                    format!("({})", ct)
+                } else {
+                    state.equation_counter += 1;
+                    format!("({})", state.equation_counter)
+                };
+                let num_w = crate::font::measure_text(&eq_text, crate::font::FontId::TimesRoman, font_size);
+                let num_x = state.text_left() + state.text_width() - num_w;
+                let offset = (state.all_text.len() - state.current_page_text_start as usize) as u32;
+                state.all_text.push_str(&eq_text);
+                state.all_elements.push(PageElement::Text {
+                    x: num_x, y: baseline_y,
+                    text_offset: offset, text_len: eq_text.len().min(65535) as u16,
+                    font_size_100: (font_size * 100.0) as u16, font_style: FontStyle::Regular,
+                    color: Color::BLACK, word_spacing_50: 0,
+                });
+            }
+        }
         state.current_y += step;
     }
 

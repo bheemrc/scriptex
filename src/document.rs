@@ -45,6 +45,22 @@ pub struct Preamble {
     pub subjclass: Option<(String, String)>, // (year, classification text)
     pub hyperref: HyperrefConfig,
     pub array_stretch: f32,  // \arraystretch (default 1.0)
+    /// BibLaTeX configuration (if \usepackage{biblatex} is used)
+    pub biblatex_config: Option<BiblatexConfig>,
+    pub subject: Option<String>,
+    // Letter class fields
+    pub letter_sender_address: Option<String>,
+    pub letter_signature: Option<String>,
+    pub letter_recipient: Option<String>,
+}
+
+/// BibLaTeX package configuration
+#[derive(Debug, Clone)]
+pub struct BiblatexConfig {
+    /// Citation style: "numeric", "authoryear", "alphabetic", etc.
+    pub style: String,
+    /// .bib resource files specified via \addbibresource
+    pub resources: Vec<String>,
 }
 
 /// hyperref package configuration
@@ -102,6 +118,11 @@ impl Default for Preamble {
             subjclass: None,
             hyperref: HyperrefConfig::default(),
             array_stretch: 1.0,
+            biblatex_config: None,
+            subject: None,
+            letter_sender_address: None,
+            letter_signature: None,
+            letter_recipient: None,
         }
     }
 }
@@ -171,6 +192,27 @@ impl PageSetup {
             (self.text_width() - (self.columns as f32 - 1.0) * self.column_sep) / self.columns as f32
         }
     }
+}
+
+/// BibLaTeX citation command types
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BiblatexCiteType {
+    /// \textcite → "Author (Year)" or "Author [N]"
+    TextCite,
+    /// \parencite → "(Author, Year)" or "[N]"
+    ParenCite,
+    /// \autocite → context-dependent (default: like \parencite)
+    AutoCite,
+    /// \citeauthor → just the author name
+    CiteAuthor,
+    /// \citetitle → just the title
+    CiteTitle,
+    /// \citeyear → just the year
+    CiteYear,
+    /// \fullcite → full bibliographic reference inline
+    FullCite,
+    /// \footcite → citation as footnote
+    FootCite,
 }
 
 /// Core AST node types
@@ -299,8 +341,13 @@ pub enum Node {
     EqRef(String),
     /// Citation — key, optional argument text (e.g. "Prop.~1.6"), citation style
     Citation(String, Option<String>, CitationStyle),
+    /// BibLaTeX citation variants: \textcite, \parencite, \autocite, etc.
+    /// (key, optional_arg, citation_type)
+    BiblatexCitation(String, Option<String>, BiblatexCiteType),
     /// Bibliography item marker
     BibItem(String),
+    /// \printbibliography marker (signals where to render the biblatex bibliography)
+    PrintBibliography,
 
     /// Horizontal rule
     HRule,
@@ -389,6 +436,17 @@ pub enum Node {
     Caret,
     LeftBrace,
     RightBrace,
+
+    /// Letter class: opening greeting (e.g. "Dear Sir,")
+    LetterOpening(String),
+    /// Letter class: closing with signature (e.g. "Sincerely,")
+    LetterClosing(String),
+    /// Letter class: carbon copy list
+    LetterCc(String),
+    /// Letter class: enclosure list
+    LetterEncl(String),
+    /// Letter class: postscript
+    LetterPs(Vec<Node>),
 
     /// Colored/framed box (tcolorbox, mdframed, etc.)
     ColorBox(Box<ColorBoxData>),
@@ -665,6 +723,10 @@ pub struct Table {
     pub caption: Option<Vec<Node>>,
     pub label: Option<String>,
     pub centering: bool,
+    /// If true, this is a longtable that can span multiple pages
+    pub long: bool,
+    /// Index of first row after the header (rows 0..header_end repeat on each page)
+    pub header_end: Option<usize>,
 }
 
 #[derive(Debug, Clone)]

@@ -51,6 +51,11 @@ fn detect_cell_style(content: &[Node]) -> FontStyle {
 pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Document, source: &str) -> Result<()> {
     if table.rows.is_empty() { return Ok(()); }
 
+    // For longtables, use the page-breaking layout path
+    if table.long {
+        return layout_longtable(table, state, source);
+    }
+
     let num_data_rows = {
         let num_cols = table.columns.iter().filter(|c| !matches!(c, ColumnSpec::Separator | ColumnSpec::SuppressPadding)).count().max(1);
         let mut n = table.rows.len();
@@ -61,8 +66,8 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
 
     if table.caption.is_some() { state.table_counter += 1; }
     let tbl_num = state.table_counter;
-    // LaTeX \intextsep default = 12pt for 10pt, scales proportionally
-    let intextsep = state.base_font_size * 1.2;
+    // LaTeX \intextsep = 8pt plus 2pt minus 2pt for 10pt; use shrunk value
+    let intextsep = state.base_font_size * 0.7;
     state.add_vertical_space(intextsep);
 
     let data_cols: Vec<&ColumnSpec> = table.columns.iter().filter(|c| !matches!(c, ColumnSpec::Separator | ColumnSpec::SuppressPadding)).collect();
@@ -419,6 +424,115 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     }
 
     state.add_vertical_space(intextsep);
+    state.current_x = state.text_left();
+    Ok(())
+}
+
+/// Layout a longtable with page-breaking and header repetition.
+fn layout_longtable(table: &Table, state: &mut LayoutState, source: &str) -> Result<()> {
+    // Longtable: lay out like a regular table but break across pages,
+    // repeating header rows (rows 0..header_end) at the top of each new page.
+    let header_end = table.header_end.unwrap_or(0) as usize;
+    let num_cols = table.columns.iter()
+        .filter(|c| !matches!(c, ColumnSpec::Separator | ColumnSpec::SuppressPadding))
+        .count().max(1);
+    let font_size = state.current_font_size;
+    let cell_padding = 6.0f32;
+    let available_width = state.text_width();
+
+    // Measure column widths from all rows
+    let data_cols: Vec<&ColumnSpec> = table.columns.iter()
+        .filter(|c| !matches!(c, ColumnSpec::Separator | ColumnSpec::SuppressPadding))
+        .collect();
+    let mut col_max_widths = vec![0.0f32; num_cols];
+    for row in &table.rows {
+        let mut logical_col = 0usize;
+        for cell in &row.cells {
+            if logical_col >= num_cols { break; }
+            let mut text = String::new();
+            for node in &cell.content { node_to_text_resolved(node, &mut text, source, &state.label_map); }
+            let trimmed = text.trim();
+            let fid = FontId::TimesRoman;
+            let w = font::measure_text(trimmed, fid, font_size);
+            if w > col_max_widths[logical_col] { col_max_widths[logical_col] = w; }
+            logical_col += cell.colspan.max(1) as usize;
+        }
+    }
+    let total_padding = cell_padding * 2.0 * num_cols as f32;
+    let total_content = col_max_widths.iter().sum::<f32>() + total_padding;
+    let col_widths: Vec<f32> = if total_content <= available_width {
+        col_max_widths.iter().map(|&w| w + cell_padding * 2.0 + (available_width - total_content) / num_cols as f32).collect()
+    } else {
+        let scale = available_width / total_content.max(1.0);
+        col_max_widths.iter().map(|&w| (w + cell_padding * 2.0) * scale).collect()
+    };
+    let actual_table_width: f32 = col_widths.iter().sum();
+    let table_x = if actual_table_width < available_width {
+        state.text_left() + (available_width - actual_table_width) / 2.0
+    } else { state.text_left() };
+
+    let line_h = font_size * 1.2;
+    let row_h = line_h + cell_padding * 2.0;
+    let heavy_rule = (font_size * 0.08).max(0.6);
+    let light_rule = (font_size * 0.05).max(0.4);
+
+    let emit_row = |row: &crate::document::TableRow, state: &mut LayoutState, row_idx: usize, total_rows: usize| {
+        let y = state.current_y;
+        let mut col_x = table_x;
+        let mut logical_col = 0usize;
+        for cell in &row.cells {
+            if logical_col >= num_cols { break; }
+            let col_w = col_widths.get(logical_col).copied().unwrap_or(100.0);
+            let mut text = String::new();
+            for node in &cell.content { node_to_text_resolved(node, &mut text, source, &state.label_map); }
+            let trimmed = text.trim();
+            let style = detect_cell_style(&cell.content);
+            let fid = if style == FontStyle::Bold { FontId::TimesBold } else { FontId::TimesRoman };
+            let display_w = font::measure_text(trimmed, fid, font_size);
+            let spec = if logical_col < data_cols.len() { data_cols[logical_col] } else { &ColumnSpec::Left };
+            let text_x = match spec {
+                ColumnSpec::Center => col_x + cell_padding + (col_w - cell_padding * 2.0 - display_w) / 2.0,
+                ColumnSpec::Right => col_x + col_w - cell_padding - display_w,
+                _ => col_x + cell_padding,
+            };
+            state.current_x = text_x;
+            state.current_y = y + cell_padding;
+            state.emit_text(trimmed, font_size, style, Color::BLACK);
+            col_x += col_w;
+            logical_col += cell.colspan.max(1) as usize;
+        }
+        if row.hline_before {
+            let rule_width = if row_idx == 0 { heavy_rule } else { light_rule };
+            state.emit_line(table_x, y, table_x + actual_table_width, y, rule_width, Color::BLACK);
+        }
+        if row.hline_after {
+            let line_y = y + row_h;
+            let rule_width = if row_idx == total_rows - 1 { heavy_rule } else { light_rule };
+            state.emit_line(table_x, line_y, table_x + actual_table_width, line_y, rule_width, Color::BLACK);
+        }
+        state.current_y = y + row_h;
+    };
+
+    let total_rows = table.rows.len();
+    // Emit header rows first
+    for (ri, row) in table.rows.iter().enumerate().take(header_end) {
+        state.ensure_space(row_h);
+        emit_row(row, state, ri, total_rows);
+    }
+
+    // Emit body rows with page-break handling
+    for (ri, row) in table.rows.iter().enumerate().skip(header_end) {
+        if state.current_y + row_h > state.cached_max_y {
+            state.new_page();
+            // Repeat header rows on new page
+            for (hi, hrow) in table.rows.iter().enumerate().take(header_end) {
+                emit_row(hrow, state, hi, total_rows);
+            }
+        }
+        emit_row(row, state, ri, total_rows);
+    }
+
+    state.add_vertical_space(state.base_font_size * 1.2);
     state.current_x = state.text_left();
     Ok(())
 }

@@ -13,15 +13,15 @@ impl<'a> Parser<'a> {
             "itemize" => self.parse_list_environment("itemize"),
             "enumerate" => self.parse_list_environment("enumerate"),
             "description" => self.parse_list_environment("description"),
-            "tabular" | "tabular*" | "array" | "longtable" | "longtable*"
+            "tabular" | "tabular*" | "array"
             | "tabularx" | "tabulary" | "supertabular" => {
-                // longtable/tabularx/tabulary/supertabular — treat like tabular
                 // tabular*, tabularx, tabulary have an extra {width} argument before {colspec}
                 if env_name == "tabular*" || env_name.starts_with("tabularx") || env_name.starts_with("tabulary") {
                     let _ = self.read_braced_text(); // skip width arg
                 }
                 self.parse_tabular_environment(&env_name)
             }
+            "longtable" | "longtable*" => self.parse_longtable_environment(&env_name),
             "table" | "table*" => self.parse_float_environment(&env_name, true),
             "figure" | "figure*" => self.parse_float_environment(&env_name, false),
             "algorithm" | "algorithm*" => self.parse_algorithm_float(&env_name),
@@ -138,6 +138,14 @@ impl<'a> Parser<'a> {
                 let header = self.try_read_optional_arg(); // optional [Proof of ...]
                 let content = self.parse_environment_body(&env_name)?;
                 Ok(Some(Node::Proof { header, content }))
+            }
+            "letter" => {
+                // \begin{letter}{recipient address}
+                let recipient = self.read_braced_text().unwrap_or_default();
+                self.body_recipient = Some(recipient);
+                let content = self.parse_environment_body(&env_name)?;
+                // Return content as a group — letter layout is handled at the top level
+                Ok(Some(Node::Group(content)))
             }
             "tcolorbox" | "mdframed" | "framed" | "shaded" | "shaded*" => {
                 self.parse_tcolorbox_environment(&env_name)

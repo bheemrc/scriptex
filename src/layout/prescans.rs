@@ -106,6 +106,16 @@ fn collect_labels_inner(nodes: &[Node], ctx: &mut LabelCollector) {
                 ctx.bib_counter += 1;
                 ctx.citations.insert(key.clone(), ctx.bib_counter);
             }
+            Node::BiblatexCitation(key, _, _) => {
+                // Track biblatex citation keys for bibliography ordering
+                for k in key.split(',') {
+                    let k = k.trim();
+                    if !k.is_empty() && !ctx.citations.contains_key(k) {
+                        ctx.bib_counter += 1;
+                        ctx.citations.insert(k.to_string(), ctx.bib_counter);
+                    }
+                }
+            }
             Node::Theorem(thm) => {
                 let counter_name = if let Some(def) = ctx.theorem_defs.iter()
                     .find(|d| d.env_name == thm.env_name)

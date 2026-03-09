@@ -11,8 +11,8 @@ use super::types::*;
 use anyhow::Result;
 
 pub(super) fn layout_theorem(thm: &TheoremData, state: &mut LayoutState, doc: &Document, source: &str) -> Result<()> {
-    // LaTeX theorem spacing: \topsep + \partopsep ≈ 10pt for 10pt base
-    state.add_vertical_space(state.base_font_size * 1.0);
+    // LaTeX amsthm \topsep: 6pt plus 2pt minus 1pt for 10pt base
+    state.add_vertical_space(state.base_font_size * 0.6);
 
     let (display_title, is_numbered, thm_style) = if let Some(def) = doc.preamble.theorem_defs.iter()
         .find(|d| d.env_name == thm.env_name) {
@@ -67,12 +67,12 @@ pub(super) fn layout_theorem(thm: &TheoremData, state: &mut LayoutState, doc: &D
     super::layout_nodes(&thm.body, state, doc, source)?;
     state.current_font_style = saved_style;
 
-    state.add_vertical_space(state.base_font_size * 1.0);
+    state.add_vertical_space(state.base_font_size * 0.6);
     Ok(())
 }
 
 pub(super) fn layout_proof(header: Option<&str>, content: &[Node], state: &mut LayoutState, doc: &Document, source: &str) -> Result<()> {
-    state.add_vertical_space(state.base_font_size * 0.8);
+    state.add_vertical_space(state.base_font_size * 0.5);
     let font_size = state.current_font_size;
     let header_text = match header {
         Some(h) => format!("{}.", h),
@@ -95,7 +95,7 @@ pub(super) fn layout_proof(header: Option<&str>, content: &[Node], state: &mut L
     let x_height = font::font_info(FontId::TimesRoman).x_height as f32 * font_size / 1000.0;
     let qed_y = state.current_y - (x_height + sq) / 2.0;
     state.emit_rect(qed_x, qed_y, sq, sq, Some(Color::BLACK), None);
-    state.add_vertical_space(state.base_font_size * 0.8);
+    state.add_vertical_space(state.base_font_size * 0.5);
     Ok(())
 }
 
