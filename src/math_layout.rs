@@ -528,18 +528,22 @@ fn layout_operator(op: &str, font_size: f32) -> MathBox {
         | "\\wedge" | "\\vee" | "\\oplus" | "\\otimes" | "\\setminus" | "\\cdot"
         | "·" | "∖" | "⋆" | "∘" | "†" | "‡" | "⊎" | "⊔" | "△" => {
             let med = font_size * 0.22; // 4mu medium space
-            let glyph = layout_text(op, font_size, FontId::TimesRoman);
+            // Use Symbol font for non-ASCII operators, TimesRoman for ASCII
+            let (text, fid, w) = if let Some(ch) = op.chars().next() {
+                if let Some(sym_byte) = font::unicode_to_symbol_byte(ch) {
+                    (String::from(sym_byte as char), FontId::Symbol, font::char_width_pt(FontId::Symbol, sym_byte, font_size))
+                } else {
+                    (op.to_string(), FontId::TimesRoman, font::measure_text(op, FontId::TimesRoman, font_size))
+                }
+            } else {
+                (op.to_string(), FontId::TimesRoman, font::measure_text(op, FontId::TimesRoman, font_size))
+            };
             MathBox {
-                width: med + glyph.width + med,
-                height: glyph.height,
-                depth: glyph.depth,
+                width: med + w + med,
+                height: font_size * 0.7,
+                depth: font_size * 0.05,
                 elements: vec![MathElement::Text {
-                    x: med + glyph.elements.first().map_or(0.0, |e| if let MathElement::Text { x, .. } = e { *x } else { 0.0 }),
-                    y: 0.0,
-                    text: op.to_string(),
-                    font_size,
-                    font_id: FontId::TimesRoman,
-                    color: Color::BLACK,
+                    x: med, y: 0.0, text, font_size, font_id: fid, color: Color::BLACK,
                 }],
             }
         }
@@ -549,36 +553,42 @@ fn layout_operator(op: &str, font_size: f32) -> MathBox {
         | "→" | "←" | "↔" | "⇒" | "⇐" | "⇔" | "↦" | "⊢" | "⊣" | "≃" | "≅"
         | "≐" | "≍" | "⋈" => {
             let thick = font_size * 0.28; // 5mu thick space
-            let glyph = layout_text(op, font_size, FontId::TimesRoman);
+            let (text, fid, w) = if let Some(ch) = op.chars().next() {
+                if let Some(sym_byte) = font::unicode_to_symbol_byte(ch) {
+                    (String::from(sym_byte as char), FontId::Symbol, font::char_width_pt(FontId::Symbol, sym_byte, font_size))
+                } else {
+                    (op.to_string(), FontId::TimesRoman, font::measure_text(op, FontId::TimesRoman, font_size))
+                }
+            } else {
+                (op.to_string(), FontId::TimesRoman, font::measure_text(op, FontId::TimesRoman, font_size))
+            };
             MathBox {
-                width: thick + glyph.width + thick,
-                height: glyph.height,
-                depth: glyph.depth,
+                width: thick + w + thick,
+                height: font_size * 0.7,
+                depth: font_size * 0.05,
                 elements: vec![MathElement::Text {
-                    x: thick + glyph.elements.first().map_or(0.0, |e| if let MathElement::Text { x, .. } = e { *x } else { 0.0 }),
-                    y: 0.0,
-                    text: op.to_string(),
-                    font_size,
-                    font_id: FontId::TimesRoman,
-                    color: Color::BLACK,
+                    x: thick, y: 0.0, text, font_size, font_id: fid, color: Color::BLACK,
                 }],
             }
         }
         // Unknown operators: medium space as default
         _ => {
             let med = font_size * 0.22;
-            let glyph = layout_text(op, font_size, FontId::TimesRoman);
+            let (text, fid, w) = if let Some(ch) = op.chars().next() {
+                if let Some(sym_byte) = font::unicode_to_symbol_byte(ch) {
+                    (String::from(sym_byte as char), FontId::Symbol, font::char_width_pt(FontId::Symbol, sym_byte, font_size))
+                } else {
+                    (op.to_string(), FontId::TimesRoman, font::measure_text(op, FontId::TimesRoman, font_size))
+                }
+            } else {
+                (op.to_string(), FontId::TimesRoman, font::measure_text(op, FontId::TimesRoman, font_size))
+            };
             MathBox {
-                width: med + glyph.width + med,
-                height: glyph.height,
-                depth: glyph.depth,
+                width: med + w + med,
+                height: font_size * 0.7,
+                depth: font_size * 0.05,
                 elements: vec![MathElement::Text {
-                    x: med + glyph.elements.first().map_or(0.0, |e| if let MathElement::Text { x, .. } = e { *x } else { 0.0 }),
-                    y: 0.0,
-                    text: op.to_string(),
-                    font_size,
-                    font_id: FontId::TimesRoman,
-                    color: Color::BLACK,
+                    x: med, y: 0.0, text, font_size, font_id: fid, color: Color::BLACK,
                 }],
             }
         }
