@@ -1381,7 +1381,10 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 layout_node(child, state, doc, source)?;
             }
             let end_x = state.current_x;
-            let underline_y = start_y + state.current_font_size * 0.15;
+            // Position underline using font descent (just below baseline)
+            let fid = crate::font::style_to_font_id(state.current_font_style);
+            let descent = crate::font::font_info(fid).descent.unsigned_abs() as f32 * state.current_font_size / 1000.0;
+            let underline_y = start_y + descent * 0.35;
             state.emit_line(start_x, underline_y, end_x, underline_y, 0.3, link_color);
             let page = state.page_bounds.len() as u32;
             state.links.push(LinkAnnotation {

@@ -384,7 +384,7 @@ impl LayoutState {
         // Hanging indent: measure widest footnote number for proper alignment
         let max_num = fn_start_num + footnotes.len() as u32;
         let mut ibuf_pre = itoa::Buffer::new();
-        let num_w = font::measure_text(ibuf_pre.format(max_num), FontId::TimesRoman, fn_size * 0.75);
+        let num_w = font::measure_text(ibuf_pre.format(max_num), FontId::TimesRoman, fn_size * 0.70);
         let text_indent = num_w + fn_size * 0.4; // number width + small gap
         let usable_width = fn_width - text_indent;
 
@@ -448,8 +448,8 @@ impl LayoutState {
             let mut ibuf = itoa::Buffer::new();
             let num_str = ibuf.format(num);
 
-            // Render superscript number
-            let sup_size = fn_size * 0.75;
+            // Render superscript number (70% — matching TeX footnote marker convention)
+            let sup_size = fn_size * 0.70;
             self.current_x = fn_left;
             self.current_y = y - fn_size * 0.15;
             self.emit_text(num_str, sup_size, FontStyle::Regular, Color::BLACK);
