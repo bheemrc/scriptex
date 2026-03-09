@@ -93,7 +93,7 @@ fn resolve_image_path(path: &str, base_dir: &Path) -> Option<PathBuf> {
     }
 
     // Try with common extensions
-    for ext in &["png", "jpg", "jpeg", "pdf", "eps"] {
+    for ext in &["png", "jpg", "jpeg", "pdf", "eps", "svg"] {
         let with_ext = full.with_extension(ext);
         if with_ext.exists() {
             return Some(with_ext);

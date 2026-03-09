@@ -6,7 +6,7 @@ use std::io::Write;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 use crate::document::Document;
-use crate::layout::{LayoutResult, PageElement};
+use crate::layout::{LayoutResult, PageElement, ImageFormat};
 use crate::typeset::FontStyle;
 
 /// Generate a PDF file from laid-out pages (filesystem version, CLI only)
@@ -89,11 +89,17 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
         content_ids.push(alloc_obj());
     }
 
-    // Allocate IDs for embedded images
+    // Allocate IDs for embedded images (and SMask objects for PNGs with alpha)
     let num_images = layout.images.len();
     let mut image_ids = Vec::with_capacity(num_images);
-    for _ in 0..num_images {
+    let mut smask_ids: Vec<Option<u32>> = Vec::with_capacity(num_images);
+    for i in 0..num_images {
         image_ids.push(alloc_obj());
+        if layout.images[i].has_alpha && layout.images[i].format == ImageFormat::Png {
+            smask_ids.push(Some(alloc_obj()));
+        } else {
+            smask_ids.push(None);
+        }
     }
 
     // Allocate IDs for link annotations
@@ -333,7 +339,14 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
         let img_id = image_ids[i];
         if img_id as usize > offsets.len() { offsets.resize(img_id as usize, 0); }
         begin_obj!(img_id);
-        write_image_xobject(&mut w, img, i + 1)?;
+        write_image_xobject(&mut w, img, i + 1, smask_ids[i])?;
+
+        // Write SMask object for PNG images with alpha
+        if let Some(smask_id) = smask_ids[i] {
+            if smask_id as usize > offsets.len() { offsets.resize(smask_id as usize, 0); }
+            begin_obj!(smask_id);
+            write_smask_xobject(&mut w, img)?;
+        }
     }
 
     // Write link annotation objects
@@ -960,23 +973,51 @@ fn generate_page_content(elements: &[PageElement], text_buffer: &str, rect_data:
                 c.extend_from_slice(b"Q\n");
             }
 
-            PageElement::Image { x, y, width: img_w, height: img_h, image_idx } => {
+            PageElement::Image { x, y, width: img_w, height: img_h, image_idx, angle } => {
                 if in_bt {
                     c.extend_from_slice(b"ET\n");
                     in_bt = false;
                 }
                 // PDF image drawing: save state, apply CTM, draw, restore
-                // CTM maps unit square [0,0]-[1,1] to [x,y]-[x+w,y+h] in PDF coords
                 let pdf_y = height - y - img_h;
                 c.extend_from_slice(b"q\n");
-                write_f32_fast(&mut c, *img_w);
-                c.extend_from_slice(b" 0 0 ");
-                write_f32_fast(&mut c, *img_h);
-                c.push(b' ');
-                write_f32_fast(&mut c, *x);
-                c.push(b' ');
-                write_f32_fast(&mut c, pdf_y);
-                c.extend_from_slice(b" cm\n/Im");
+
+                if *angle != 0.0 {
+                    // Rotation: translate to center of bounding box, rotate, then scale image
+                    let cx = *x + img_w / 2.0;
+                    let cy = pdf_y + img_h / 2.0;
+                    let rad = angle.to_radians();
+                    let cos_a = rad.cos();
+                    let sin_a = rad.sin();
+                    // Translate to center
+                    write_f32_fast(&mut c, 1.0); c.extend_from_slice(b" 0 0 ");
+                    write_f32_fast(&mut c, 1.0); c.push(b' ');
+                    write_f32_fast(&mut c, cx); c.push(b' ');
+                    write_f32_fast(&mut c, cy); c.extend_from_slice(b" cm\n");
+                    // Rotate
+                    write_f32_fast(&mut c, cos_a); c.push(b' ');
+                    write_f32_fast(&mut c, sin_a); c.push(b' ');
+                    write_f32_fast(&mut c, -sin_a); c.push(b' ');
+                    write_f32_fast(&mut c, cos_a);
+                    c.extend_from_slice(b" 0 0 cm\n");
+                    // Scale and offset from center
+                    write_f32_fast(&mut c, *img_w); c.extend_from_slice(b" 0 0 ");
+                    write_f32_fast(&mut c, *img_h); c.push(b' ');
+                    write_f32_fast(&mut c, -img_w / 2.0); c.push(b' ');
+                    write_f32_fast(&mut c, -img_h / 2.0);
+                    c.extend_from_slice(b" cm\n");
+                } else {
+                    // CTM maps unit square [0,0]-[1,1] to [x,y]-[x+w,y+h] in PDF coords
+                    write_f32_fast(&mut c, *img_w);
+                    c.extend_from_slice(b" 0 0 ");
+                    write_f32_fast(&mut c, *img_h);
+                    c.push(b' ');
+                    write_f32_fast(&mut c, *x);
+                    c.push(b' ');
+                    write_f32_fast(&mut c, pdf_y);
+                    c.extend_from_slice(b" cm\n");
+                }
+                c.extend_from_slice(b"/Im");
                 c.extend_from_slice(itoa::Buffer::new().format(*image_idx + 1).as_bytes());
                 c.extend_from_slice(b" Do\nQ\n");
             }
@@ -1046,9 +1087,8 @@ fn write_f32_3(buf: &mut Vec<u8>, a: f32, b: f32, c_val: f32) {
 }
 
 /// Write an image XObject to the PDF stream
-fn write_image_xobject<W: Write>(w: &mut CountingWriter<W>, img: &crate::layout::EmbeddedImage, _index: usize) -> Result<()> {
-    use crate::layout::ImageFormat;
-    match img.format {
+fn write_image_xobject<W: Write>(w: &mut CountingWriter<W>, img: &crate::layout::EmbeddedImage, _index: usize, smask_id: Option<u32>) -> Result<()> {
+    match &img.format {
         ImageFormat::Jpeg => {
             // JPEG: embed directly with DCTDecode
             w.write_all(b"<< /Type /XObject /Subtype /Image")?;
@@ -1066,19 +1106,21 @@ fn write_image_xobject<W: Write>(w: &mut CountingWriter<W>, img: &crate::layout:
         }
         ImageFormat::Png => {
             // PNG: decode to raw pixels and embed with FlateDecode
-            // Simple approach: extract IDAT chunks and re-deflate raw RGB data
-            if let Some((rgb_data, _has_alpha)) = decode_png_to_rgb(&img.data) {
+            if let Some((rgb_data, _has_alpha, _alpha_data)) = decode_png_to_rgb(&img.data) {
                 let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&rgb_data, 6);
-                let cs = "/DeviceRGB";
                 w.write_all(b"<< /Type /XObject /Subtype /Image")?;
                 w.write_all(b" /Width ")?;
                 w.write_all(itoa::Buffer::new().format(img.width_px).as_bytes())?;
                 w.write_all(b" /Height ")?;
                 w.write_all(itoa::Buffer::new().format(img.height_px).as_bytes())?;
-                w.write_all(b" /ColorSpace ")?;
-                w.write_all(cs.as_bytes())?;
-                w.write_all(b" /BitsPerComponent 8")?;
+                w.write_all(b" /ColorSpace /DeviceRGB /BitsPerComponent 8")?;
                 w.write_all(b" /Filter /FlateDecode")?;
+                // Reference SMask for transparency
+                if let Some(sid) = smask_id {
+                    w.write_all(b" /SMask ")?;
+                    w.write_all(itoa::Buffer::new().format(sid).as_bytes())?;
+                    w.write_all(b" 0 R")?;
+                }
                 w.write_all(b" /Length ")?;
                 w.write_all(itoa::Buffer::new().format(compressed.len()).as_bytes())?;
                 w.write_all(b" >>\nstream\n")?;
@@ -1089,12 +1131,76 @@ fn write_image_xobject<W: Write>(w: &mut CountingWriter<W>, img: &crate::layout:
                 w.write_all(b"<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length 3 >>\nstream\n\xff\xff\xff\nendstream\nendobj\n")?;
             }
         }
+        ImageFormat::Pdf { bbox, resources } => {
+            // PDF page embedded as Form XObject — preserves vector quality
+            w.write_all(b"<< /Type /XObject /Subtype /Form")?;
+            write!(w, " /BBox [{:.2} {:.2} {:.2} {:.2}]", bbox[0], bbox[1], bbox[2], bbox[3])?;
+            w.write_all(b" /Resources ")?;
+            w.write_all(resources)?;
+            w.write_all(b" /Length ")?;
+            w.write_all(itoa::Buffer::new().format(img.data.len()).as_bytes())?;
+            w.write_all(b" >>\nstream\n")?;
+            w.write_all(&img.data)?;
+            w.write_all(b"\nendstream\nendobj\n")?;
+        }
+        ImageFormat::Svg => {
+            // SVG: convert to PDF drawing commands and emit as Form XObject
+            if let Ok(svg_text) = std::str::from_utf8(&img.data) {
+                if let Some(doc) = crate::svg_render::parse_svg(svg_text) {
+                    let svg_content = crate::svg_render::svg_to_pdf_content(&doc);
+                    let mut content_stream = Vec::with_capacity(svg_content.len() + 64);
+                    let sx = if doc.width > 0.0 { 1.0 / doc.width } else { 1.0 };
+                    let sy = if doc.height > 0.0 { 1.0 / doc.height } else { 1.0 };
+                    use std::io::Write as _;
+                    write!(content_stream, "{:.6} 0 0 {:.6} 0 0 cm\n", sx, sy).unwrap();
+                    content_stream.extend_from_slice(&svg_content);
+                    w.write_all(b"<< /Type /XObject /Subtype /Form")?;
+                    w.write_all(b" /BBox [0 0 1 1]")?;
+                    w.write_all(b" /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >>")?;
+                    w.write_all(b" /Length ")?;
+                    w.write_all(itoa::Buffer::new().format(content_stream.len()).as_bytes())?;
+                    w.write_all(b" >>\nstream\n")?;
+                    w.write_all(&content_stream)?;
+                    w.write_all(b"\nendstream\nendobj\n")?;
+                } else {
+                    w.write_all(b"<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Length 0 >>\nstream\n\nendstream\nendobj\n")?;
+                }
+            } else {
+                w.write_all(b"<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /Length 0 >>\nstream\n\nendstream\nendobj\n")?;
+            }
+        }
     }
     Ok(())
 }
 
-/// Decode PNG raw image data to RGB bytes
-fn decode_png_to_rgb(png_data: &[u8]) -> Option<(Vec<u8>, bool)> {
+/// Write an SMask (alpha channel) XObject for a PNG image with transparency
+fn write_smask_xobject<W: Write>(w: &mut CountingWriter<W>, img: &crate::layout::EmbeddedImage) -> Result<()> {
+    if let Some((_rgb, _has_alpha, alpha_data)) = decode_png_to_rgb(&img.data) {
+        if !alpha_data.is_empty() {
+            let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&alpha_data, 6);
+            w.write_all(b"<< /Type /XObject /Subtype /Image")?;
+            w.write_all(b" /Width ")?;
+            w.write_all(itoa::Buffer::new().format(img.width_px).as_bytes())?;
+            w.write_all(b" /Height ")?;
+            w.write_all(itoa::Buffer::new().format(img.height_px).as_bytes())?;
+            w.write_all(b" /ColorSpace /DeviceGray /BitsPerComponent 8")?;
+            w.write_all(b" /Filter /FlateDecode")?;
+            w.write_all(b" /Length ")?;
+            w.write_all(itoa::Buffer::new().format(compressed.len()).as_bytes())?;
+            w.write_all(b" >>\nstream\n")?;
+            w.write_all(&compressed)?;
+            w.write_all(b"\nendstream\nendobj\n")?;
+        } else {
+            w.write_all(b"<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 1 >>\nstream\n\xff\nendstream\nendobj\n")?;
+        }
+    } else {
+        w.write_all(b"<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 1 >>\nstream\n\xff\nendstream\nendobj\n")?;
+    }
+    Ok(())
+}
+
+/// Decode PNG raw image data to RGB bytes and optional alpha channel
+fn decode_png_to_rgb(png_data: &[u8]) -> Option<(Vec<u8>, bool, Vec<u8>)> {
     // Parse PNG chunks to extract IHDR and IDAT data
     if png_data.len() < 33 { return None; }
     // IHDR is at offset 8 (after signature)
@@ -1162,23 +1268,24 @@ fn decode_png_to_rgb(png_data: &[u8]) -> Option<(Vec<u8>, bool)> {
         prev_row.copy_from_slice(&pixels[px_start..px_start + width as usize * channels]);
     }
 
-    // Convert to RGB
+    // Convert to RGB and extract alpha
     let has_alpha = channels == 4 || channels == 2;
     let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
+    let mut alpha = if has_alpha { Vec::with_capacity(width as usize * height as usize) } else { Vec::new() };
     for y in 0..height as usize {
         for x in 0..width as usize {
             let idx = (y * width as usize + x) * channels;
             match channels {
                 1 => { let g = pixels[idx]; rgb.extend_from_slice(&[g, g, g]); }
-                2 => { let g = pixels[idx]; rgb.extend_from_slice(&[g, g, g]); } // ignore alpha
+                2 => { let g = pixels[idx]; rgb.extend_from_slice(&[g, g, g]); alpha.push(pixels[idx + 1]); }
                 3 => { rgb.extend_from_slice(&pixels[idx..idx+3]); }
-                4 => { rgb.extend_from_slice(&pixels[idx..idx+3]); } // ignore alpha
+                4 => { rgb.extend_from_slice(&pixels[idx..idx+3]); alpha.push(pixels[idx + 3]); }
                 _ => { rgb.extend_from_slice(&[0, 0, 0]); }
             }
         }
     }
 
-    Some((rgb, has_alpha))
+    Some((rgb, has_alpha, alpha))
 }
 
 fn paeth(a: i32, b: i32, c: i32) -> i32 {

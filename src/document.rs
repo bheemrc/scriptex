@@ -43,6 +43,7 @@ pub struct Preamble {
     pub addresses: Vec<AuthorAddress>,
     pub keywords: Option<String>,
     pub subjclass: Option<(String, String)>, // (year, classification text)
+    pub graphics_paths: Vec<String>,
     pub hyperref: HyperrefConfig,
     pub array_stretch: f32,  // \arraystretch (default 1.0)
     /// BibLaTeX configuration (if \usepackage{biblatex} is used)
@@ -116,6 +117,7 @@ impl Default for Preamble {
             addresses: Vec::new(),
             keywords: None,
             subjclass: None,
+            graphics_paths: Vec::new(),
             hyperref: HyperrefConfig::default(),
             array_stretch: 1.0,
             biblatex_config: None,
@@ -582,6 +584,12 @@ pub struct ImageData {
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub scale: Option<f32>,
+    pub angle: Option<f32>,
+    pub keepaspectratio: bool,
+    pub trim: Option<(f32, f32, f32, f32)>, // left, bottom, right, top
+    pub clip: bool,
+    pub page: Option<u32>,
+    pub viewport: Option<(f32, f32, f32, f32)>, // llx, lly, urx, ury
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

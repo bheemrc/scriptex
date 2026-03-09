@@ -78,7 +78,8 @@ impl<'a> Parser<'a> {
                 }
             }
             "tikzpicture" | "pgfplots" | "pgfonlayer" | "scope"
-            | "axis" | "semilogxaxis" | "semilogyaxis" | "loglogaxis" => {
+            | "axis" | "semilogxaxis" | "semilogyaxis" | "loglogaxis"
+            | "tikzcd" | "circuitikz" | "forest" | "xy" => {
                 // Capture TikZ source for rendering via pdflatex shell-out
                 let raw_source = self.capture_environment_raw(&env_name)?;
                 Ok(Some(Node::Verbatim(format!("%%tikz:{}%%\n{}", env_name, raw_source))))

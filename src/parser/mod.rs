@@ -450,6 +450,34 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Capture raw content of a braced group {...} (for commands like \xymatrix{...})
+    pub(crate) fn capture_braced_raw(&mut self) -> Result<String> {
+        self.skip_whitespace_and_comments();
+        if self.current().kind != TokenKind::OpenBrace {
+            return Ok(String::new());
+        }
+        let start_pos = self.current().pos as usize + 1; // skip the opening brace
+        self.advance();
+        let mut depth = 1;
+        let mut end_pos = start_pos;
+        while self.current().kind != TokenKind::Eof {
+            match self.current().kind {
+                TokenKind::OpenBrace => { depth += 1; }
+                TokenKind::CloseBrace => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end_pos = self.current().pos as usize;
+                        self.advance(); // skip closing brace
+                        return Ok(self.source[start_pos..end_pos].to_string());
+                    }
+                }
+                _ => {}
+            }
+            self.advance();
+        }
+        Ok(self.source[start_pos..].to_string())
+    }
+
     /// Skip to matching \end{env_name}, consuming everything
     pub(super) fn skip_environment_body(&mut self, env_name: &str) -> Result<()> {
         loop {

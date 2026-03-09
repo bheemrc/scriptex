@@ -119,6 +119,7 @@ pub enum PageElement {
         width: f32,
         height: f32,
         image_idx: u32, // index into LayoutResult.images
+        angle: f32, // rotation angle in degrees (0 = no rotation)
     },
 }
 
@@ -129,10 +130,20 @@ pub struct EmbeddedImage {
     pub width_px: u32,
     pub height_px: u32,
     pub format: ImageFormat,
+    pub has_alpha: bool,
+    pub alpha_data: Vec<u8>, // compressed alpha channel for SMask (PNG only)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ImageFormat {
     Jpeg,
     Png,
+    /// PDF page embedded as Form XObject
+    Pdf {
+        /// BBox: [x0 y0 x1 y1] in points
+        bbox: [f32; 4],
+        /// Raw PDF Resources dictionary bytes (to embed in Form XObject)
+        resources: Vec<u8>,
+    },
+    Svg,
 }

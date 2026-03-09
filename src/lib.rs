@@ -21,7 +21,9 @@ pub mod hyphenate;
 pub mod tikz;
 pub mod tikz_render;
 pub mod pgfplots;
+pub mod diagrams;
 pub mod bibliography;
+pub mod svg_render;
 #[allow(dead_code)]
 pub mod xref;
 #[cfg(feature = "cli")]

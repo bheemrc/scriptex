@@ -282,9 +282,19 @@ impl<'a> Parser<'a> {
                     let mut width = None;
                     let mut height = None;
                     let mut scale = None;
+                    let mut angle = None;
+                    let mut keepaspectratio = false;
+                    let mut trim = None;
+                    let mut clip = false;
+                    let mut page = None;
+                    let mut viewport = None;
                     if let Some(opt_str) = opts {
                         for opt in opt_str.split(',') {
-                            let parts: Vec<&str> = opt.split('=').collect();
+                            let opt = opt.trim();
+                            // Boolean flags (no =)
+                            if opt == "keepaspectratio" { keepaspectratio = true; continue; }
+                            if opt == "clip" { clip = true; continue; }
+                            let parts: Vec<&str> = opt.splitn(2, '=').collect();
                             if parts.len() == 2 {
                                 let key = parts[0].trim();
                                 let val = parts[1].trim();
@@ -299,12 +309,36 @@ impl<'a> Parser<'a> {
                                     }
                                     "height" => height = self.parse_dimension(val),
                                     "scale" => scale = val.parse().ok(),
+                                    "angle" => angle = val.parse().ok(),
+                                    "keepaspectratio" => keepaspectratio = val != "false",
+                                    "clip" => clip = val != "false",
+                                    "page" => page = val.parse().ok(),
+                                    "trim" => {
+                                        // trim=left bottom right top (space-separated dimensions)
+                                        let dims: Vec<f32> = val.split_whitespace()
+                                            .filter_map(|d| self.parse_dimension(d))
+                                            .collect();
+                                        if dims.len() == 4 {
+                                            trim = Some((dims[0], dims[1], dims[2], dims[3]));
+                                        }
+                                    }
+                                    "viewport" => {
+                                        let dims: Vec<f32> = val.split_whitespace()
+                                            .filter_map(|d| self.parse_dimension(d))
+                                            .collect();
+                                        if dims.len() == 4 {
+                                            viewport = Some((dims[0], dims[1], dims[2], dims[3]));
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
                         }
                     }
-                    Ok(Some(Node::Image(Box::new(ImageData { path, width, height, scale }))))
+                    Ok(Some(Node::Image(Box::new(ImageData {
+                        path, width, height, scale, angle, keepaspectratio,
+                        trim, clip, page, viewport,
+                    }))))
                 }
                 cmd_id::SECTION => self.parse_section(SectionLevel::Section, true),
                 cmd_id::SECTION_STAR => self.parse_section(SectionLevel::Section, false),
@@ -1271,6 +1305,13 @@ impl<'a> Parser<'a> {
                 } else {
                     Ok(None)
                 }
+            }
+
+            // xy-pic: \xymatrix{A \ar[r] & B \\ C & D}
+            "\\xymatrix" => {
+                // Capture braced content as raw source for diagram rendering
+                let raw = self.capture_braced_raw()?;
+                Ok(Some(Node::Verbatim(format!("%%tikz:xymatrix%%\n\\xymatrix{{{}}}", raw))))
             }
 
             _ => {

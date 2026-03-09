@@ -417,11 +417,30 @@ impl<'a> Parser<'a> {
                             self.advance();
                             preamble.page_setup.columns = 2;
                         }
+                        "\\graphicspath" => {
+                            self.advance();
+                            // Parse \graphicspath{{path1/}{path2/}}
+                            if let Ok(arg) = self.read_braced_text() {
+                                // arg is like "{path1/}{path2/}"
+                                let mut rest = arg.as_str();
+                                while let Some(start) = rest.find('{') {
+                                    if let Some(end) = rest[start+1..].find('}') {
+                                        let p = rest[start+1..start+1+end].to_string();
+                                        if !p.is_empty() {
+                                            preamble.graphics_paths.push(p);
+                                        }
+                                        rest = &rest[start+1+end+1..];
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                         "\\thispagestyle"
                         | "\\newcommand" | "\\def"
                         | "\\DeclareMathOperator"
                         | "\\bibliographystyle"
-                        | "\\hypersetup" | "\\lstset" | "\\graphicspath"
+                        | "\\hypersetup" | "\\lstset"
                         | "\\numberwithin" => {
                             // Skip these preamble commands - consume their arguments
                             self.advance();

@@ -20,7 +20,7 @@ use state::{LayoutState, PageStyle};
 use text::{layout_paragraph, layout_text_content, layout_text_content_source, resolve_citations};
 
 use math::layout_display_math_data;
-use images::{load_image_for_pdf, layout_tikz_diagram};
+use images::{load_image_for_pdf, layout_tikz_diagram, layout_diagram_elements};
 use sections::{layout_section, layout_table_of_contents};
 use title::layout_title;
 use lists::{layout_list, layout_description_list, layout_bibliography};
@@ -896,42 +896,76 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
         }
 
         Node::Image(img) => {
-            let img_loaded = load_image_for_pdf(&img.path, state);
+            let img_loaded = load_image_for_pdf(&img.path, state, &doc.preamble.graphics_paths);
 
             if let Some((embedded, native_w, native_h)) = img_loaded {
-                let (img_w, img_h) = if let Some(w) = img.width {
-                    if let Some(h) = img.height {
-                        (w, h)
+                // Apply trim/viewport to effective native dimensions
+                let (eff_w, eff_h) = if img.clip {
+                    if let Some((l, b, r, t)) = img.trim {
+                        let tw = (native_w as f32 - l - r).max(1.0);
+                        let th = (native_h as f32 - b - t).max(1.0);
+                        (tw, th)
+                    } else if let Some((llx, lly, urx, ury)) = img.viewport {
+                        ((urx - llx).max(1.0), (ury - lly).max(1.0))
                     } else {
-                        let ratio = native_h as f32 / native_w as f32;
-                        (w, w * ratio)
+                        (native_w as f32, native_h as f32)
                     }
-                } else if let Some(h) = img.height {
-                    let ratio = native_w as f32 / native_h as f32;
-                    (h * ratio, h)
-                } else if let Some(scale) = img.scale {
-                    (native_w as f32 * scale, native_h as f32 * scale)
                 } else {
                     (native_w as f32, native_h as f32)
                 };
 
-                let (img_w, img_h) = if img_w > state.text_width() {
-                    let scale = state.text_width() / img_w;
-                    (state.text_width(), img_h * scale)
+                let (img_w, img_h) = if let Some(w) = img.width {
+                    if let Some(h) = img.height {
+                        if img.keepaspectratio {
+                            let scale_w = w / eff_w;
+                            let scale_h = h / eff_h;
+                            let s = scale_w.min(scale_h);
+                            (eff_w * s, eff_h * s)
+                        } else {
+                            (w, h)
+                        }
+                    } else {
+                        let ratio = eff_h / eff_w;
+                        (w, w * ratio)
+                    }
+                } else if let Some(h) = img.height {
+                    let ratio = eff_w / eff_h;
+                    (h * ratio, h)
+                } else if let Some(scale) = img.scale {
+                    (eff_w * scale, eff_h * scale)
+                } else {
+                    (eff_w, eff_h)
+                };
+
+                // Apply rotation: swap bounding box for 90/270 degree rotations
+                let angle = img.angle.unwrap_or(0.0);
+                let (bbox_w, bbox_h) = if angle != 0.0 {
+                    let rad = angle.to_radians();
+                    let cos_a = rad.cos().abs();
+                    let sin_a = rad.sin().abs();
+                    (img_w * cos_a + img_h * sin_a, img_w * sin_a + img_h * cos_a)
                 } else {
                     (img_w, img_h)
                 };
 
-                state.ensure_space(img_h + state.base_font_size * 1.0);
+                let (bbox_w, bbox_h) = if bbox_w > state.text_width() {
+                    let scale = state.text_width() / bbox_w;
+                    (state.text_width(), bbox_h * scale)
+                } else {
+                    (bbox_w, bbox_h)
+                };
+
+                state.ensure_space(bbox_h + state.base_font_size * 1.0);
 
                 let image_idx = state.images.len() as u32;
                 state.images.push(embedded);
 
-                let x = state.text_left() + (state.text_width() - img_w) / 2.0;
+                let x = state.text_left() + (state.text_width() - bbox_w) / 2.0;
                 state.all_elements.push(PageElement::Image {
-                    x, y: state.current_y, width: img_w, height: img_h, image_idx,
+                    x, y: state.current_y, width: bbox_w, height: bbox_h, image_idx,
+                    angle,
                 });
-                state.current_y += img_h + state.base_font_size * 0.6;
+                state.current_y += bbox_h + state.base_font_size * 0.6;
                 state.current_x = state.text_left();
             } else {
                 let img_w = img.width.unwrap_or(200.0).min(state.text_width());
@@ -1111,8 +1145,18 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
         Node::Verbatim(text) => {
             if text.starts_with("%%tikz:") {
                 if let Some(end) = text.find("%%\n") {
+                    let env_name = &text[7..end];
                     let tikz_source = &text[end + 3..];
-                    layout_tikz_diagram(tikz_source, state, doc)?;
+                    // Try diagram-specific renderers first
+                    if let Some(result) = crate::diagrams::try_render_diagram(env_name, tikz_source) {
+                        if !result.elements.is_empty() {
+                            layout_diagram_elements(&result, state)?;
+                        } else {
+                            layout_tikz_diagram(tikz_source, state, doc)?;
+                        }
+                    } else {
+                        layout_tikz_diagram(tikz_source, state, doc)?;
+                    }
                 } else {
                     layout_verbatim(text, state)?;
                 }
