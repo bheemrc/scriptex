@@ -348,6 +348,9 @@ pub enum Node {
     /// Group (braces)
     Group(Vec<Node>),
 
+    /// Non-breaking box (\mbox, \hbox) — content cannot be broken across lines
+    MBox(Vec<Node>),
+
     /// Suppress indent on next paragraph
     NoIndent,
 

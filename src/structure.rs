@@ -382,7 +382,7 @@ fn collect_refs_inner(nodes: &[Node], refs: &mut Vec<String>, seen: &mut HashSet
             | Node::Strikethrough(c) | Node::Superscript(c) | Node::Subscript(c)
             | Node::Emph(c) | Node::Quote(c) | Node::Quotation(c)
             | Node::Abstract(c) | Node::Center(c) | Node::FlushLeft(c)
-            | Node::FlushRight(c) | Node::Group(c) | Node::Footnote(c)
+            | Node::FlushRight(c) | Node::Group(c) | Node::MBox(c) | Node::Footnote(c)
             | Node::Proof { content: c, .. } | Node::TwoColumn(c) => {
                 collect_refs_inner(c, refs, seen);
             }
@@ -460,7 +460,7 @@ fn collect_cite_keys_inner(nodes: &[Node], keys: &mut Vec<String>, seen: &mut Ha
             | Node::Strikethrough(c) | Node::Superscript(c) | Node::Subscript(c)
             | Node::Emph(c) | Node::Quote(c) | Node::Quotation(c)
             | Node::Abstract(c) | Node::Center(c) | Node::FlushLeft(c)
-            | Node::FlushRight(c) | Node::Group(c) | Node::Footnote(c)
+            | Node::FlushRight(c) | Node::Group(c) | Node::MBox(c) | Node::Footnote(c)
             | Node::Proof { content: c, .. } | Node::TwoColumn(c) => {
                 collect_cite_keys_inner(c, keys, seen);
             }
@@ -548,7 +548,7 @@ fn collect_equations_inner(nodes: &[Node], label_map: &HashMap<String, String>, 
                 });
             }
             // Recurse into containers that might contain DisplayMath
-            Node::Paragraph(c) | Node::Group(c) | Node::Center(c)
+            Node::Paragraph(c) | Node::Group(c) | Node::MBox(c) | Node::Center(c)
             | Node::Abstract(c) | Node::Quote(c) | Node::Quotation(c)
             | Node::TwoColumn(c) | Node::FlushLeft(c) | Node::FlushRight(c) => {
                 collect_equations_inner(c, label_map, eqs);
@@ -593,7 +593,7 @@ fn collect_theorems_inner(nodes: &[Node], label_map: &HashMap<String, String>, t
                 // Also recurse into body for nested theorems
                 collect_theorems_inner(&thm.body, label_map, thms);
             }
-            Node::Paragraph(c) | Node::Group(c) | Node::Center(c) | Node::TwoColumn(c) => {
+            Node::Paragraph(c) | Node::Group(c) | Node::MBox(c) | Node::Center(c) | Node::TwoColumn(c) => {
                 collect_theorems_inner(c, label_map, thms);
             }
             Node::Environment(env) => {
@@ -626,7 +626,7 @@ fn collect_figures_inner(nodes: &[Node], label_map: &HashMap<String, String>, so
                 }
                 collect_figures_inner(&fig.content, label_map, source, figs);
             }
-            Node::Paragraph(c) | Node::Group(c) | Node::TwoColumn(c) => {
+            Node::Paragraph(c) | Node::Group(c) | Node::MBox(c) | Node::TwoColumn(c) => {
                 collect_figures_inner(c, label_map, source, figs);
             }
             _ => {}
@@ -655,7 +655,7 @@ fn collect_tables_inner(nodes: &[Node], label_map: &HashMap<String, String>, sou
                     });
                 }
             }
-            Node::Paragraph(c) | Node::Group(c) | Node::TwoColumn(c) => {
+            Node::Paragraph(c) | Node::Group(c) | Node::MBox(c) | Node::TwoColumn(c) => {
                 collect_tables_inner(c, label_map, source, tables);
             }
             _ => {}
@@ -672,7 +672,7 @@ fn find_label_in_nodes(nodes: &[Node]) -> Option<String> {
     for node in nodes {
         match node {
             Node::Label(name) => return Some(name.clone()),
-            Node::Paragraph(c) | Node::Group(c) => {
+            Node::Paragraph(c) | Node::Group(c) | Node::MBox(c) => {
                 if let Some(l) = find_label_in_nodes(c) {
                     return Some(l);
                 }
@@ -705,7 +705,7 @@ fn node_to_plain_text(node: &Node, source: &str, out: &mut String) {
         Node::Bold(c) | Node::Italic(c) | Node::Monospace(c) | Node::SansSerif(c)
         | Node::SmallCaps(c) | Node::Underline(c) | Node::Emph(c)
         | Node::Strikethrough(c) | Node::Superscript(c) | Node::Subscript(c)
-        | Node::Group(c) | Node::Paragraph(c) => {
+        | Node::Group(c) | Node::MBox(c) | Node::Paragraph(c) => {
             for child in c { node_to_plain_text(child, source, out); }
         }
         Node::Colored { content, .. } | Node::FontSize { content, .. } => {

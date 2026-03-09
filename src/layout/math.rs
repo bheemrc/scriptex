@@ -51,14 +51,14 @@ fn is_math_break_point(node: &MathNode) -> bool {
 }
 
 fn display_math_skip(state: &LayoutState) -> f32 {
-    // LaTeX \abovedisplayskip: 10pt + 2pt + 4pt for 10pt (≈ 1.6em)
+    // LaTeX \abovedisplayskip: 10pt + 2pt + 4pt for 10pt (≈ 1.2em base)
+    // LaTeX \belowdisplayskip: same as above
     // LaTeX \abovedisplayshortskip: 0pt + 3pt for 10pt (≈ 0.3em)
-    // We use a middle ground: slightly less than full skip for visual compactness
     let fs = state.current_font_size;
     if state.text_width() < 300.0 {
-        fs * 0.6 // two-column or narrow layout: more compact
+        fs * 0.8 // two-column or narrow layout: slightly compact
     } else {
-        fs * 0.8 // standard layout: closer to LaTeX abovedisplayskip
+        fs * 1.0 // standard layout: match LaTeX abovedisplayskip (10pt at 10pt)
     }
 }
 

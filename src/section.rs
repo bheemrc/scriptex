@@ -433,6 +433,7 @@ fn extract_text_node(node: &Node, source: &str, out: &mut String) {
         | Node::FlushLeft(c)
         | Node::FlushRight(c)
         | Node::Group(c)
+        | Node::MBox(c)
         | Node::Footnote(c)
         | Node::Proof { content: c, .. }
         | Node::TwoColumn(c) => extract_text(c, source, out),

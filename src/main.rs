@@ -269,7 +269,7 @@ fn collect_citation_keys_recursive(nodes: &[sonicspeedlatex::document::Node], ke
             | Node::Strikethrough(c) | Node::Superscript(c) | Node::Subscript(c)
             | Node::Emph(c) | Node::Quote(c) | Node::Quotation(c)
             | Node::Abstract(c) | Node::Center(c) | Node::FlushLeft(c)
-            | Node::FlushRight(c) | Node::Group(c) | Node::Footnote(c)
+            | Node::FlushRight(c) | Node::Group(c) | Node::MBox(c) | Node::Footnote(c)
             | Node::Proof { content: c, .. } | Node::TwoColumn(c) => {
                 collect_citation_keys_recursive(c, keys);
             }

@@ -547,6 +547,7 @@ impl<'a> CitationCollector<'a> {
             | Node::FlushLeft(c)
             | Node::FlushRight(c)
             | Node::Group(c)
+            | Node::MBox(c)
             | Node::Footnote(c)
             | Node::Proof { content: c, .. }
             | Node::TwoColumn(c) => self.walk(c),

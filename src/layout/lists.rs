@@ -15,7 +15,7 @@ fn is_item_empty(content: &[Node], source: &str) -> bool {
         Node::Text(s) => s.trim().is_empty(),
         Node::TextRef(off, len) => source[*off as usize..(*off as usize + *len as usize)].trim().is_empty(),
         Node::Label(_) | Node::HSpace(_) | Node::VSpace(_) | Node::NonBreakingSpace => true,
-        Node::Paragraph(children) | Node::Group(children) => is_item_empty(children, source),
+        Node::Paragraph(children) | Node::Group(children) | Node::MBox(children) => is_item_empty(children, source),
         _ => false,
     })
 }

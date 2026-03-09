@@ -152,6 +152,23 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
                 let text = String::from(char::from(*code));
                 out.push(StyledSpan { text, style: FontStyle::ZapfDingbats, color, font_size, underline: false, strikethrough: false });
             }
+            Node::MBox(children) => {
+                // Non-breaking box: render all content into a single span with \x02 instead of spaces
+                let start_idx = out.len();
+                nodes_to_spans_sc(children, style, color, font_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
+                // Merge all spans into one non-breaking span by replacing spaces with \x02
+                if out.len() > start_idx {
+                    let mut combined = String::new();
+                    let combined_style = out[start_idx].style;
+                    let combined_color = out[start_idx].color;
+                    let combined_fs = out[start_idx].font_size;
+                    for span in &out[start_idx..] {
+                        combined.push_str(&span.text.replace(' ', "\x02"));
+                    }
+                    out.truncate(start_idx);
+                    out.push(StyledSpan { text: combined, style: combined_style, color: combined_color, font_size: combined_fs, underline: false, strikethrough: false });
+                }
+            }
             Node::Group(children) | Node::Superscript(children) | Node::Subscript(children) => {
                 nodes_to_spans_sc(children, style, color, font_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
             }
@@ -405,7 +422,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         Node::Bold(_) | Node::Italic(_) | Node::Emph(_) | Node::Monospace(_) | Node::SansSerif(_)
         | Node::Colored { .. } | Node::Code(_) | Node::SmallCaps(_)
         | Node::Underline(_) | Node::InlineMath(_) | Node::Href { .. }
-        | Node::Footnote(_) | Node::FontStyleDecl(_) | Node::ColorDecl(_) | Node::Group(_)
+        | Node::Footnote(_) | Node::FontStyleDecl(_) | Node::ColorDecl(_) | Node::Group(_) | Node::MBox(_)
         | Node::FontSize { .. } | Node::Citation(..) | Node::Cref(..)
         | Node::Dingbat(_)
     ));

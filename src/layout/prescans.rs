@@ -213,7 +213,7 @@ fn collect_labels_inner(nodes: &[Node], ctx: &mut LabelCollector) {
             }
             Node::Paragraph(c) | Node::Quote(c) | Node::Quotation(c) | Node::Abstract(c)
             | Node::Center(c) | Node::FlushLeft(c) | Node::FlushRight(c)
-            | Node::Bold(c) | Node::Italic(c) | Node::Group(c) | Node::SmallCaps(c)
+            | Node::Bold(c) | Node::Italic(c) | Node::Group(c) | Node::MBox(c) | Node::SmallCaps(c)
             | Node::Footnote(c) | Node::Colored { content: c, .. }
             | Node::Minipage { content: c, .. } | Node::TwoColumn(c)
             | Node::WrapFigure { content: c, .. } | Node::SubFigure { content: c, .. } => {
@@ -329,7 +329,7 @@ fn collect_toc_inner(nodes: &[Node], entries: &mut Vec<TocEntry>, counters: &mut
                     });
                 }
             }
-            Node::Paragraph(c) | Node::Group(c) => {
+            Node::Paragraph(c) | Node::Group(c) | Node::MBox(c) => {
                 collect_toc_inner(c, entries, counters, appendix, source);
             }
             _ => {}

@@ -276,8 +276,8 @@ pub fn layout_document_inner(
 
 fn is_inline_node(node: &Node) -> bool {
     match node {
-        // Group is inline only if ALL children are inline
-        Node::Group(children) => children.iter().all(is_inline_node),
+        // Group/MBox is inline only if ALL children are inline
+        Node::Group(children) | Node::MBox(children) => children.iter().all(is_inline_node),
         _ => matches!(node,
             Node::Text(_) | Node::TextRef(_, _) | Node::Bold(_) | Node::Italic(_)
             | Node::Monospace(_) | Node::SmallCaps(_) | Node::SansSerif(_) | Node::Underline(_) | Node::Emph(_)
@@ -723,7 +723,7 @@ fn layout_figure_inline(fig: &FigureData, state: &mut LayoutState, doc: &Documen
         state.current_y += state.base_font_size * 1.0;
 
         // Caption uses \small font (LaTeX convention)
-        let cap_font_size = state.current_font_size * 0.83; // LaTeX \small = 83% of \normalsize
+        let cap_font_size = state.current_font_size * 0.9; // LaTeX \small = 90% of \normalsize
         let saved_cap_font = state.current_font_size;
         state.current_font_size = cap_font_size;
 
@@ -830,8 +830,8 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
             state.suppress_next_indent = true;
         }
 
-        // Group containing block elements (e.g. from \resizebox wrapping a table)
-        Node::Group(children) if !is_inline_node(node) => {
+        // Group/MBox containing block elements (e.g. from \resizebox wrapping a table)
+        Node::Group(children) | Node::MBox(children) if !is_inline_node(node) => {
             // Save and restore scoped state (alignment, font size, color declarations)
             let saved_alignment = state.alignment_mode;
             let saved_font_size = state.current_font_size;
@@ -1269,7 +1269,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
 
         Node::Text(_) | Node::TextRef(_, _) | Node::Bold(_) | Node::Italic(_) | Node::Monospace(_) | Node::SansSerif(_)
         | Node::SmallCaps(_) | Node::Underline(_) | Node::Emph(_)
-        | Node::InlineMath(_) | Node::Group(_) | Node::Colored { .. }
+        | Node::InlineMath(_) | Node::Group(_) | Node::MBox(_) | Node::Colored { .. }
         | Node::FontSize { .. } | Node::Superscript(_) | Node::Subscript(_)
         | Node::NonBreakingSpace | Node::HSpace(_) | Node::LineBreak
         | Node::Code(_) | Node::Strikethrough(_)

@@ -551,7 +551,7 @@ fn node_to_text_ext(node: &Node, out: &mut String, source: &str, labels: Option<
         Node::Bold(children) | Node::Italic(children) | Node::Monospace(children) | Node::SansSerif(children)
         | Node::Underline(children) | Node::Emph(children)
         | Node::Strikethrough(children) | Node::Superscript(children)
-        | Node::Subscript(children) | Node::Group(children) => {
+        | Node::Subscript(children) | Node::Group(children) | Node::MBox(children) => {
             for child in children {
                 node_to_text_ext(child, out, source, labels);
             }

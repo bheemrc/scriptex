@@ -17,7 +17,7 @@ fn cell_has_math(content: &[Node]) -> bool {
         for n in nodes {
             match n {
                 Node::InlineMath(_) | Node::Dingbat(_) | Node::Citation(..) => return true,
-                Node::Bold(c) | Node::Italic(c) | Node::Emph(c) | Node::Group(c)
+                Node::Bold(c) | Node::Italic(c) | Node::Emph(c) | Node::Group(c) | Node::MBox(c)
                 | Node::Underline(c) | Node::Monospace(c) | Node::SmallCaps(c)
                 | Node::SansSerif(c)
                 | Node::Strikethrough(c) | Node::Paragraph(c) => { if check(c) { return true; } }
@@ -290,7 +290,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     if total_table_height > remaining_space && total_table_height <= full_page_height { state.new_page(); }
 
     if let Some(caption) = &table.caption {
-        let cap_font_size = state.current_font_size * 0.83; // LaTeX \small = 83% of \normalsize
+        let cap_font_size = state.current_font_size * 0.9; // LaTeX \small = 90% of \normalsize
         let saved_cap_font = state.current_font_size;
         state.current_font_size = cap_font_size;
         // LaTeX \abovecaptionskip = 10pt for tables (caption above)
@@ -480,7 +480,7 @@ fn layout_cell_nodes(
                 *x += tw;
             }
             // Recurse into wrapper nodes
-            Node::Bold(c) | Node::Italic(c) | Node::Emph(c) | Node::Group(c)
+            Node::Bold(c) | Node::Italic(c) | Node::Emph(c) | Node::Group(c) | Node::MBox(c)
             | Node::Underline(c) | Node::Monospace(c) | Node::SmallCaps(c) | Node::SansSerif(c)
             | Node::Strikethrough(c) | Node::Paragraph(c) | Node::Superscript(c) | Node::Subscript(c) => {
                 layout_cell_nodes(result, x, c, font_size, source, label_map, citation_map, author_year_map, color);

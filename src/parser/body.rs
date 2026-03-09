@@ -435,10 +435,9 @@ impl<'a> Parser<'a> {
             "\\hfill" | "\\dotfill" | "\\hrulefill" => Ok(Some(Node::HFill)),
             "\\vfill" => Ok(Some(Node::VFill)),
             "\\phantom" | "\\hphantom" => {
-                // Invisible space estimated from content text
+                // Invisible space measured from content text using font metrics
                 let text = self.read_braced_text()?;
-                // Rough estimate: ~5pt per character at 10pt font size
-                let w = text.trim().len() as f32 * 5.0;
+                let w = crate::font::measure_text(text.trim(), crate::font::FontId::TimesRoman, self.base_font_size);
                 Ok(Some(Node::HSpace(w)))
             }
             "\\vphantom" => {
@@ -462,9 +461,9 @@ impl<'a> Parser<'a> {
                 let content = self.read_braced_nodes()?;
                 Ok(Some(Node::Center(content)))
             }
-            "\\mbox" => {
+            "\\mbox" | "\\hbox" => {
                 let content = self.read_braced_nodes()?;
-                Ok(Some(Node::Group(content)))
+                Ok(Some(Node::MBox(content)))
             }
             "\\makebox" => {
                 // \makebox[width][pos]{content} — skip optional args
@@ -782,9 +781,9 @@ impl<'a> Parser<'a> {
                 let content = self.read_braced_nodes()?;
                 Ok(Some(Node::Group(content)))
             }
-            "\\hbox" | "\\vbox" => {
+            "\\vbox" => {
                 self.try_read_optional_arg();
-                self.try_read_optional_arg(); // makebox has [width][align]{content}
+                self.try_read_optional_arg();
                 let content = self.read_braced_nodes()?;
                 Ok(Some(Node::Group(content)))
             }
@@ -871,7 +870,11 @@ impl<'a> Parser<'a> {
             | "\\selectfont" | "\\frenchspacing"
             | "\\nonfrenchspacing" | "\\newblock"
             | "\\/" | "\\-" | "\\ignorespaces" | "\\leavevmode"
-            | "\\unskip" | "\\strut" | "\\null" => Ok(None),
+            | "\\unskip" | "\\null" => Ok(None),
+            "\\strut" => {
+                // Zero-width box with full font height — ensures consistent line/row height
+                Ok(Some(Node::Rule { width: 0.0, height: 0.0 }))
+            }
 
             // \input and \include are resolved during pre-processing (main.rs)
             // If they reach the parser, just consume the argument
@@ -1251,7 +1254,7 @@ fn node_to_plain_text(node: &Node, out: &mut String, source: &str) {
         }
         Node::Bold(children) | Node::Italic(children) | Node::Emph(children)
         | Node::Monospace(children) | Node::SansSerif(children) | Node::SmallCaps(children)
-        | Node::Underline(children) | Node::Group(children)
+        | Node::Underline(children) | Node::Group(children) | Node::MBox(children)
         | Node::Paragraph(children) => {
             for child in children {
                 node_to_plain_text(child, out, source);
