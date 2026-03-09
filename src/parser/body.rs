@@ -458,7 +458,14 @@ impl<'a> Parser<'a> {
                     padding: 3.0,
                 }))))
             }
-            "\\mbox" | "\\makebox" => {
+            "\\mbox" => {
+                let content = self.read_braced_nodes()?;
+                Ok(Some(Node::Group(content)))
+            }
+            "\\makebox" => {
+                // \makebox[width][pos]{content} — skip optional args
+                self.try_read_optional_arg();
+                self.try_read_optional_arg();
                 let content = self.read_braced_nodes()?;
                 Ok(Some(Node::Group(content)))
             }

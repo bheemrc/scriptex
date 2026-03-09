@@ -219,6 +219,11 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
             state.new_page();
             lines_until_break = ((state.cached_max_y - state.cached_start_y - line_height) / step) as i32 + 1;
         }
+        // Widow prevention: if all but last line fit, push penultimate to next page too
+        if est_total_lines >= 3 && lines_until_break == est_total_lines - 1 {
+            // Would leave single widow line — reduce available space by one line
+            lines_until_break -= 1;
+        }
 
         // Push text to buffer after potential page break to avoid double-push
         let mut push_start: usize = 0;

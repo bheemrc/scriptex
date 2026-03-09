@@ -649,7 +649,9 @@ fn layout_symbol(symbol: &str, font_size: f32) -> MathBox {
 }
 
 fn layout_fraction(numer: &[MathNode], denom: &[MathNode], font_size: f32) -> MathBox {
-    let frac_size = font_size * 0.7; // TeX \scriptstyle fraction size in text mode
+    // TeX: display fractions use \textstyle (100%), inline use \scriptstyle (70%)
+    // Use 85% as a compromise — most fractions are in display math
+    let frac_size = font_size * 0.85;
     let mut num_box = layout_math(numer, frac_size);
     let mut den_box = layout_math(denom, frac_size);
 

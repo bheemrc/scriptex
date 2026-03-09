@@ -371,17 +371,20 @@ struct StyledWord {
 }
 
 /// Compute max_above/max_below metrics for a line of styled words
-fn compute_line_metrics(words: &[StyledWord], text_ascent: f32, text_descent: f32, base_font_size: f32) -> (f32, f32) {
+fn compute_line_metrics(words: &[StyledWord], text_ascent: f32, text_descent: f32, _base_font_size: f32) -> (f32, f32) {
     let mut ma = text_ascent;
     let mut mb = text_descent;
     for w in words {
         if let Some(ref math_box) = w.math {
             ma = ma.max(math_box.height);
             mb = mb.max(math_box.depth);
-        } else if w.font_size > base_font_size + 0.5 {
+        } else if (w.font_size - _base_font_size).abs() > 0.5 {
+            // Recompute metrics for any non-base-sized text (both larger AND smaller)
             let wfid = font::style_to_font_id(w.style);
-            ma = ma.max(font::font_ascent(wfid, w.font_size));
-            mb = mb.max(font::font_descent(wfid, w.font_size));
+            let wa = font::font_ascent(wfid, w.font_size);
+            let wb = font::font_descent(wfid, w.font_size);
+            ma = ma.max(wa);
+            mb = mb.max(wb);
         }
     }
     (ma, mb)
