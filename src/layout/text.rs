@@ -245,16 +245,21 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
 
             if line_end > line_start {
                 if lines_until_break <= 0 {
+                    let old_page = state.page_number;
                     state.new_page();
                     push_start = line_start;
-                    buf_push_pos = 0;
+                    if state.page_number > old_page {
+                        buf_push_pos = 0;
+                    } else {
+                        buf_push_pos = state.all_text.len() - state.current_page_text_start as usize;
+                    }
                     state.all_text.push_str(&text[line_start..]);
                     lines_until_break = ((state.cached_max_y - state.cached_start_y - line_height) / step) as i32 + 1;
                 }
                 let is_last = next_pos >= len;
                 let ws = justify_line_with_width(&bytes[line_start..line_end], first_line_width, avg_width, font_size, is_last, font_id, Some(line_w));
                 state.all_elements.push(PageElement::Text {
-                    x: x_first, y: state.current_y,
+                    x: state.text_left() + pi, y: state.current_y,
                     text_offset: (buf_push_pos + line_start - push_start) as u32,
                     text_len: (line_end - line_start) as u16,
                     font_size_100, font_style, color, word_spacing_50: ws,
@@ -269,17 +274,31 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
 
         // Remaining lines
         let mut prev_line_hyphenated = false;
+        let mut x_rest = x_rest; // make mutable for column/page breaks
+        let mut full_text_width = full_text_width;
+        let mut max_chars_rest = max_chars_rest;
         while pos < len {
             let line_start = pos;
             let (line_end, next_pos, line_w) = find_pixel_break(bytes, line_start, max_chars_rest, full_text_width, font_id, font_size);
 
             if line_end > line_start {
                 if lines_until_break <= 0 {
+                    let old_page = state.page_number;
                     state.new_page();
                     push_start = line_start;
-                    buf_push_pos = 0;
+                    if state.page_number > old_page {
+                        // Actual new page: text buffer was segmented
+                        buf_push_pos = 0;
+                    } else {
+                        // Column switch only: text buffer still on same page
+                        buf_push_pos = state.all_text.len() - state.current_page_text_start as usize;
+                    }
                     state.all_text.push_str(&text[line_start..]);
                     lines_until_break = ((state.cached_max_y - state.cached_start_y - line_height) / step) as i32 + 1;
+                    // Update x position and widths for new column/page
+                    x_rest = state.text_left();
+                    full_text_width = state.text_width();
+                    max_chars_rest = (full_text_width / (avg_width * 0.82)) as usize;
                 }
 
                 // Hyphenation: check if next word can be partially pulled in
@@ -378,10 +397,9 @@ pub(super) fn layout_text_content_source(text: &str, state: &mut LayoutState, sr
         let mut pos = 0;
         while pos < len && bytes[pos] <= b' ' { pos += 1; }
 
-        let x_first = state.text_left() + pi;
-        let x_rest = state.text_left();
-        let max_chars_first = (para_width / (avg_width * 0.82)) as usize;
-        let max_chars_rest = (full_text_width / (avg_width * 0.82)) as usize;
+        let mut x_rest = state.text_left();
+        let mut full_text_width = full_text_width;
+        let mut max_chars_rest = (full_text_width / (avg_width * 0.82)) as usize;
 
         let mut lines_until_break = ((state.cached_max_y - state.current_y - line_height) / step) as i32 + 1;
 
@@ -390,11 +408,15 @@ pub(super) fn layout_text_content_source(text: &str, state: &mut LayoutState, sr
         if lines_until_break <= 1 && est_total_lines > 1 {
             state.new_page();
             lines_until_break = ((state.cached_max_y - state.cached_start_y - line_height) / step) as i32 + 1;
+            x_rest = state.text_left();
+            full_text_width = state.text_width();
+            max_chars_rest = (full_text_width / (avg_width * 0.82)) as usize;
         }
 
         // First line
         if pos < len {
             let line_start = pos;
+            let max_chars_first = (para_width / (avg_width * 0.82)) as usize;
             let (line_end, next_pos, line_w) = find_pixel_break(bytes, line_start, max_chars_first, para_width, font_id, font_size);
 
             if line_end > line_start {
@@ -405,7 +427,7 @@ pub(super) fn layout_text_content_source(text: &str, state: &mut LayoutState, sr
                 let is_last = next_pos >= len;
                 let ws = justify_line_with_width(&bytes[line_start..line_end], para_width, avg_width, font_size, is_last, font_id, Some(line_w));
                 state.all_elements.push(PageElement::Text {
-                    x: x_first, y: state.current_y,
+                    x: state.text_left() + pi, y: state.current_y,
                     text_offset: (src_off + line_start as u32) | SOURCE_REF_FLAG,
                     text_len: (line_end - line_start) as u16,
                     font_size_100, font_style, color, word_spacing_50: ws,
@@ -427,6 +449,10 @@ pub(super) fn layout_text_content_source(text: &str, state: &mut LayoutState, sr
                 if lines_until_break <= 0 {
                     state.new_page();
                     lines_until_break = ((state.cached_max_y - state.cached_start_y - line_height) / step) as i32 + 1;
+                    // Update x/width for new column/page
+                    x_rest = state.text_left();
+                    full_text_width = state.text_width();
+                    max_chars_rest = (full_text_width / (avg_width * 0.82)) as usize;
                 }
                 let is_last = next_pos >= len;
                 let ws = justify_line_with_width(&bytes[line_start..line_end], full_text_width, avg_width, font_size, is_last, font_id, Some(line_w));

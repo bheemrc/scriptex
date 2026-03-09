@@ -165,7 +165,12 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
             Node::Paragraph(children) => {
                 nodes_to_spans_sc(children, style, color, font_size, base_size, smallcaps, out, source, labels, citations);
             }
-            Node::NonBreakingSpace | Node::HSpace(_) => {
+            Node::NonBreakingSpace => {
+                // Non-breaking space: use \x02 as marker to prevent line-breaking
+                // (converted to regular space during rendering but not treated as break point)
+                out.push(StyledSpan { text: "\x02".to_string(), style, color, font_size, underline: false, strikethrough: false });
+            }
+            Node::HSpace(_) => {
                 out.push(StyledSpan { text: " ".to_string(), style, color, font_size, underline: false, strikethrough: false });
             }
             Node::LaTeXLogo => {
@@ -537,6 +542,22 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                         let parts: Vec<&str> = inner.split(':').collect();
                         let rule_w: f32 = parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(10.0);
                         words.push(StyledWord { text: span.text.clone(), style: span.style, color: span.color, font_size: sf, width: rule_w, math: None, superscript: false, underline: false, strikethrough: false });
+                        continue;
+                    }
+                    // Non-breaking space marker: glue to adjacent words so it's not a break point
+                    if span.text.contains('\x02') {
+                        // Replace \x02 with space for rendering, measure as space
+                        let rendered = span.text.replace('\x02', " ");
+                        let w = crate::font::measure_text(&rendered, font::style_to_font_id(span.style), sf);
+                        // Append to previous word if possible to prevent break
+                        if let Some(last) = words.last_mut() {
+                            if last.text != " " && last.text != "\n" {
+                                last.text.push_str(&rendered);
+                                last.width += w;
+                                continue;
+                            }
+                        }
+                        words.push(StyledWord { text: rendered, style: span.style, color: span.color, font_size: sf, width: w, math: None, superscript: false, underline: span.underline, strikethrough: span.strikethrough });
                         continue;
                     }
                     let font_id = font::style_to_font_id(span.style);

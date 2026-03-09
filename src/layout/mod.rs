@@ -845,7 +845,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
 
             // Check float placement hint
             let placement = &fig.placement;
-            let has_h = placement.contains('h') || placement.contains('H') || placement.contains('!');
+            let has_h = placement.contains('h') || placement.contains('H');
             let has_t = placement.contains('t');
 
             // If placement is purely [t] (no [h]), defer to top of next page
@@ -1363,6 +1363,8 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                 // \twocolumn[spanning content] — LaTeX semantics:
                 // 1. Layout spanning content at full page width (not in columns)
                 // 2. Then enter two-column mode for all subsequent body content
+                // Save/restore alignment so \centering in spanning content doesn't leak
+                let saved_align = state.alignment_mode;
                 if state.twocolumn_active {
                     // Already in twocolumn — enter spanning mode for the bracket content
                     state.enter_spanning();
@@ -1374,6 +1376,7 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
                     // Then enter two-column mode for everything after
                     state.enter_twocolumn();
                 }
+                state.alignment_mode = saved_align;
             }
         }
 
