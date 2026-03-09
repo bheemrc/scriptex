@@ -1,4 +1,38 @@
 /target
 *.pdf
+
+# Generated large test files (regenerate with test_docs/gen_large.py)
 test_docs/large_50000.tex
 test_docs/large_5000.tex
+
+# WASM build output
+/pkg/*.wasm
+/pkg/*.js
+/pkg/*.d.ts
+/pkg/package.json
+
+# Claude Code config
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Temporary files
+/tmp/
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
