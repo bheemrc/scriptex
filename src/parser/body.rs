@@ -629,7 +629,11 @@ impl<'a> Parser<'a> {
                 return Ok(None);
             }
 
-            "\\\\" => Ok(Some(Node::Backslash)),
+            "\\\\" => {
+                // \\ is a line break in body mode; optional [dim] for extra spacing
+                self.try_read_optional_arg();
+                Ok(Some(Node::LineBreak))
+            }
             "\\textbackslash" => Ok(Some(Node::Backslash)),
             "\\S" => Ok(Some(Node::Text("\u{00A7}".to_string()))),
             "\\P" => Ok(Some(Node::Text("\u{00B6}".to_string()))),
