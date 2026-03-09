@@ -461,7 +461,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 state.footnotes.push(content.clone());
             }
             Node::InlineMath(math) => {
-                let math_box = math_layout::layout_math(math, font_size);
+                let math_box = math_layout::layout_math_inline(math, font_size);
                 if math_box.width > 0.0 {
                     if let Some(last) = words.last() {
                         if last.text != " " && last.text != "\n" {

@@ -419,7 +419,7 @@ fn layout_cell_nodes(result: &mut math_layout::MathBox, x: &mut f32, nodes: &[No
     for node in nodes {
         match node {
             Node::InlineMath(math_nodes) => {
-                let mb = math_layout::layout_math(math_nodes, font_size);
+                let mb = math_layout::layout_math_inline(math_nodes, font_size);
                 for elem in &mb.elements {
                     let shifted = match elem {
                         math_layout::MathElement::Text { x: ex, y, text, font_size: fs, font_id, color } => {

@@ -181,7 +181,7 @@ pub(super) fn layout_algorithm(
                     state.current_x += w;
                 }
                 AlgoToken::Math(math) => {
-                    let math_box = crate::math_layout::layout_math(math, font_size);
+                    let math_box = crate::math_layout::layout_math_inline(math, font_size);
                     super::math::emit_math_elements(&math_box, state.current_x, state.current_y, state);
                     state.current_x += math_box.width;
                 }

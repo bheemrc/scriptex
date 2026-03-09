@@ -795,6 +795,8 @@ pub enum AccentType {
     DDot,
     Breve,
     Check,
+    Acute,
+    Grave,
 }
 
 #[derive(Debug, Clone)]

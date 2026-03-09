@@ -711,11 +711,11 @@ impl<'a> Parser<'a> {
             }
             "\\acute" => {
                 let base = self.parse_math_arg()?;
-                Ok(Some(MathNode::Accent { base, accent_type: AccentType::Hat })) // approx
+                Ok(Some(MathNode::Accent { base, accent_type: AccentType::Acute }))
             }
             "\\grave" => {
                 let base = self.parse_math_arg()?;
-                Ok(Some(MathNode::Accent { base, accent_type: AccentType::Hat })) // approx
+                Ok(Some(MathNode::Accent { base, accent_type: AccentType::Grave }))
             }
             "\\widehat" => {
                 let base = self.parse_math_arg()?;

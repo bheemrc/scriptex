@@ -780,7 +780,10 @@ pub(super) fn math_node_to_text(node: &MathNode, out: &mut String) {
                 AccentType::Dot => out.push('\u{0307}'),
                 AccentType::DDot => out.push_str("\u{0308}"),
                 AccentType::Vec => out.push('\u{20D7}'),
-                _ => {}
+                AccentType::Acute => out.push('\u{0301}'),
+                AccentType::Grave => out.push('\u{0300}'),
+                AccentType::Breve => out.push('\u{0306}'),
+                AccentType::Check => out.push('\u{030C}'),
             }
         }
         MathNode::Over { content, .. } | MathNode::Under { content, .. } => {

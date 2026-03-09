@@ -62,8 +62,17 @@ impl MathBox {
     }
 }
 
-/// Layout a list of math nodes at the given font size
+/// Layout a list of math nodes at the given font size (display mode: limits above/below)
 pub fn layout_math(nodes: &[MathNode], font_size: f32) -> MathBox {
+    layout_math_ctx(nodes, font_size, true)
+}
+
+/// Layout math for inline context (limits as side scripts, normal-size operators)
+pub fn layout_math_inline(nodes: &[MathNode], font_size: f32) -> MathBox {
+    layout_math_ctx(nodes, font_size, false)
+}
+
+fn layout_math_ctx(nodes: &[MathNode], font_size: f32, display: bool) -> MathBox {
     let mut result = MathBox::empty();
     let mut x = 0.0f32;
     let mut current_size = font_size;
@@ -85,7 +94,7 @@ pub fn layout_math(nodes: &[MathNode], font_size: f32) -> MathBox {
         }
 
         // Check for super/subscript following the current node
-        let mut base = layout_math_node(node, current_size);
+        let mut base = layout_math_node(node, current_size, display);
 
         // Look ahead for ^/_ modifiers
         let mut has_sup = false;
@@ -130,7 +139,7 @@ pub fn layout_math(nodes: &[MathNode], font_size: f32) -> MathBox {
     result
 }
 
-fn layout_math_node(node: &MathNode, font_size: f32) -> MathBox {
+fn layout_math_node(node: &MathNode, font_size: f32, display: bool) -> MathBox {
     match node {
         MathNode::Number(s) => layout_text(s, font_size, FontId::TimesRoman),
         MathNode::Variable(c) => {
@@ -169,9 +178,18 @@ fn layout_math_node(node: &MathNode, font_size: f32) -> MathBox {
             sub
         }
 
-        MathNode::Sum { lower, upper } => layout_large_op("\u{2211}", lower, upper, font_size),
-        MathNode::Integral { lower, upper } => layout_large_op("\u{222B}", lower, upper, font_size),
-        MathNode::Product { lower, upper } => layout_large_op("\u{220F}", lower, upper, font_size),
+        MathNode::Sum { lower, upper } => {
+            if display { layout_large_op("\u{2211}", lower, upper, font_size) }
+            else { layout_large_op_inline("\u{2211}", lower, upper, font_size) }
+        }
+        MathNode::Integral { lower, upper } => {
+            if display { layout_large_op("\u{222B}", lower, upper, font_size) }
+            else { layout_large_op_inline("\u{222B}", lower, upper, font_size) }
+        }
+        MathNode::Product { lower, upper } => {
+            if display { layout_large_op("\u{220F}", lower, upper, font_size) }
+            else { layout_large_op_inline("\u{220F}", lower, upper, font_size) }
+        }
 
         MathNode::Left(delim) => layout_delimiter(delim, font_size, font_size * 0.7, font_size * 0.2),
         MathNode::Right(delim) => layout_delimiter(delim, font_size, font_size * 0.7, font_size * 0.2),
@@ -195,40 +213,48 @@ fn layout_math_node(node: &MathNode, font_size: f32) -> MathBox {
             MathBox { width: inner.width, height: inner.height, depth: inner.depth, elements: Vec::new() }
         }
         MathNode::LimitOp { name, lower, upper } => {
-            // Layout like a large operator but with text name
             let name_box = layout_text(name, font_size, FontId::TimesRoman);
-            let mut result = MathBox { width: 0.0, height: 0.0, depth: 0.0, elements: Vec::new() };
-            let mut total_w = name_box.width;
-            let sub_size = font_size * 0.65;
-            let sub_box = lower.as_ref().map(|l| layout_math(l, sub_size));
-            let sup_box = upper.as_ref().map(|u| layout_math(u, sub_size));
-            if let Some(ref sb) = sub_box { total_w = total_w.max(sb.width); }
-            if let Some(ref sb) = sup_box { total_w = total_w.max(sb.width); }
+            if display {
+                // Display mode: limits centered above/below
+                let mut result = MathBox { width: 0.0, height: 0.0, depth: 0.0, elements: Vec::new() };
+                let mut total_w = name_box.width;
+                let sub_size = font_size * 0.65;
+                let sub_box = lower.as_ref().map(|l| layout_math(l, sub_size));
+                let sup_box = upper.as_ref().map(|u| layout_math(u, sub_size));
+                if let Some(ref sb) = sub_box { total_w = total_w.max(sb.width); }
+                if let Some(ref sb) = sup_box { total_w = total_w.max(sb.width); }
 
-            let op_x = (total_w - name_box.width) * 0.5;
-            let mut shifted_name = name_box.clone();
-            shifted_name.translate(op_x, 0.0);
+                let op_x = (total_w - name_box.width) * 0.5;
+                let mut shifted_name = name_box.clone();
+                shifted_name.translate(op_x, 0.0);
 
-            result.height = name_box.height;
-            result.depth = name_box.depth;
-            result.elements.extend(shifted_name.elements);
+                result.height = name_box.height;
+                result.depth = name_box.depth;
+                result.elements.extend(shifted_name.elements);
 
-            if let Some(mut sb) = sup_box {
-                let sx = (total_w - sb.width) * 0.5;
-                let sy = -(name_box.height + sb.depth + 1.0);
-                sb.translate(sx, sy);
-                result.height = name_box.height + sb.height + sb.depth + 1.0;
-                result.elements.extend(sb.elements);
+                if let Some(mut sb) = sup_box {
+                    let sx = (total_w - sb.width) * 0.5;
+                    let sy = -(name_box.height + sb.depth + 1.0);
+                    sb.translate(sx, sy);
+                    result.height = name_box.height + sb.height + sb.depth + 1.0;
+                    result.elements.extend(sb.elements);
+                }
+                if let Some(mut sb) = sub_box {
+                    let sx = (total_w - sb.width) * 0.5;
+                    let sy = name_box.depth + sb.height + 1.0;
+                    sb.translate(sx, sy);
+                    result.depth = name_box.depth + sb.height + sb.depth + 1.0;
+                    result.elements.extend(sb.elements);
+                }
+                result.width = total_w;
+                result
+            } else {
+                // Inline mode: limits as side scripts (subscript/superscript)
+                let sub_size = font_size * 0.7;
+                let sup = upper.as_ref().map(|u| layout_math(u, sub_size));
+                let sub = lower.as_ref().map(|l| layout_math(l, sub_size));
+                attach_scripts(&name_box, sup.as_ref(), sub.as_ref(), font_size)
             }
-            if let Some(mut sb) = sub_box {
-                let sx = (total_w - sb.width) * 0.5;
-                let sy = name_box.depth + sb.height + 1.0;
-                sb.translate(sx, sy);
-                result.depth = name_box.depth + sb.height + sb.depth + 1.0;
-                result.elements.extend(sb.elements);
-            }
-            result.width = total_w;
-            result
         }
         MathNode::Boxed(content) => {
             let inner = layout_math(content, font_size);
@@ -886,6 +912,48 @@ fn layout_large_op(
     MathBox { width, height, depth, elements }
 }
 
+/// Layout a large operator in inline mode: normal-size symbol with side scripts
+fn layout_large_op_inline(
+    symbol: &str,
+    lower: &Option<Vec<MathNode>>,
+    upper: &Option<Vec<MathNode>>,
+    font_size: f32,
+) -> MathBox {
+    let op_size = font_size * 1.2; // slightly larger than text, but not as big as display
+
+    // Render operator symbol
+    let (op_text, op_font, op_width) = if let Some(ch) = symbol.chars().next() {
+        if let Some(sym_byte) = font::unicode_to_symbol_byte(ch) {
+            let w = font::char_width_pt(FontId::Symbol, sym_byte, op_size);
+            (String::from(sym_byte as char), FontId::Symbol, w)
+        } else {
+            let w = font::measure_text(symbol, FontId::TimesRoman, op_size);
+            (symbol.to_string(), FontId::TimesRoman, w)
+        }
+    } else {
+        let w = font::measure_text(symbol, FontId::Helvetica, op_size);
+        (symbol.to_string(), FontId::Helvetica, w)
+    };
+
+    let op_box = MathBox {
+        width: op_width,
+        height: op_size * 0.7,
+        depth: op_size * 0.2,
+        elements: vec![MathElement::Text {
+            x: 0.0, y: 0.0, text: op_text,
+            font_size: op_size, font_id: op_font, color: Color::BLACK,
+        }],
+    };
+
+    // Attach limits as subscript/superscript
+    let sub_size = font_size * 0.7;
+    let sup = upper.as_ref().map(|u| layout_math(u, sub_size));
+    let sub = lower.as_ref().map(|l| layout_math(l, sub_size));
+    let mut result = attach_scripts(&op_box, sup.as_ref(), sub.as_ref(), font_size);
+    result.width += font_size * 0.15; // thin space after operator
+    result
+}
+
 /// Layout a `\left...\right` delimited group: lay out content, measure its height,
 /// then scale delimiters to match.
 fn layout_delimited_group(left: &str, right: &str, content: &[MathNode], font_size: f32) -> MathBox {
@@ -1207,24 +1275,36 @@ fn layout_matrix(
         cell_boxes.push(row_boxes);
     }
 
-    let row_height = font_size * 1.2;
+    // Compute per-row heights based on actual cell content
+    let min_row_height = font_size * 1.2;
+    let mut row_heights: Vec<f32> = Vec::with_capacity(cell_boxes.len());
+    for row_boxes in &cell_boxes {
+        let rh = row_boxes.iter()
+            .map(|cb| cb.total_height())
+            .fold(min_row_height, f32::max);
+        row_heights.push(rh);
+    }
+
     let total_width: f32 = col_widths.iter().sum::<f32>() + col_gap * (num_cols.max(1) - 1) as f32;
-    let total_height = row_height * rows.len() as f32 + row_gap * (rows.len().max(1) - 1) as f32;
+    let total_height: f32 = row_heights.iter().sum::<f32>() + row_gap * (rows.len().max(1) - 1) as f32;
 
     let mut elements = Vec::new();
     let mut y = -(total_height / 2.0 - font_size * 0.3); // center vertically
 
-    for row_boxes in &cell_boxes {
+    for (ri, row_boxes) in cell_boxes.iter().enumerate() {
+        let rh = row_heights[ri];
         let mut x = 0.0;
         for (j, cell_box) in row_boxes.iter().enumerate() {
             let col_w = if j < col_widths.len() { col_widths[j] } else { cell_box.width };
             let cx = x + (col_w - cell_box.width) / 2.0; // center in column
+            // Vertically center cell in its row
+            let cy = y + (rh - cell_box.total_height()) / 2.0;
             let mut shifted = cell_box.clone();
-            shifted.translate(cx, y);
+            shifted.translate(cx, cy);
             elements.extend(shifted.elements);
             x += col_w + col_gap;
         }
-        y += row_height + row_gap;
+        y += rh + row_gap;
     }
 
     // Add delimiters based on style
@@ -1399,6 +1479,26 @@ fn layout_accent(base: &[MathNode], accent_type: &AccentType, font_size: f32) ->
                 font_size: accent_fs, font_id: FontId::Helvetica, color: Color::BLACK,
             }
         },
+        AccentType::Acute => {
+            // Acute accent: forward-leaning tick mark (´)
+            let accent_fs = font_size * 0.8;
+            let accent_w = font::measure_text("\u{00B4}", FontId::Helvetica, accent_fs);
+            MathElement::Text {
+                x: (bw - accent_w) / 2.0, y: accent_y,
+                text: "\u{00B4}".to_string(),
+                font_size: accent_fs, font_id: FontId::Helvetica, color: Color::BLACK,
+            }
+        },
+        AccentType::Grave => {
+            // Grave accent: backward-leaning tick mark (`)
+            let accent_fs = font_size * 0.8;
+            let accent_w = font::measure_text("`", FontId::Helvetica, accent_fs);
+            MathElement::Text {
+                x: (bw - accent_w) / 2.0, y: accent_y,
+                text: "`".to_string(),
+                font_size: accent_fs, font_id: FontId::Helvetica, color: Color::BLACK,
+            }
+        },
     };
 
     base_box.height += font_size * 0.2;
@@ -1492,14 +1592,18 @@ fn layout_cases(rows: &[(Vec<MathNode>, Option<Vec<MathNode>>)], font_size: f32)
 
     let mut elements = Vec::new();
 
-    // Left brace using Symbol font
-    if let Some(sym_byte) = font::unicode_to_symbol_byte('{' as char) {
-        let _ = sym_byte; // '{' is not in Symbol; use Helvetica
-    }
+    // Left brace — vertically centered on the content
+    // The brace glyph baseline is at y=0; shift it so the glyph center aligns with content center
+    let brace_fs = total_height * 0.7;
+    let brace_ascent = brace_fs * 0.7;
+    let brace_descent = brace_fs * 0.2;
+    let brace_center = (brace_ascent - brace_descent) / 2.0;
+    // Content center is at y=0 (math axis), so shift brace down by brace_center offset
+    let brace_y = brace_center - brace_ascent + font_size * 0.3;
     elements.push(MathElement::Text {
-        x: 0.0, y: 0.0,
+        x: 0.0, y: brace_y,
         text: "{".to_string(),
-        font_size: total_height * 0.7,
+        font_size: brace_fs,
         font_id: FontId::Helvetica,
         color: Color::BLACK,
     });
@@ -1640,7 +1744,7 @@ fn layout_math_font(font: &MathFontType, content: &[MathNode], font_size: f32) -
         let mut mb = match node {
             MathNode::Variable(c) => layout_text(&c.to_string(), font_size, font_id),
             MathNode::Text(s) => layout_text(s, font_size, font_id),
-            _ => layout_math_node(node, font_size),
+            _ => layout_math_node(node, font_size, true),
         };
         mb.translate(x, 0.0);
         x += mb.width;
