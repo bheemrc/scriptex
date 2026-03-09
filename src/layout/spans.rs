@@ -388,7 +388,7 @@ fn inline_math_node_to_spans(node: &MathNode, color: Color, font_size: f32, out:
 
 struct StyledWord {
     text: String, style: FontStyle, color: Color, font_size: f32, width: f32,
-    math: Option<math_layout::MathBox>, superscript: bool, underline: bool, strikethrough: bool,
+    math: Option<math_layout::MathBox>, superscript: bool, subscript: bool, underline: bool, strikethrough: bool,
 }
 
 /// Compute max_above/max_below metrics for a line of styled words
@@ -479,7 +479,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 let num_str = format!("{}", num);
                 let sup_size = font_size * 0.65;
                 let w = font::measure_text(&num_str, FontId::TimesRoman, sup_size);
-                words.push(StyledWord { text: num_str, style: FontStyle::Regular, color: state.current_color, font_size, width: w, math: None, superscript: true, underline: false, strikethrough: false });
+                words.push(StyledWord { text: num_str, style: FontStyle::Regular, color: state.current_color, font_size, width: w, math: None, superscript: true, subscript: false, underline: false, strikethrough: false });
                 state.footnotes.push(content.clone());
             }
             Node::InlineMath(math) => {
@@ -489,11 +489,11 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                         if last.text != " " && last.text != "\n" {
                             // TeX \thinmuskip = 3mu ≈ font_size/6
                             let thin_space = font_size / 6.0;
-                            words.push(StyledWord { text: " ".to_string(), style: FontStyle::Regular, color: state.current_color, width: thin_space, math: None, superscript: false, font_size, underline: false, strikethrough: false });
+                            words.push(StyledWord { text: " ".to_string(), style: FontStyle::Regular, color: state.current_color, width: thin_space, math: None, superscript: false, subscript: false, font_size, underline: false, strikethrough: false });
                         }
                     }
                     let w = math_box.width;
-                    words.push(StyledWord { text: String::new(), style: FontStyle::Regular, color: state.current_color, font_size, width: w, math: Some(math_box), superscript: false, underline: false, strikethrough: false });
+                    words.push(StyledWord { text: String::new(), style: FontStyle::Regular, color: state.current_color, font_size, width: w, math: Some(math_box), superscript: false, subscript: false, underline: false, strikethrough: false });
                 }
             }
             Node::Superscript(content) => {
@@ -505,7 +505,20 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                     let font_id = font::style_to_font_id(span.style);
                     for part in span.text.split_whitespace() {
                         let w = font::measure_text(part, font_id, sf);
-                        words.push(StyledWord { text: part.to_string(), style: span.style, color: span.color, font_size, width: w, math: None, superscript: true, underline: false, strikethrough: false });
+                        words.push(StyledWord { text: part.to_string(), style: span.style, color: span.color, font_size, width: w, math: None, superscript: true, subscript: false, underline: false, strikethrough: false });
+                    }
+                }
+            }
+            Node::Subscript(content) => {
+                // \textsubscript: render at 65% size below baseline
+                let mut sub_spans = Vec::new();
+                nodes_to_spans(content, state.current_font_style, state.current_color, font_size * 0.65, base_font_size, &mut sub_spans, source, labels_ref, citations_ref, ay_map_ref);
+                for span in &sub_spans {
+                    let sf = span.font_size;
+                    let font_id = font::style_to_font_id(span.style);
+                    for part in span.text.split_whitespace() {
+                        let w = font::measure_text(part, font_id, sf);
+                        words.push(StyledWord { text: part.to_string(), style: span.style, color: span.color, font_size, width: w, math: None, superscript: false, subscript: true, underline: false, strikethrough: false });
                     }
                 }
             }
@@ -534,7 +547,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                     format!("{}\u{00A0}{}", prefix, num)
                 };
                 let w = font::measure_text(&ref_text, FontId::TimesRoman, font_size);
-                words.push(StyledWord { text: ref_text, style: state.current_font_style, color: state.current_color, font_size, width: w, math: None, superscript: false, underline: false, strikethrough: false });
+                words.push(StyledWord { text: ref_text, style: state.current_font_style, color: state.current_color, font_size, width: w, math: None, superscript: false, subscript: false, underline: false, strikethrough: false });
             }
             _ => {
                 let mut node_spans = Vec::new();
@@ -546,11 +559,11 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                     let font_id = crate::font::style_to_font_id(span.style);
                     let sw = crate::font::measure_text(" ", font_id, sf);
                     if span.text == "\n" {
-                        words.push(StyledWord { text: "\n".to_string(), style: span.style, color: span.color, font_size: sf, width: 0.0, math: None, superscript: false, underline: span.underline, strikethrough: span.strikethrough });
+                        words.push(StyledWord { text: "\n".to_string(), style: span.style, color: span.color, font_size: sf, width: 0.0, math: None, superscript: false, subscript: false, underline: span.underline, strikethrough: span.strikethrough });
                         continue;
                     }
                     if span.text == "\x01HFILL\x01" {
-                        words.push(StyledWord { text: "\x01HFILL\x01".to_string(), style: span.style, color: span.color, font_size: sf, width: 0.0, math: None, superscript: false, underline: false, strikethrough: false });
+                        words.push(StyledWord { text: "\x01HFILL\x01".to_string(), style: span.style, color: span.color, font_size: sf, width: 0.0, math: None, superscript: false, subscript: false, underline: false, strikethrough: false });
                         continue;
                     }
                     if span.text.starts_with("\x01RULE:") {
@@ -558,7 +571,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                         let inner = &span.text[6..span.text.len()-1]; // strip \x01RULE: and \x01
                         let parts: Vec<&str> = inner.split(':').collect();
                         let rule_w: f32 = parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(10.0);
-                        words.push(StyledWord { text: span.text.clone(), style: span.style, color: span.color, font_size: sf, width: rule_w, math: None, superscript: false, underline: false, strikethrough: false });
+                        words.push(StyledWord { text: span.text.clone(), style: span.style, color: span.color, font_size: sf, width: rule_w, math: None, superscript: false, subscript: false, underline: false, strikethrough: false });
                         continue;
                     }
                     // Non-breaking space marker: glue to adjacent words so it's not a break point
@@ -574,7 +587,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                                 continue;
                             }
                         }
-                        words.push(StyledWord { text: rendered, style: span.style, color: span.color, font_size: sf, width: w, math: None, superscript: false, underline: span.underline, strikethrough: span.strikethrough });
+                        words.push(StyledWord { text: rendered, style: span.style, color: span.color, font_size: sf, width: w, math: None, superscript: false, subscript: false, underline: span.underline, strikethrough: span.strikethrough });
                         continue;
                     }
                     let font_id = font::style_to_font_id(span.style);
@@ -584,19 +597,19 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                     if starts_with_space && !words.is_empty() {
                         if let Some(last) = words.last() {
                             if last.text != " " && last.text != "\n" {
-                                words.push(StyledWord { text: " ".to_string(), style: span.style, color: span.color, font_size: sf, width: sw, math: None, superscript: false, underline: span.underline, strikethrough: span.strikethrough });
+                                words.push(StyledWord { text: " ".to_string(), style: span.style, color: span.color, font_size: sf, width: sw, math: None, superscript: false, subscript: false, underline: span.underline, strikethrough: span.strikethrough });
                             }
                         }
                     }
                     for (i, part) in parts.iter().enumerate() {
                         if i > 0 {
-                            words.push(StyledWord { text: " ".to_string(), style: span.style, color: span.color, font_size: sf, width: sw, math: None, superscript: false, underline: span.underline, strikethrough: span.strikethrough });
+                            words.push(StyledWord { text: " ".to_string(), style: span.style, color: span.color, font_size: sf, width: sw, math: None, superscript: false, subscript: false, underline: span.underline, strikethrough: span.strikethrough });
                         }
                         let w = font::measure_text(part, font_id, sf);
-                        words.push(StyledWord { text: part.to_string(), style: span.style, color: span.color, font_size: sf, width: w, math: None, superscript: false, underline: span.underline, strikethrough: span.strikethrough });
+                        words.push(StyledWord { text: part.to_string(), style: span.style, color: span.color, font_size: sf, width: w, math: None, superscript: false, subscript: false, underline: span.underline, strikethrough: span.strikethrough });
                     }
                     if ends_with_space && !parts.is_empty() {
-                        words.push(StyledWord { text: " ".to_string(), style: span.style, color: span.color, font_size: sf, width: sw, math: None, superscript: false, underline: span.underline, strikethrough: span.strikethrough });
+                        words.push(StyledWord { text: " ".to_string(), style: span.style, color: span.color, font_size: sf, width: sw, math: None, superscript: false, subscript: false, underline: span.underline, strikethrough: span.strikethrough });
                     }
                 }
             }
@@ -953,6 +966,13 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 // TeX superscript rise ≈ 0.45 * x-height ≈ 0.2em (not 0.35em)
                 state.current_y -= word.font_size * 0.25;
                 state.emit_text(&word.text, sup_size, word.style, word.color);
+                state.current_y = saved_y;
+            } else if word.subscript {
+                let sub_size = word.font_size * 0.65;
+                let saved_y = state.current_y;
+                // TeX subscript drop ≈ 0.25em below baseline
+                state.current_y += word.font_size * 0.15;
+                state.emit_text(&word.text, sub_size, word.style, word.color);
                 state.current_y = saved_y;
             } else {
                 state.emit_text(&word.text, word.font_size, word.style, word.color);
