@@ -657,7 +657,14 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
                 let is_last = j == m - 1;
                 // TeX-like badness: cubic ratio scaled to 10000
                 let badness: f64 = if is_last {
-                    if lw > max_w { let o = (lw - max_w) as f64; o * o * 1000.0 } else { 0.0 }
+                    if lw > max_w {
+                        let o = (lw - max_w) as f64; o * o * 1000.0
+                    } else {
+                        // TeX \parfillskip: penalize very short last lines
+                        // A last line shorter than 15% of text width looks orphaned
+                        let ratio = lw as f64 / max_w.max(1.0) as f64;
+                        if ratio < 0.15 && j > 1 { 500.0 } else { 0.0 }
+                    }
                 } else if lw > max_w {
                     let o = (lw - max_w) as f64;
                     o * o * 1000.0
@@ -685,6 +692,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
 
         // Build LineInfo from optimal breaks, with post-DP hyphenation for loose lines
         let mut prev_bp_idx = 0;
+        let mut prev_line_hyphenated = false;
         for (bi, &b) in opt_breaks.iter().enumerate() {
             let ls = bp[prev_bp_idx];
             let le = bp[b];
@@ -698,7 +706,8 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
             let mut hyphen_info: Option<(usize, usize)> = None;
 
             // If slack > 0.5em and not the last line, try to pull in part of the next word
-            if !is_last && slack > font_size * 0.5 && le < seg_end {
+            // TeX \doublehyphendemerits: avoid consecutive hyphenated lines
+            if !is_last && !prev_line_hyphenated && slack > font_size * 0.5 && le < seg_end {
                 // Find the next non-space word after this line's break
                 let mut next_wi = le;
                 while next_wi < seg_end && words[next_wi].text == " " { next_wi += 1; }
@@ -726,6 +735,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
             }
 
             let (ma, mb) = compute_line_metrics(&words[ls..le], text_ascent, text_descent, font_size);
+            prev_line_hyphenated = hyphen_info.is_some();
             lines.push(LineInfo { start: ls, end: le, max_above: ma, max_below: mb, hyphen: hyphen_info });
             is_first_line = false;
             prev_bp_idx = b;
@@ -811,15 +821,17 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         if align == crate::document::AlignmentMode::Justify && !is_last_line {
             if space_count > 0 {
                 let slack = available - content_w;
-                // Justify if line is at least 45% full (TeX justifies aggressively)
-                if slack > 0.0 && slack < available * 0.55 {
+                // Justify if line is at least 35% full (TeX justifies aggressively)
+                if slack > 0.0 && slack < available * 0.65 {
                     extra_per_space = slack / space_count as f32;
-                    // TeX inter-word stretch: allow up to 0.35em for long lines with few spaces
-                    // but prefer tighter spacing for better text color
-                    let max_stretch = if space_count <= 3 {
-                        font_size * 0.35  // Few spaces — need more stretch per space
+                    // TeX inter-word stretch: ~1.67pt for 10pt font (0.167em)
+                    // Allow more for very few spaces, but keep tight for even text color
+                    let max_stretch = if space_count <= 2 {
+                        font_size * 0.30  // Very few spaces — more stretch per space
+                    } else if space_count <= 5 {
+                        font_size * 0.22  // Moderate — TeX default
                     } else {
-                        font_size * 0.25  // Many spaces — keep tighter
+                        font_size * 0.18  // Many spaces — keep very tight
                     };
                     extra_per_space = extra_per_space.min(max_stretch);
                 } else if slack < 0.0 && slack > -font_size * 1.5 {

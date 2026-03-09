@@ -43,15 +43,21 @@ fn justify_line_with_width(line: &[u8], available_width: f32, avg_width: f32, fo
     };
 
     let extra = available_width - natural_width;
-    // Skip justification only if line is very short (< 45% full)
+    // Skip justification only if line is very short (< 35% full)
     // TeX justifies aggressively — we should too for professional output
-    if extra > available_width * 0.55 { return 0; }
+    if extra > available_width * 0.65 { return 0; }
     if extra < -font_size * 1.5 { return 0; }
     let ws = extra / num_spaces as f32;
-    // TeX-like spacing limits: allow compression (-1pt) and moderate stretch (+4pt)
-    // Tighter than +6pt for more even text color / grayness
-    // TeX: stretch ≈ 1.67pt, shrink ≈ 1.11pt for 10pt font
-    let ws_clamped = ws.max(-font_size * 0.12).min(font_size * 0.25);
+    // TeX-like spacing limits: stretch ≈ 1.67pt, shrink ≈ 1.11pt for 10pt font
+    // Tighter cap for more even text color / grayness
+    let max_stretch = if num_spaces <= 2 {
+        font_size * 0.30  // Few spaces — allow more stretch
+    } else if num_spaces <= 5 {
+        font_size * 0.22  // TeX default range
+    } else {
+        font_size * 0.18  // Many spaces — keep very tight
+    };
+    let ws_clamped = ws.max(-font_size * 0.12).min(max_stretch);
     (ws_clamped * 50.0).min(i16::MAX as f32) as i16
 }
 
@@ -260,6 +266,7 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
         }
 
         // Remaining lines
+        let mut prev_line_hyphenated = false;
         while pos < len {
             let line_start = pos;
             let (line_end, next_pos, line_w) = find_pixel_break(bytes, line_start, max_chars_rest, full_text_width, font_id, font_size);
@@ -274,8 +281,9 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
                 }
 
                 // Hyphenation: check if next word can be partially pulled in
+                // TeX \doublehyphendemerits: skip if previous line was already hyphenated
                 let slack_px = full_text_width - line_w;
-                if slack_px > font_size * 0.5 && next_pos < len {
+                if !prev_line_hyphenated && slack_px > font_size * 0.5 && next_pos < len {
                     let mut ws_skip = next_pos;
                     while ws_skip < len && bytes[ws_skip] <= b' ' { ws_skip += 1; }
                     if ws_skip < len {
@@ -312,12 +320,14 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
 
                                 pos = ws_skip + bp;
                                 while pos < len && bytes[pos] <= b' ' { pos += 1; }
+                                prev_line_hyphenated = true;
                                 continue;
                             }
                         }
                     }
                 }
 
+                prev_line_hyphenated = false;
                 let is_last = next_pos >= len;
                 let ws = justify_line_with_width(&bytes[line_start..line_end], full_text_width, avg_width, font_size, is_last, font_id, Some(line_w));
                 state.all_elements.push(PageElement::Text {
