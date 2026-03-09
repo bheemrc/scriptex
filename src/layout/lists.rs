@@ -33,8 +33,10 @@ pub(super) fn layout_list(
     let list_indent = if numbered { base * 2.2 } else { base * 1.8 };
     state.set_indent(state.indent + list_indent);
     state.paragraph_indent = 0.0;
+    // Check for compact (nosep/noitemsep) flag from first item
+    let compact = items.first().map_or(false, |item| item.compact);
     // LaTeX \topsep: 8pt + \partopsep(2pt) for 10pt, scales with base size
-    let topsep = if depth == 0 { base * 0.8 } else { base * 0.3 };
+    let topsep = if compact { 0.0 } else if depth == 0 { base * 0.8 } else { base * 0.3 };
     state.add_vertical_space(topsep);
 
     for (i, item) in items.iter().enumerate() {
@@ -131,7 +133,7 @@ pub(super) fn layout_list(
             super::layout_nodes(&item.content[inline_end..], state, doc, source)?;
         }
         // LaTeX \itemsep + \parsep: ~4pt for 10pt at depth 0, ~2pt for nested
-        if i + 1 < items.len() {
+        if i + 1 < items.len() && !compact {
             let itemsep = if depth == 0 { base * 0.4 } else { base * 0.2 };
             state.add_vertical_space(itemsep);
         }

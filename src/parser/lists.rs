@@ -44,6 +44,7 @@ impl<'a> Parser<'a> {
         // Parse enumitem options
         let mut custom_label: Option<String> = None;
         let mut start_num: u32 = 1;
+        let mut compact = false;
         if let Some(ref opt_str) = opt {
             for part in opt_str.split(',') {
                 let part = part.trim();
@@ -51,8 +52,9 @@ impl<'a> Parser<'a> {
                     custom_label = Some(label.trim().to_string());
                 } else if let Some(start) = part.strip_prefix("start=") {
                     start_num = start.trim().parse().unwrap_or(1);
+                } else if part == "nosep" || part == "noitemsep" {
+                    compact = true;
                 }
-                // noitemsep/nosep just reduce spacing — handled visually
             }
         }
         let mut items = Vec::new();
@@ -90,6 +92,7 @@ impl<'a> Parser<'a> {
                                         items.push(ListItem {
                                             label: current_label.take(),
                                             content: std::mem::take(&mut current_content),
+                                            compact,
                                         });
                                     }
                                 }
@@ -106,6 +109,7 @@ impl<'a> Parser<'a> {
                             items.push(ListItem {
                                 label: current_label.take(),
                                 content: std::mem::take(&mut current_content),
+                                compact,
                             });
                         }
                         in_item = true;

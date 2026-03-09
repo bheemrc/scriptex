@@ -651,6 +651,8 @@ impl FontSizeSpec {
 pub struct ListItem {
     pub label: Option<Vec<Node>>,
     pub content: Vec<Node>,
+    /// nosep/noitemsep: suppress inter-item and top/bottom spacing
+    pub compact: bool,
 }
 
 #[derive(Debug, Clone)]
