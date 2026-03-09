@@ -160,7 +160,7 @@ fn layout_math_node(node: &MathNode, font_size: f32, display: bool) -> MathBox {
         }
         MathNode::Group(nodes) => layout_math(nodes, font_size),
 
-        MathNode::Frac { numer, denom } => layout_fraction(numer, denom, font_size),
+        MathNode::Frac { numer, denom } => layout_fraction(numer, denom, font_size, display),
         MathNode::Sqrt { index, radicand } => layout_sqrt(index.as_deref(), radicand, font_size),
         MathNode::Super(nodes) => {
             // Standalone superscript (no base)
@@ -201,7 +201,7 @@ fn layout_math_node(node: &MathNode, font_size: f32, display: bool) -> MathBox {
         MathNode::Accent { base, accent_type } => layout_accent(base, accent_type, font_size),
         MathNode::Over { content, over_type } => layout_over(content, over_type, font_size),
         MathNode::Under { content, under_type } => layout_under(content, under_type, font_size),
-        MathNode::Binom { top, bottom } => layout_binom(top, bottom, font_size),
+        MathNode::Binom { top, bottom } => layout_binom(top, bottom, font_size, display),
         MathNode::Overset { over, base } => layout_overset(over, base, font_size),
         MathNode::Underset { under, base } => layout_underset(under, base, font_size),
         MathNode::OperatorName(name) => layout_text(name, font_size, FontId::TimesRoman),
@@ -674,10 +674,9 @@ fn layout_symbol(symbol: &str, font_size: f32) -> MathBox {
     }
 }
 
-fn layout_fraction(numer: &[MathNode], denom: &[MathNode], font_size: f32) -> MathBox {
-    // TeX: display fractions use \textstyle (100%), inline use \scriptstyle (70%)
-    // Use 85% as a compromise — most fractions are in display math
-    let frac_size = font_size * 0.85;
+fn layout_fraction(numer: &[MathNode], denom: &[MathNode], font_size: f32, display: bool) -> MathBox {
+    // TeX: display fractions use \textstyle (full size), inline use \scriptstyle (70%)
+    let frac_size = if display { font_size } else { font_size * 0.7 };
     let mut num_box = layout_math(numer, frac_size);
     let mut den_box = layout_math(denom, frac_size);
 
@@ -1633,8 +1632,8 @@ fn layout_cases(rows: &[(Vec<MathNode>, Option<Vec<MathNode>>)], font_size: f32)
     }
 }
 
-fn layout_binom(top: &[MathNode], bottom: &[MathNode], font_size: f32) -> MathBox {
-    let inner_size = font_size * 0.85;
+fn layout_binom(top: &[MathNode], bottom: &[MathNode], font_size: f32, display: bool) -> MathBox {
+    let inner_size = if display { font_size } else { font_size * 0.7 };
     let mut top_box = layout_math(top, inner_size);
     let mut bot_box = layout_math(bottom, inner_size);
 
