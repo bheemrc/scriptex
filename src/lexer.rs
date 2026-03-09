@@ -694,14 +694,12 @@ mod tests {
 
     #[test]
     fn test_basic_text() {
+        // Spaces are merged into text runs (optimization: reduces token count)
         let mut lexer = Lexer::new("hello world");
         let tokens = lexer.tokenize();
         assert_eq!(tokens[0].kind, TokenKind::Text);
-        assert_eq!(tokens[0].text("hello world"), "hello");
-        assert_eq!(tokens[1].kind, TokenKind::Space);
-        assert_eq!(tokens[2].kind, TokenKind::Text);
-        assert_eq!(tokens[2].text("hello world"), "world");
-        assert_eq!(tokens[3].kind, TokenKind::Eof);
+        assert_eq!(tokens[0].text("hello world"), "hello world");
+        assert_eq!(tokens[1].kind, TokenKind::Eof);
     }
 
     #[test]

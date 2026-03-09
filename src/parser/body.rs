@@ -530,7 +530,22 @@ impl<'a> Parser<'a> {
             }
 
             // Rules
-            "\\hrule" => { self.skip_command_args(); Ok(Some(Node::HRule)) }
+            "\\hrule" => {
+                // \hrule may have TeX primitive keyword args: height, width, depth
+                loop {
+                    self.skip_whitespace_and_comments();
+                    if self.current().kind == TokenKind::Text {
+                        let t = self.current().text(self.source).trim_start();
+                        if t.starts_with("height") || t.starts_with("width") || t.starts_with("depth") {
+                            self.advance(); // skip keyword token
+                            let _ = self.read_tex_dimension_text(); // consume dimension
+                            continue;
+                        }
+                    }
+                    break;
+                }
+                Ok(Some(Node::HRule))
+            }
             "\\rule" => {
                 let _raise = self.try_read_optional_arg(); // optional raise
                 let width_str = self.read_braced_text().unwrap_or_default();
@@ -976,9 +991,16 @@ impl<'a> Parser<'a> {
             // floatrow package
             "\\floatbox" => {
                 // \floatbox[setup]{type}[width]{caption}{body}
-                // Complex — just read what we can and pass through
-                self.skip_command_args();
-                Ok(None)
+                // Read optional setup, type, optional width, then caption and body as nodes
+                let _ = self.try_read_optional_arg(); // [setup]
+                let _ = self.read_braced_text(); // {type}
+                let _ = self.try_read_optional_arg(); // [width]
+                let caption_nodes = self.read_braced_nodes().unwrap_or_default();
+                let body_nodes = self.read_braced_nodes().unwrap_or_default();
+                // Combine body + caption as a group
+                let mut combined = body_nodes;
+                combined.extend(caption_nodes);
+                Ok(Some(Node::Group(combined)))
             }
             "\\floatsetup" | "\\thisfloatsetup" | "\\capbeside" | "\\fcapside"
             | "\\ffigbox" | "\\ttabbox" => {

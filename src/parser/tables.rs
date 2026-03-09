@@ -261,15 +261,20 @@ impl<'a> Parser<'a> {
                 }
                 '|' => { cols.push(ColumnSpec::Separator); i += 1; }
                 '@' => {
-                    // Skip @{...}
+                    // @{content} — inter-column material. @{} suppresses padding.
                     i += 1;
                     if i < chars.len() && chars[i] == '{' {
+                        let start = i + 1;
                         let mut depth = 1;
                         i += 1;
                         while i < chars.len() && depth > 0 {
                             if chars[i] == '{' { depth += 1; }
                             if chars[i] == '}' { depth -= 1; }
                             i += 1;
+                        }
+                        // @{} (empty) = suppress padding
+                        if i - 1 == start {
+                            cols.push(ColumnSpec::SuppressPadding);
                         }
                     }
                 }

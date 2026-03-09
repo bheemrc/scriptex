@@ -665,6 +665,8 @@ pub enum ColumnSpec {
     Right,
     Paragraph(f32),
     Separator,
+    /// @{} — suppress inter-column padding at this position
+    SuppressPadding,
 }
 
 #[derive(Debug, Clone)]

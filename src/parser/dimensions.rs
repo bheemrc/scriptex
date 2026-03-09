@@ -5,6 +5,23 @@ impl<'a> Parser<'a> {
     /// Read a TeX dimension without braces (e.g., after \vskip: "10pt", "-2.5mm plus 1fil")
     pub(super) fn read_tex_dimension_text(&mut self) -> String {
         self.skip_whitespace_and_comments();
+        // Handle merged space+dimension text tokens (lexer merges spaces into text runs)
+        // e.g. " 0.3in" from "\vskip 0.3in" where space+text is one token
+        if self.current().kind == TokenKind::Text {
+            let tok = self.current();
+            let raw = tok.text(self.source);
+            let trimmed = raw.trim_start();
+            if trimmed.len() < raw.len() && !trimmed.is_empty() {
+                // Has leading whitespace — split the token: skip whitespace prefix, keep rest
+                let skip = raw.len() - trimmed.len();
+                self.tokens[self.pos] = crate::lexer::Token {
+                    kind: TokenKind::Text,
+                    cmd: 0,
+                    pos: tok.pos + skip as u32,
+                    len: tok.len - skip as u16,
+                };
+            }
+        }
         let mut text = String::new();
         // Read optional sign
         if self.current().kind == TokenKind::Text || self.current().kind == TokenKind::Command {
@@ -16,6 +33,9 @@ impl<'a> Parser<'a> {
             match self.current().kind {
                 TokenKind::Text => {
                     let t = self.current().text(self.source);
+                    // Strip leading whitespace from merged tokens
+                    let t = t.trim_start();
+                    if t.is_empty() { self.advance(); continue; }
                     // Part of a dimension: digits, dots, units
                     if t.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c == '+')
                         || ["pt", "mm", "cm", "in", "em", "ex", "sp", "bp", "dd", "pc", "mu", "fil", "fill"].contains(&t)

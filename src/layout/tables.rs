@@ -52,7 +52,7 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     if table.rows.is_empty() { return Ok(()); }
 
     let num_data_rows = {
-        let num_cols = table.columns.iter().filter(|c| !matches!(c, ColumnSpec::Separator)).count().max(1);
+        let num_cols = table.columns.iter().filter(|c| !matches!(c, ColumnSpec::Separator | ColumnSpec::SuppressPadding)).count().max(1);
         let mut n = table.rows.len();
         while n > 0 && table.rows[n - 1].cells.len() < num_cols
             && table.rows[n - 1].cells.iter().all(|c| c.content.is_empty()) { n -= 1; }
@@ -65,25 +65,36 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     let intextsep = state.base_font_size * 1.2;
     state.add_vertical_space(intextsep);
 
-    let data_cols: Vec<&ColumnSpec> = table.columns.iter().filter(|c| !matches!(c, ColumnSpec::Separator)).collect();
+    let data_cols: Vec<&ColumnSpec> = table.columns.iter().filter(|c| !matches!(c, ColumnSpec::Separator | ColumnSpec::SuppressPadding)).collect();
     let num_cols = data_cols.len().max(1);
-    // Track vertical separator positions: separator_positions[i] = true means draw a vertical line before data column i
-    // Also track trailing separator
+    // Track vertical separator positions and padding suppression
     let mut separator_before = vec![false; num_cols + 1]; // +1 for trailing separator
+    // Track @{} padding suppression: suppress_padding_before[i] = true means no left padding on column i
+    // suppress_padding_after[i] = true means no right padding on column i
+    let mut suppress_padding_before = vec![false; num_cols + 1];
     {
         let mut data_idx = 0usize;
-        let mut prev_was_sep = false;
         for col in &table.columns {
             match col {
-                ColumnSpec::Separator => { separator_before[data_idx] = true; prev_was_sep = true; }
-                _ => { data_idx += 1; prev_was_sep = false; }
+                ColumnSpec::Separator => { separator_before[data_idx] = true; }
+                ColumnSpec::SuppressPadding => { suppress_padding_before[data_idx] = true; }
+                _ => { data_idx += 1; }
             }
         }
-        if prev_was_sep && data_idx <= num_cols { separator_before[data_idx] = true; }
     }
     let available_width = state.text_width();
     // Cell padding scales with font size (~0.5em)
     let cell_padding = 6.0f32; // LaTeX \tabcolsep = 6pt per side (fixed, not font-relative)
+    // Per-column left and right padding (adjusted by @{} suppress)
+    let col_padding_left: Vec<f32> = (0..num_cols).map(|i| {
+        if suppress_padding_before[i] { 0.0 } else { cell_padding }
+    }).collect();
+    let col_padding_right: Vec<f32> = (0..num_cols).map(|i| {
+        if suppress_padding_before[i + 1] { 0.0 } else { cell_padding }
+    }).collect();
+    let col_total_padding: Vec<f32> = (0..num_cols).map(|i| {
+        col_padding_left[i] + col_padding_right[i]
+    }).collect();
     let has_explicit_widths = data_cols.iter().any(|c| matches!(c, ColumnSpec::Paragraph(_)));
     let base_metrics = state.metrics();
     let font_size = state.current_font_size;
@@ -189,13 +200,14 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
     } else {
         // Improved auto-calculation: use min widths + proportional distribution
         let min_col_width = cell_padding * 4.0; // absolute minimum
-        let total_content = col_max_widths.iter().sum::<f32>() + (num_cols as f32 * cell_padding * 2.0);
+        let total_padding: f32 = col_total_padding.iter().sum();
+        let total_content = col_max_widths.iter().sum::<f32>() + total_padding;
         if total_content <= available_width {
             // Everything fits — distribute remaining space proportionally to content
             let remaining = available_width - total_content;
             if total_content > 0.0 {
-                col_max_widths.iter().map(|&w| {
-                    let base = w + cell_padding * 2.0;
+                col_max_widths.iter().enumerate().map(|(i, &w)| {
+                    let base = w + col_total_padding.get(i).copied().unwrap_or(cell_padding * 2.0);
                     let share = (w / total_content) * remaining;
                     base + share
                 }).collect()
@@ -231,7 +243,10 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
             let col_w = if span > 1 {
                 (logical_col..logical_col + span).map(|c| col_widths.get(c as usize).copied().unwrap_or(0.0)).sum::<f32>()
             } else { col_widths.get(logical_col as usize).copied().unwrap_or(100.0) };
-            let content_w = col_w - cell_padding * 2.0;
+            let lc = logical_col as usize;
+            let pad = col_padding_left.get(lc).copied().unwrap_or(cell_padding)
+                    + col_padding_right.get(lc).copied().unwrap_or(cell_padding);
+            let content_w = col_w - pad;
             let fid = if cell_styles[row_idx][col_idx] == FontStyle::Bold { FontId::TimesBold } else { FontId::TimesRoman };
             let text_w = font::measure_text(text, fid, font_size);
             if text_w <= content_w + 1.0 || content_w < 20.0 {
@@ -312,8 +327,11 @@ pub(super) fn layout_table(table: &Table, state: &mut LayoutState, _doc: &Docume
             let col_w = if span > 1 {
                 (logical_col..logical_col + span).map(|c| col_widths.get(c as usize).copied().unwrap_or(0.0)).sum::<f32>()
             } else { col_widths.get(logical_col as usize).copied().unwrap_or(100.0) };
-            let cx = col_x + cell_padding;
-            let cell_content_width = col_w - cell_padding * 2.0;
+            let lc = logical_col as usize;
+            let pad_l = col_padding_left.get(lc).copied().unwrap_or(cell_padding);
+            let pad_r = col_padding_right.get(lc).copied().unwrap_or(cell_padding);
+            let cx = col_x + pad_l;
+            let cell_content_width = col_w - pad_l - pad_r;
             let default_center = ColumnSpec::Center;
             let align = if let Some(ref ov) = align_override { ov }
                 else if span > 1 { &default_center }

@@ -48,8 +48,63 @@ impl MacroEngine {
             || preamble.contains("\\providecommand")
             || preamble.contains("\\DeclareRobustCommand")
             || preamble.contains("\\newenvironment")
-            || source.contains("\\DeclareMathOperator")
-            || source.contains("\\today")
+            || preamble.contains("\\DeclareMathOperator")
+            || preamble.contains("\\today") || source[scan_end..source.len().min(scan_end + 10000)].contains("\\today")
+    }
+
+    /// Collect macro definitions from local .sty files referenced by \usepackage.
+    /// Only collects "safe" user-facing macros (no @ internals).
+    pub fn collect_style_definitions(&mut self, source: &str, base_dir: &std::path::Path) {
+        // Find preamble (before \begin{document})
+        let preamble_end = source.find("\\begin{document}")
+            .unwrap_or(source.len().min(50000));
+        let preamble = &source[..preamble_end];
+
+        // Find all \usepackage references
+        let mut pos = 0;
+        while let Some(idx) = preamble[pos..].find("\\usepackage") {
+            pos += idx + 11;
+            // Skip optional arg
+            let rest = &preamble[pos..];
+            let mut p = 0;
+            while p < rest.len() && rest.as_bytes()[p] == b' ' { p += 1; }
+            if p < rest.len() && rest.as_bytes()[p] == b'[' {
+                if let Some(close) = rest[p..].find(']') {
+                    p += close + 1;
+                }
+            }
+            // Read braced package name(s)
+            while p < rest.len() && rest.as_bytes()[p] == b' ' { p += 1; }
+            if p < rest.len() && rest.as_bytes()[p] == b'{' {
+                if let Some(close) = rest[p..].find('}') {
+                    let names = &rest[p + 1..p + close];
+                    for name in names.split(',') {
+                        let name = name.trim();
+                        if name.is_empty() { continue; }
+                        let sty_path = base_dir.join(format!("{}.sty", name));
+                        if sty_path.exists() {
+                            if let Ok(content) = std::fs::read_to_string(&sty_path) {
+                                // Collect into a temporary engine, then filter safe macros
+                                let mut temp = MacroEngine::new();
+                                temp.collect_definitions(&content);
+                                // Only keep macros with no @ in name or body
+                                for (name, def) in temp.macros {
+                                    if !name.contains('@') && !def.body.contains('@') {
+                                        self.macros.insert(name, def);
+                                    }
+                                }
+                                for (name, def) in temp.environments {
+                                    if !name.contains('@') && !def.begin_code.contains('@')
+                                        && !def.end_code.contains('@') {
+                                        self.environments.insert(name, def);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Collect all macro definitions from source (preamble + body)
@@ -797,16 +852,31 @@ fn read_bracketed(source: &str, start: usize) -> Option<(String, usize)> {
 
 /// Top-level expansion function: if source has macros, collect and expand them
 pub fn expand(source: &str) -> String {
-    if !MacroEngine::has_macros(source) {
-        return source.to_string();
+    expand_with_base_dir(source, None).unwrap_or_else(|| source.to_string())
+}
+
+/// Expand macros, also collecting definitions from local .sty files.
+/// Returns None if no expansion was needed (caller can use original source).
+pub fn expand_with_base_dir(source: &str, base_dir: Option<&std::path::Path>) -> Option<String> {
+    let mut engine = MacroEngine::new();
+
+    // Collect macros from local .sty files referenced by \usepackage
+    if let Some(dir) = base_dir {
+        engine.collect_style_definitions(source, dir);
     }
 
-    let mut engine = MacroEngine::new();
-    engine.collect_definitions(source);
+    let has_source_macros = MacroEngine::has_macros(source);
+    if !has_source_macros && engine.macros.is_empty() && engine.environments.is_empty() {
+        return None;
+    }
+
+    if has_source_macros {
+        engine.collect_definitions(source);
+    }
 
     let has_builtins = source.contains("\\today");
     if engine.macros.is_empty() && engine.environments.is_empty() && !has_builtins {
-        return source.to_string();
+        return None;
     }
 
     // Single-pass expansion is sufficient for most documents.
@@ -819,8 +889,8 @@ pub fn expand(source: &str) -> String {
     // If so, do a second expansion pass.
     let needs_pass2 = engine.macros.keys().any(|name| pass1.contains(name.as_str()));
     if needs_pass2 {
-        return engine.expand(&pass1);
+        return Some(engine.expand(&pass1));
     }
 
-    pass1
+    Some(pass1)
 }

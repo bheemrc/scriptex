@@ -70,8 +70,8 @@ fn main() -> Result<()> {
     // Macro expansion (if needed)
     let expand_start = Instant::now();
     let expanded;
-    let effective_source: &str = if macro_expand::MacroEngine::has_macros(source_after_includes) {
-        expanded = macro_expand::expand(source_after_includes);
+    let effective_source: &str = if let Some(exp) = macro_expand::expand_with_base_dir(source_after_includes, Some(&base_dir)) {
+        expanded = exp;
         eprintln!("[MACROS]  {:.3}ms - expanded {} → {} bytes",
             expand_start.elapsed().as_secs_f64() * 1000.0, source_after_includes.len(), expanded.len());
         &expanded
