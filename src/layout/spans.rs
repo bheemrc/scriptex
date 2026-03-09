@@ -389,8 +389,8 @@ fn compute_line_metrics(words: &[StyledWord], text_ascent: f32, text_descent: f3
 
 /// Layout a paragraph with rich inline formatting (bold, italic, etc.).
 pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, source: &str, with_indent: bool) -> Result<()> {
-    // Apply \parskip between paragraphs (only when starting a new paragraph, not continuation)
-    if state.paragraph_skip > 0.0 && with_indent {
+    // Apply \parskip between paragraphs (LaTeX applies parskip between all paragraphs)
+    if state.paragraph_skip > 0.0 {
         state.add_vertical_space(state.paragraph_skip);
     }
 
@@ -434,7 +434,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
     let line_height = if let Some(bsk) = state.baseline_skip_override {
         bsk
     } else {
-        font_size * baselineskip_factor(base_font_size)
+        font_size * baselineskip_factor(font_size)
     };
     let step = line_height * state.line_spacing;
     let space_width = crate::font::measure_text(" ", crate::font::FontId::TimesRoman, font_size);
@@ -568,7 +568,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
     let base_font_id = font::style_to_font_id(FontStyle::Regular);
     let text_ascent = font::font_ascent(base_font_id, font_size);
     let text_descent = font::font_descent(base_font_id, font_size);
-    state.ensure_space(line_height);
+    state.ensure_space(step);
     let normal_start = state.text_left() + indent;
     let initial_line_x = if state.current_x > normal_start + 1.0 { state.current_x } else { normal_start };
     let first_line_used = initial_line_x - state.text_left();
@@ -763,7 +763,14 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
     let mut prev_hyphen: Option<(usize, usize)> = None; // (word_index, break_point) from previous line
     for (line_idx, line) in lines.iter().enumerate() {
         if !first_line {
-            let effective_step = (prev_max_below + line.max_above).max(step);
+            // TeX baselineskip: distance between baselines = max(baselineskip, prev_depth + cur_height + lineskiplimit)
+            // Use step as the normal baseline distance, but allow expansion for large content
+            let natural_gap = prev_max_below + line.max_above;
+            let effective_step = if natural_gap > step {
+                natural_gap  // Large content (math, big fonts) — expand to fit
+            } else {
+                step  // Normal text — use standard baselineskip
+            };
             state.current_y += effective_step;
             state.ensure_space(line_height);
         } else if line.max_above > text_ascent {
@@ -799,12 +806,17 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         if align == crate::document::AlignmentMode::Justify && !is_last_line {
             if space_count > 0 {
                 let slack = available - content_w;
-                // Justify if line is at least 55% full (TeX justifies aggressively)
-                if slack > 0.0 && slack < available * 0.45 {
+                // Justify if line is at least 45% full (TeX justifies aggressively)
+                if slack > 0.0 && slack < available * 0.55 {
                     extra_per_space = slack / space_count as f32;
-                    // TeX inter-word stretch ≈ 1.67pt for 10pt (0.167em)
-                    // Allow up to 0.25em to avoid visible rivers while staying tight
-                    extra_per_space = extra_per_space.min(font_size * 0.25);
+                    // TeX inter-word stretch: allow up to 0.35em for long lines with few spaces
+                    // but prefer tighter spacing for better text color
+                    let max_stretch = if space_count <= 3 {
+                        font_size * 0.35  // Few spaces — need more stretch per space
+                    } else {
+                        font_size * 0.25  // Many spaces — keep tighter
+                    };
+                    extra_per_space = extra_per_space.min(max_stretch);
                 } else if slack < 0.0 && slack > -font_size * 1.5 {
                     // TeX inter-word shrink ≈ 1.11pt for 10pt (0.111em)
                     extra_per_space = slack / space_count as f32;
@@ -883,7 +895,8 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
             } else if word.superscript {
                 let sup_size = word.font_size * 0.65;
                 let saved_y = state.current_y;
-                state.current_y -= word.font_size * 0.35;
+                // TeX superscript rise ≈ 0.45 * x-height ≈ 0.2em (not 0.35em)
+                state.current_y -= word.font_size * 0.25;
                 state.emit_text(&word.text, sup_size, word.style, word.color);
                 state.current_y = saved_y;
             } else {

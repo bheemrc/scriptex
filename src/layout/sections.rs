@@ -17,7 +17,7 @@ pub(super) fn layout_section(
 ) -> Result<()> {
     // LaTeX vertical space collapsing: if previous element added structural space,
     // take the max of previous and current spacing rather than accumulating both
-    let space_before = level.spacing_before();
+    let space_before = level.spacing_before_scaled(state.base_font_size);
     if state.last_structural_vspace > 0.0 {
         let extra = (space_before - state.last_structural_vspace).max(0.0);
         state.add_vertical_space(extra);
@@ -40,12 +40,12 @@ pub(super) fn layout_section(
     // Ensure heading + spacing + at least 3 lines of body text fit on current page
     // This prevents orphaned headings near page bottoms (LaTeX \clubpenalty equivalent)
     let min_body_lines = match level {
-        SectionLevel::Section | SectionLevel::Chapter | SectionLevel::Part => 3.5,
-        SectionLevel::Subsection => 2.5,
-        SectionLevel::Subsubsection => 2.0,
-        _ => 1.5, // paragraph, subparagraph
+        SectionLevel::Section | SectionLevel::Chapter | SectionLevel::Part => 2.5,
+        SectionLevel::Subsection => 2.0,
+        SectionLevel::Subsubsection => 1.5,
+        _ => 1.0, // paragraph, subparagraph
     };
-    state.ensure_space(line_height + level.spacing_after() + state.cached_line_height * min_body_lines);
+    state.ensure_space(line_height + level.spacing_after_scaled(state.base_font_size) + state.cached_line_height * min_body_lines);
 
     state.text_buf.clear();
     if numbered {
@@ -193,7 +193,7 @@ pub(super) fn layout_section(
     }
 
     if !run_in {
-        let sa = level.spacing_after();
+        let sa = level.spacing_after_scaled(state.base_font_size);
         state.add_vertical_space(sa);
         state.last_structural_vspace = sa;
         state.current_x = state.text_left();

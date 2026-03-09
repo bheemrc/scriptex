@@ -810,6 +810,16 @@ impl<'a> Parser<'a> {
             "\\raggedright" => Ok(Some(Node::AlignmentDecl(AlignmentMode::FlushLeft))),
             "\\raggedleft" => Ok(Some(Node::AlignmentDecl(AlignmentMode::FlushRight))),
 
+            // \fontsize{size}{baselineskip}\selectfont — set font size
+            "\\fontsize" => {
+                let size_str = self.read_braced_text().unwrap_or_default();
+                let _skip_str = self.read_braced_text().unwrap_or_default();
+                if let Some(pts) = self.parse_dimension(&size_str) {
+                    return Ok(Some(Node::FontSize { size: FontSizeSpec::Points(pts), content: vec![] }));
+                }
+                Ok(None)
+            }
+
             // No-ops
             "\\nobreak" | "\\allowbreak" | "\\relax" | "\\protect"
             | "\\sloppy" | "\\fussy"

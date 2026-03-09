@@ -43,9 +43,9 @@ fn justify_line_with_width(line: &[u8], available_width: f32, avg_width: f32, fo
     };
 
     let extra = available_width - natural_width;
-    // Skip justification only if line is very short (< 55% full)
+    // Skip justification only if line is very short (< 45% full)
     // TeX justifies aggressively — we should too for professional output
-    if extra > available_width * 0.45 { return 0; }
+    if extra > available_width * 0.55 { return 0; }
     if extra < -font_size * 1.5 { return 0; }
     let ws = extra / num_spaces as f32;
     // TeX-like spacing limits: allow compression (-1pt) and moderate stretch (+4pt)
@@ -367,6 +367,13 @@ pub(super) fn layout_text_content_source(text: &str, state: &mut LayoutState, sr
         let max_chars_rest = (full_text_width / (avg_width * 0.82)) as usize;
 
         let mut lines_until_break = ((state.cached_max_y - state.current_y - line_height) / step) as i32 + 1;
+
+        // Orphan prevention: if only 1 line would fit, move whole paragraph to next page
+        let est_total_lines = (len as f32 * avg_width / full_text_width).ceil() as i32;
+        if lines_until_break <= 1 && est_total_lines > 1 {
+            state.new_page();
+            lines_until_break = ((state.cached_max_y - state.cached_start_y - line_height) / step) as i32 + 1;
+        }
 
         // First line
         if pos < len {

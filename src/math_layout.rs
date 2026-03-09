@@ -1327,35 +1327,53 @@ fn layout_matrix(
 fn layout_accent(base: &[MathNode], accent_type: &AccentType, font_size: f32) -> MathBox {
     let mut base_box = layout_math(base, font_size);
     let accent_y = -(base_box.height + font_size * 0.05);
+    let bw = base_box.width;
 
+    // Center accents horizontally over the base
     let accent_elem = match accent_type {
-        AccentType::Hat => MathElement::Text {
-            x: base_box.width * 0.2, y: accent_y, text: "^".to_string(),
-            font_size: font_size * 0.8, font_id: FontId::Helvetica, color: Color::BLACK,
+        AccentType::Hat => {
+            let accent_fs = font_size * 0.8;
+            let accent_w = font::measure_text("^", FontId::Helvetica, accent_fs);
+            MathElement::Text {
+                x: (bw - accent_w) / 2.0, y: accent_y, text: "^".to_string(),
+                font_size: accent_fs, font_id: FontId::Helvetica, color: Color::BLACK,
+            }
         },
         AccentType::Bar => MathElement::Line {
-            x1: 0.0, y1: accent_y, x2: base_box.width, y2: accent_y,
+            x1: 0.0, y1: accent_y, x2: bw, y2: accent_y,
             width: font_size * 0.04, color: Color::BLACK,
         },
-        AccentType::Vec => MathElement::Text {
-            // Use Symbol font → (arrow right, 0xAE)
-            x: base_box.width * 0.1, y: accent_y,
-            text: String::from(0xAE as char),
-            font_size: font_size * 0.6, font_id: FontId::Symbol, color: Color::BLACK,
+        AccentType::Vec => {
+            let accent_fs = font_size * 0.6;
+            let accent_w = font::char_width_pt(FontId::Symbol, 0xAE, accent_fs);
+            MathElement::Text {
+                x: (bw - accent_w) / 2.0, y: accent_y,
+                text: String::from(0xAE as char),
+                font_size: accent_fs, font_id: FontId::Symbol, color: Color::BLACK,
+            }
         },
-        AccentType::Tilde => MathElement::Text {
-            // Use Symbol font ~ (0x7E) for a proper tilde
-            x: base_box.width * 0.15, y: accent_y,
-            text: String::from(0x7E as char),
-            font_size: font_size * 0.8, font_id: FontId::Symbol, color: Color::BLACK,
+        AccentType::Tilde => {
+            let accent_fs = font_size * 0.8;
+            let accent_w = font::char_width_pt(FontId::Symbol, 0x7E, accent_fs);
+            MathElement::Text {
+                x: (bw - accent_w) / 2.0, y: accent_y,
+                text: String::from(0x7E as char),
+                font_size: accent_fs, font_id: FontId::Symbol, color: Color::BLACK,
+            }
         },
-        AccentType::Dot => MathElement::Text {
-            x: base_box.width * 0.4, y: accent_y, text: "\u{00B7}".to_string(),
-            font_size, font_id: FontId::Helvetica, color: Color::BLACK,
+        AccentType::Dot => {
+            let accent_w = font::measure_text("\u{00B7}", FontId::Helvetica, font_size);
+            MathElement::Text {
+                x: (bw - accent_w) / 2.0, y: accent_y, text: "\u{00B7}".to_string(),
+                font_size, font_id: FontId::Helvetica, color: Color::BLACK,
+            }
         },
-        AccentType::DDot => MathElement::Text {
-            x: base_box.width * 0.25, y: accent_y, text: "\u{00A8}".to_string(),
-            font_size, font_id: FontId::Helvetica, color: Color::BLACK,
+        AccentType::DDot => {
+            let accent_w = font::measure_text("\u{00A8}", FontId::Helvetica, font_size);
+            MathElement::Text {
+                x: (bw - accent_w) / 2.0, y: accent_y, text: "\u{00A8}".to_string(),
+                font_size, font_id: FontId::Helvetica, color: Color::BLACK,
+            }
         },
         AccentType::Breve => {
             // Draw breve as a small arc (3 line segments approximating a "⌣" shape)
@@ -1370,11 +1388,14 @@ fn layout_accent(base: &[MathNode], accent_type: &AccentType, font_size: f32) ->
             base_box.height += font_size * 0.2;
             return base_box;
         },
-        AccentType::Check => MathElement::Text {
-            // Inverted hat / caron
-            x: base_box.width * 0.2, y: accent_y + font_size * 0.15,
-            text: "v".to_string(),
-            font_size: font_size * 0.5, font_id: FontId::Helvetica, color: Color::BLACK,
+        AccentType::Check => {
+            let accent_fs = font_size * 0.5;
+            let accent_w = font::measure_text("v", FontId::Helvetica, accent_fs);
+            MathElement::Text {
+                x: (bw - accent_w) / 2.0, y: accent_y + font_size * 0.15,
+                text: "v".to_string(),
+                font_size: accent_fs, font_id: FontId::Helvetica, color: Color::BLACK,
+            }
         },
     };
 

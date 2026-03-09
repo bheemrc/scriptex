@@ -555,28 +555,40 @@ impl SectionLevel {
         }
     }
 
-    pub fn spacing_before(&self) -> f32 {
+    /// Spacing before heading, scaled by base font size (LaTeX uses `ex` units)
+    pub fn spacing_before_scaled(&self, base_font_size: f32) -> f32 {
+        let ex = base_font_size * 0.43; // x-height ≈ 0.43em for Times
         match self {
-            SectionLevel::Part => 36.0,
-            SectionLevel::Chapter => 30.0,
-            SectionLevel::Section => 18.0,   // LaTeX: 3.5ex ≈ 15pt + glue
-            SectionLevel::Subsection => 14.0, // LaTeX: 3.25ex ≈ 14pt
-            SectionLevel::Subsubsection => 13.5, // LaTeX: 3.25ex ≈ 13.5pt
-            SectionLevel::Paragraph => 10.0,
-            SectionLevel::Subparagraph => 8.0,
+            SectionLevel::Part => 8.0 * ex,     // ~36pt at 10pt
+            SectionLevel::Chapter => 7.0 * ex,  // ~30pt at 10pt
+            SectionLevel::Section => 3.5 * ex,  // LaTeX: 3.5ex plus 1ex minus .2ex
+            SectionLevel::Subsection => 3.25 * ex, // LaTeX: 3.25ex plus 1ex minus .2ex
+            SectionLevel::Subsubsection => 3.25 * ex, // LaTeX: 3.25ex plus 1ex minus .2ex
+            SectionLevel::Paragraph => 2.5 * ex,
+            SectionLevel::Subparagraph => 2.0 * ex,
+        }
+    }
+
+    pub fn spacing_before(&self) -> f32 {
+        self.spacing_before_scaled(10.0)
+    }
+
+    /// Spacing after heading, scaled by base font size
+    pub fn spacing_after_scaled(&self, base_font_size: f32) -> f32 {
+        let ex = base_font_size * 0.43;
+        match self {
+            SectionLevel::Part => 5.0 * ex,
+            SectionLevel::Chapter => 4.0 * ex,
+            SectionLevel::Section => 2.3 * ex,  // LaTeX: 2.3ex plus .2ex
+            SectionLevel::Subsection => 1.5 * ex, // LaTeX: 1.5ex plus .2ex
+            SectionLevel::Subsubsection => 1.5 * ex,
+            SectionLevel::Paragraph => 1.0 * ex,
+            SectionLevel::Subparagraph => 1.0 * ex,
         }
     }
 
     pub fn spacing_after(&self) -> f32 {
-        match self {
-            SectionLevel::Part => 20.0,
-            SectionLevel::Chapter => 16.0,
-            SectionLevel::Section => 10.0,
-            SectionLevel::Subsection => 8.0,
-            SectionLevel::Subsubsection => 6.0,
-            SectionLevel::Paragraph => 4.0,
-            SectionLevel::Subparagraph => 4.0,
-        }
+        self.spacing_after_scaled(10.0)
     }
 }
 
