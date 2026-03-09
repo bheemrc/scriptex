@@ -549,7 +549,7 @@ pub(super) fn node_to_text_resolved(node: &Node, out: &mut String, source: &str,
     node_to_text_ext(node, out, source, Some(labels));
 }
 
-fn node_to_text_ext(node: &Node, out: &mut String, source: &str, labels: Option<&HashMap<String, String>>) {
+pub fn node_to_text_ext(node: &Node, out: &mut String, source: &str, labels: Option<&HashMap<String, String>>) {
     match node {
         Node::Text(s) => out.push_str(s),
         Node::TextRef(offset, len) => out.push_str(&source[*offset as usize..(*offset as usize + *len as usize)]),
@@ -604,12 +604,28 @@ fn node_to_text_ext(node: &Node, out: &mut String, source: &str, labels: Option<
         Node::LeftBrace => out.push('{'),
         Node::RightBrace => out.push('}'),
         Node::Footnote(_content) => { out.push('\u{2020}'); }
-        Node::Ref(label) | Node::Cref(label, _) => {
+        Node::Ref(label) | Node::Cref(label, _) | Node::LabelCref(label) => {
             if let Some(map) = labels {
                 if let Some(resolved) = map.get(label) { out.push_str(resolved); }
                 else { out.push_str("??"); }
             } else { out.push_str("??"); }
         }
+        Node::CrefRange(label1, label2, _) => {
+            if let Some(map) = labels {
+                out.push_str(map.get(label1).map(|s| s.as_str()).unwrap_or("??"));
+                out.push_str("\u{2013}"); // en-dash
+                out.push_str(map.get(label2).map(|s| s.as_str()).unwrap_or("??"));
+            } else { out.push_str("??\u{2013}??"); }
+        }
+        Node::Enquote(content, single) => {
+            if *single { out.push('\u{2018}'); } else { out.push('\u{201C}'); }
+            for c in content { node_to_text_ext(c, out, source, labels); }
+            if *single { out.push('\u{2019}'); } else { out.push('\u{201D}'); }
+        }
+        Node::Url { url, .. } => {
+            out.push_str(url);
+        }
+        Node::MarginNote(_) => {} // margin notes don't contribute to inline text
         Node::EqRef(label) => {
             out.push('(');
             if let Some(map) = labels {

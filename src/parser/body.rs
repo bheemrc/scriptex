@@ -472,12 +472,12 @@ impl<'a> Parser<'a> {
                 if let Some(min) = parts.get(1) {
                     let m = min.trim();
                     if !m.is_empty() { result.push_str(m); }
-                    result.push('\u{2032}'); // ′
+                    result.push('\''); // prime (arcminute)
                 }
                 if let Some(sec) = parts.get(2) {
                     let s = sec.trim();
                     if !s.is_empty() { result.push_str(s); }
-                    result.push('\u{2033}'); // ″
+                    result.push('"'); // double prime (arcsecond)
                 }
                 Ok(Some(Node::Text(result)))
             }
@@ -682,23 +682,23 @@ impl<'a> Parser<'a> {
 
             // textcomp symbols
             "\\textdegree" => Ok(Some(Node::Text("\u{00B0}".to_string()))),       // °
-            "\\textcelsius" => Ok(Some(Node::Text("\u{2103}".to_string()))),      // ℃
+            "\\textcelsius" => Ok(Some(Node::Text("\u{00B0}C".to_string()))),      // °C
             "\\textmu" => Ok(Some(Node::Text("\u{00B5}".to_string()))),           // µ
-            "\\textohm" => Ok(Some(Node::Text("\u{2126}".to_string()))),          // Ω
+            "\\textohm" => Ok(Some(Node::Text("O".to_string()))),                 // Omega approximation
             "\\texteuro" => Ok(Some(Node::Text("\u{20AC}".to_string()))),         // €
             "\\textyen" => Ok(Some(Node::Text("\u{00A5}".to_string()))),          // ¥
             "\\textsterling" | "\\pounds" => Ok(Some(Node::Text("\u{00A3}".to_string()))), // £
             "\\textcent" => Ok(Some(Node::Text("\u{00A2}".to_string()))),         // ¢
             "\\textbullet" => Ok(Some(Node::Text("\u{2022}".to_string()))),       // •
             "\\textperiodcentered" => Ok(Some(Node::Text("\u{00B7}".to_string()))), // ·
-            "\\textlangle" => Ok(Some(Node::Text("\u{27E8}".to_string()))),       // ⟨
-            "\\textrangle" => Ok(Some(Node::Text("\u{27E9}".to_string()))),       // ⟩
+            "\\textlangle" => Ok(Some(Node::Text("<".to_string()))),               // ⟨
+            "\\textrangle" => Ok(Some(Node::Text(">".to_string()))),               // ⟩
             "\\textsection" => Ok(Some(Node::Text("\u{00A7}".to_string()))),      // §
             "\\textparagraph" => Ok(Some(Node::Text("\u{00B6}".to_string()))),    // ¶
             "\\textdagger" => Ok(Some(Node::Text("\u{2020}".to_string()))),       // †
             "\\textdaggerdbl" => Ok(Some(Node::Text("\u{2021}".to_string()))),    // ‡
-            "\\checkmark" => Ok(Some(Node::Text("\u{2713}".to_string()))),        // ✓
-            "\\maltese" => Ok(Some(Node::Text("\u{2720}".to_string()))),          // ✠
+            "\\checkmark" => Ok(Some(Node::Dingbat(0x33))),                        // ✓ ZapfDingbats
+            "\\maltese" => Ok(Some(Node::Dingbat(0x4E))),                          // ✠ ZapfDingbats
             "\\textquotedbl" => Ok(Some(Node::Text("\"".to_string()))),
 
             // URL commands
@@ -1544,19 +1544,17 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Format a number string with thin-space digit grouping (siunitx \num convention).
+    /// Format a number string with comma digit grouping (siunitx \num convention).
     /// Groups digits in threes from the decimal point outward.
-    /// "12345.6789" → "12\u{2009}345.678\u{2009}9"
+    /// "12345678" → "12,345,678"
     fn format_num_grouping(num: &str) -> String {
         let num = num.trim();
-        // Split into integer and fractional parts
         let (int_part, frac_part) = if let Some(dot_idx) = num.find('.') {
             (&num[..dot_idx], Some(&num[dot_idx+1..]))
         } else {
             (num, None)
         };
 
-        // Handle optional sign
         let (sign, digits) = if int_part.starts_with('-') || int_part.starts_with('+') {
             (&int_part[..1], &int_part[1..])
         } else {
@@ -1566,32 +1564,13 @@ impl<'a> Parser<'a> {
         let mut result = String::with_capacity(num.len() + 4);
         result.push_str(sign);
 
-        // Group integer part from right (only if > 4 digits, per SI convention)
-        if digits.len() > 4 {
-            let mut i = 0;
-            let offset = digits.len() % 3;
-            for ch in digits.chars() {
-                if i > 0 && (i - offset) % 3 == 0 && i != digits.len() {
-                    // For offset==0, first group at position 3, otherwise at offset
-                    if offset == 0 || i >= offset {
-                        result.push('\u{2009}'); // thin space
-                    }
-                }
-                if offset > 0 && i == offset && i > 0 {
-                    result.push('\u{2009}');
-                }
-                result.push(ch);
-                i += 1;
-            }
-            // Simpler approach: rebuild
-            result.truncate(sign.len());
+        // Group integer part from right (only if > 3 digits)
+        if digits.len() > 3 {
             let d: Vec<char> = digits.chars().collect();
             let rem = d.len() % 3;
             for (i, &ch) in d.iter().enumerate() {
-                if i > 0 && i % 3 == rem && rem > 0 {
-                    result.push('\u{2009}');
-                } else if i > 0 && rem == 0 && i % 3 == 0 {
-                    result.push('\u{2009}');
+                if i > 0 && ((rem > 0 && i % 3 == rem) || (rem == 0 && i % 3 == 0)) {
+                    result.push(',');
                 }
                 result.push(ch);
             }
@@ -1605,7 +1584,7 @@ impl<'a> Parser<'a> {
             if frac.len() > 4 {
                 for (i, ch) in frac.chars().enumerate() {
                     if i > 0 && i % 3 == 0 {
-                        result.push('\u{2009}');
+                        result.push(',');
                     }
                     result.push(ch);
                 }

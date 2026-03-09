@@ -294,6 +294,7 @@ fn is_inline_node(node: &Node) -> bool {
             | Node::LeftQuote | Node::RightQuote | Node::LeftDoubleQuote | Node::RightDoubleQuote
             | Node::Ampersand | Node::Percent | Node::Dollar | Node::Hash | Node::Underscore
             | Node::Tilde | Node::Caret | Node::LeftBrace | Node::RightBrace
+            | Node::Copyright | Node::Registered | Node::Trademark
             | Node::LaTeXLogo | Node::TeXLogo | Node::Rule { .. }
             | Node::Enquote(..) | Node::BlockQuote(_)
             | Node::Url { .. } | Node::MarginNote(_)
@@ -346,6 +347,8 @@ fn layout_nodes(nodes: &[Node], state: &mut LayoutState, doc: &Document, source:
             | Node::Underline(_) | Node::Footnote(_) | Node::FontStyleDecl(_) | Node::ColorDecl(_)
             | Node::Citation(..) | Node::BiblatexCitation(..) | Node::Ref(_) | Node::EqRef(_) | Node::Cref(..) | Node::CrefRange(..) | Node::LabelCref(_) | Node::Href { .. }
             | Node::NonBreakingSpace | Node::Enquote(..) | Node::Url { .. }
+            | Node::Copyright | Node::Registered | Node::Trademark
+            | Node::EnDash | Node::EmDash | Node::Ellipsis | Node::Dingbat(_)
         ));
         if has_loose_inlines {
             let grouped = group_inline_nodes(nodes);
@@ -1614,7 +1617,18 @@ fn layout_node(node: &Node, state: &mut LayoutState, doc: &Document, source: &st
         | Node::Ampersand | Node::Percent | Node::Dollar
         | Node::Hash | Node::Underscore | Node::Backslash
         | Node::Tilde | Node::Caret | Node::LeftBrace | Node::RightBrace
-        | Node::HFill | Node::Dingbat(_) => {}
+        | Node::Dingbat(_) => {
+            // Render standalone special characters (outside of paragraph/span context)
+            let mut t = String::new();
+            crate::layout::text::node_to_text_ext(node, &mut t, source, None);
+            if !t.is_empty() {
+                let fid = font::style_to_font_id(state.current_font_style);
+                let w = font::measure_text(&t, fid, state.current_font_size);
+                state.emit_text(&t, state.current_font_size, state.current_font_style, state.current_color);
+                state.current_x += w;
+            }
+        }
+        Node::HFill => {}
 
         Node::Listing(data) => {
             // Render as verbatim code block with optional caption, line numbers, and frame

@@ -221,11 +221,10 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
                 let cite_color = Color::from_rgb_u8(0, 100, 0);
                 out.push(StyledSpan { text: cite_text, style, color: cite_color, font_size, underline: false, strikethrough: false });
             }
-            Node::Ref(_) | Node::EqRef(_) | Node::Cref(..) => {
+            Node::Ref(_) | Node::EqRef(_) | Node::Cref(..) | Node::CrefRange(..) | Node::LabelCref(_) => {
                 let mut t = String::new();
                 node_to_text_resolved(node, &mut t, source, labels);
                 if !t.is_empty() {
-                    // Cross-references use link_color (hyperref default: dark red)
                     let link_color = Color::from_rgb_u8(128, 0, 0);
                     out.push(StyledSpan { text: t, style, color: link_color, font_size, underline: false, strikethrough: false });
                 }
@@ -234,6 +233,17 @@ fn nodes_to_spans_sc(nodes: &[Node], style: FontStyle, color: Color, font_size: 
                 let link_color = Color::from_rgb_u8(0, 0, 180);
                 nodes_to_spans_sc(content, style, link_color, font_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
             }
+            Node::Url { url, clickable } => {
+                let url_color = if *clickable { Color::from_rgb_u8(0, 0, 180) } else { color };
+                out.push(StyledSpan { text: url.clone(), style: FontStyle::Monospace, color: url_color, font_size, underline: false, strikethrough: false });
+            }
+            Node::Enquote(content, single) => {
+                let (open, close) = if *single { ("\u{2018}", "\u{2019}") } else { ("\u{201C}", "\u{201D}") };
+                out.push(StyledSpan { text: open.to_string(), style, color, font_size, underline: false, strikethrough: false });
+                nodes_to_spans_sc(content, style, color, font_size, base_size, smallcaps, out, source, labels, citations, author_year_map);
+                out.push(StyledSpan { text: close.to_string(), style, color, font_size, underline: false, strikethrough: false });
+            }
+            Node::MarginNote(_) => {} // skip margin notes in inline spans
             _ => {
                 let mut t = String::new();
                 node_to_text_resolved(node, &mut t, source, labels);
@@ -440,6 +450,7 @@ pub(super) fn layout_rich_paragraph(children: &[Node], state: &mut LayoutState, 
         | Node::Underline(_) | Node::InlineMath(_) | Node::Href { .. }
         | Node::Footnote(_) | Node::FontStyleDecl(_) | Node::ColorDecl(_) | Node::Group(_) | Node::MBox(_)
         | Node::FontSize { .. } | Node::Citation(..) | Node::BiblatexCitation(..) | Node::Cref(..)
+        | Node::CrefRange(..) | Node::LabelCref(_) | Node::Enquote(..) | Node::Url { .. }
         | Node::Dingbat(_)
     ));
 

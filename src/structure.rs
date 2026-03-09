@@ -371,9 +371,17 @@ fn collect_refs_inner(nodes: &[Node], refs: &mut Vec<String>, seen: &mut HashSet
                     refs.push(target.clone());
                 }
             }
-            Node::Cref(target, _) => {
+            Node::Cref(target, _) | Node::LabelCref(target) => {
                 if seen.insert(target.clone()) {
                     refs.push(target.clone());
+                }
+            }
+            Node::CrefRange(target1, target2, _) => {
+                if seen.insert(target1.clone()) {
+                    refs.push(target1.clone());
+                }
+                if seen.insert(target2.clone()) {
+                    refs.push(target2.clone());
                 }
             }
             // Recurse into containers
@@ -383,7 +391,11 @@ fn collect_refs_inner(nodes: &[Node], refs: &mut Vec<String>, seen: &mut HashSet
             | Node::Emph(c) | Node::Quote(c) | Node::Quotation(c)
             | Node::Abstract(c) | Node::Center(c) | Node::FlushLeft(c)
             | Node::FlushRight(c) | Node::Group(c) | Node::MBox(c) | Node::Footnote(c)
-            | Node::Proof { content: c, .. } | Node::TwoColumn(c) => {
+            | Node::Proof { content: c, .. } | Node::TwoColumn(c)
+            | Node::BlockQuote(c) | Node::MarginNote(c) => {
+                collect_refs_inner(c, refs, seen);
+            }
+            Node::Enquote(c, _) => {
                 collect_refs_inner(c, refs, seen);
             }
             Node::Section { title, .. } => {
