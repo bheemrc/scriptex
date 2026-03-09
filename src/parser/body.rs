@@ -172,6 +172,8 @@ impl<'a> Parser<'a> {
             }
             TokenKind::DoubleBackslash => {
                 self.advance();
+                // Consume optional [dim] argument (e.g., \\[2em])
+                self.try_read_optional_arg();
                 Ok(Some(Node::LineBreak))
             }
             TokenKind::Dollar => {
@@ -424,13 +426,13 @@ impl<'a> Parser<'a> {
             // Spacing (starred variants fall through here)
             "\\hspace*" => { let dim = self.read_braced_text()?; let pts = self.parse_dimension(&dim).unwrap_or(10.0); Ok(Some(Node::HSpace(pts))) }
             "\\vspace*" => { let dim = self.read_braced_text()?; let pts = self.parse_dimension(&dim).unwrap_or(10.0); Ok(Some(Node::VSpace(pts))) }
-            "\\quad" => Ok(Some(Node::HSpace(18.0))),
-            "\\qquad" => Ok(Some(Node::HSpace(36.0))),
-            "\\enspace" => Ok(Some(Node::HSpace(9.0))),
-            "\\thinspace" | "\\," => Ok(Some(Node::HSpace(3.0))),
-            "\\;" => Ok(Some(Node::HSpace(5.0))),
-            "\\:" => Ok(Some(Node::HSpace(4.0))),
-            "\\!" => Ok(Some(Node::HSpace(-3.0))),
+            "\\quad" => Ok(Some(Node::HSpace(self.base_font_size))),          // 1em
+            "\\qquad" => Ok(Some(Node::HSpace(self.base_font_size * 2.0))),    // 2em
+            "\\enspace" => Ok(Some(Node::HSpace(self.base_font_size * 0.5))),  // 0.5em
+            "\\thinspace" | "\\," => Ok(Some(Node::HSpace(self.base_font_size / 6.0))),  // 1/6 em (3mu)
+            "\\;" => Ok(Some(Node::HSpace(self.base_font_size * 5.0 / 18.0))), // 5/18 em (5mu)
+            "\\:" => Ok(Some(Node::HSpace(self.base_font_size * 4.0 / 18.0))), // 4/18 em (4mu)
+            "\\!" => Ok(Some(Node::HSpace(-self.base_font_size / 6.0))),       // -1/6 em (-3mu)
             "\\ " => Ok(Some(Node::Text(" ".to_string()))), // explicit inter-word space
             "\\hfill" | "\\dotfill" | "\\hrulefill" => Ok(Some(Node::HFill)),
             "\\vfill" => Ok(Some(Node::VFill)),
@@ -479,9 +481,9 @@ impl<'a> Parser<'a> {
                 // Render as href with internal link (# prefix)
                 Ok(Some(Node::Href { url: format!("#{}", label), content }))
             }
-            "\\smallskip" | "\\smallbreak" => Ok(Some(Node::VSpace(3.0))),
-            "\\medskip" | "\\medbreak" => Ok(Some(Node::VSpace(6.0))),
-            "\\bigskip" | "\\bigbreak" => Ok(Some(Node::VSpace(12.0))),
+            "\\smallskip" | "\\smallbreak" => Ok(Some(Node::VSpace(self.base_font_size * 0.3))),  // ~3pt at 10pt
+            "\\medskip" | "\\medbreak" => Ok(Some(Node::VSpace(self.base_font_size * 0.6))),    // ~6pt at 10pt
+            "\\bigskip" | "\\bigbreak" => Ok(Some(Node::VSpace(self.base_font_size * 1.2))),    // ~12pt at 10pt
 
             // Breaks
             "\\newline" | "\\linebreak" => Ok(Some(Node::LineBreak)),
@@ -526,7 +528,7 @@ impl<'a> Parser<'a> {
                 }
             }
             "\\appendix" => Ok(Some(Node::Appendix)),
-            "\\indent" => Ok(Some(Node::HSpace(20.0))),
+            "\\indent" => Ok(Some(Node::HSpace(self.base_font_size * 1.5))), // ~1.5em paragraph indent
             "\\marginpar" => {
                 // Skip margin notes — they need margin space that may not exist
                 self.skip_command_args();
