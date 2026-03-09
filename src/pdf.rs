@@ -364,59 +364,122 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
         }
     }
 
-    // Write outline objects (PDF bookmarks)
+    // Write outline objects (PDF bookmarks) with hierarchical structure
     if let Some(outline_root) = outline_root_id {
         if outline_root as usize > offsets.len() { offsets.resize(outline_root as usize, 0); }
-        // Build outline tree — flat list with proper sibling links
-        // Only include top-level items (section level ≤ 2) for cleaner bookmarks
-        let top_entries: Vec<usize> = (0..num_outlines)
-            .filter(|&i| layout.outlines[i].level <= 2)
+
+        // Include all entries up to level 3 (section, subsection, subsubsection)
+        let visible: Vec<usize> = (0..num_outlines)
+            .filter(|&i| layout.outlines[i].level <= 3)
+            .collect();
+
+        // Find children of a given parent level at position range
+        // For root: children are entries at the shallowest level
+        let min_level = visible.iter().map(|&i| layout.outlines[i].level).min().unwrap_or(0);
+
+        // Find top-level entries (those at min_level)
+        let top_entries: Vec<usize> = visible.iter().copied()
+            .filter(|&i| layout.outlines[i].level == min_level)
             .collect();
 
         begin_obj!(outline_root);
         if let Some(&first_idx) = top_entries.first() {
+            let total_count: usize = visible.len();
             w.write_all(b"<< /Type /Outlines /First ")?;
             w.write_all(itoa_obj.format(outline_item_ids[first_idx]).as_bytes())?;
             w.write_all(b" 0 R /Last ")?;
-            let last_idx = top_entries[top_entries.len() - 1];
-            w.write_all(itoa_obj.format(outline_item_ids[last_idx]).as_bytes())?;
+            w.write_all(itoa_obj.format(outline_item_ids[*top_entries.last().unwrap()]).as_bytes())?;
             w.write_all(b" 0 R /Count ")?;
-            w.write_all(itoa_obj.format(top_entries.len()).as_bytes())?;
+            w.write_all(itoa_obj.format(total_count).as_bytes())?;
             w.write_all(b" >>\nendobj\n")?;
         } else {
             w.write_all(b"<< /Type /Outlines /Count 0 >>\nendobj\n")?;
         }
 
-        // Write individual outline items
-        for (pos, &idx) in top_entries.iter().enumerate() {
+        // For each visible entry, find its children (entries at next level between this and next same-level sibling)
+        for &idx in &visible {
             let entry = &layout.outlines[idx];
             let item_id = outline_item_ids[idx];
+            let my_level = entry.level;
             if item_id as usize > offsets.len() { offsets.resize(item_id as usize, 0); }
             begin_obj!(item_id);
             w.write_all(b"<< /Title (")?;
             w.write_all(escape_pdf_string(&entry.title).as_bytes())?;
-            w.write_all(b") /Parent ")?;
-            w.write_all(itoa_obj.format(outline_root).as_bytes())?;
+            w.write_all(b")")?;
+
+            // Parent: root if top-level, otherwise find parent entry
+            let parent_id = if my_level == min_level {
+                outline_root
+            } else {
+                // Find the nearest preceding entry at level-1
+                let mut pid = outline_root;
+                for &vi in &visible {
+                    if vi >= idx { break; }
+                    if layout.outlines[vi].level == my_level - 1 { pid = outline_item_ids[vi]; }
+                }
+                pid
+            };
+            w.write_all(b" /Parent ")?;
+            w.write_all(itoa_obj.format(parent_id).as_bytes())?;
             w.write_all(b" 0 R")?;
 
-            // Destination: page + position
+            // Destination
             let page_idx = (entry.page as usize).min(page_ids.len().saturating_sub(1));
             let dest_y = layout.height - entry.y;
             w.write_all(b" /Dest [")?;
             w.write_all(itoa_obj.format(page_ids[page_idx]).as_bytes())?;
             write!(w, " 0 R /XYZ 0 {:.0} 0]", dest_y)?;
 
-            // Sibling links
-            if pos > 0 {
-                w.write_all(b" /Prev ")?;
-                w.write_all(itoa_obj.format(outline_item_ids[top_entries[pos - 1]]).as_bytes())?;
-                w.write_all(b" 0 R")?;
+            // Find children of this entry (entries at my_level+1 before next same-level entry)
+            let child_level = my_level + 1;
+            let vis_pos = visible.iter().position(|&v| v == idx).unwrap_or(0);
+            let mut children: Vec<usize> = Vec::new();
+            for &vi in &visible[vis_pos + 1..] {
+                let vl = layout.outlines[vi].level;
+                if vl <= my_level { break; } // hit sibling or ancestor
+                if vl == child_level { children.push(vi); }
             }
-            if pos + 1 < top_entries.len() {
-                w.write_all(b" /Next ")?;
-                w.write_all(itoa_obj.format(outline_item_ids[top_entries[pos + 1]]).as_bytes())?;
-                w.write_all(b" 0 R")?;
+            if !children.is_empty() {
+                w.write_all(b" /First ")?;
+                w.write_all(itoa_obj.format(outline_item_ids[children[0]]).as_bytes())?;
+                w.write_all(b" 0 R /Last ")?;
+                w.write_all(itoa_obj.format(outline_item_ids[*children.last().unwrap()]).as_bytes())?;
+                w.write_all(b" 0 R /Count ")?;
+                // Negative count = collapsed by default
+                let child_count = -(children.len() as i32);
+                write!(w, "{}", child_count)?;
             }
+
+            // Sibling links: find prev/next at same level under same parent
+            let siblings: Vec<usize> = if my_level == min_level {
+                top_entries.clone()
+            } else {
+                // Find siblings: entries at same level between parent bounds
+                let mut sibs = Vec::new();
+                // Walk backward to find parent position
+                let parent_vis_pos = (0..vis_pos).rev().find(|&p| layout.outlines[visible[p]].level == my_level - 1);
+                let start = parent_vis_pos.map_or(0, |p| p + 1);
+                for &vi in &visible[start..] {
+                    let vl = layout.outlines[vi].level;
+                    if vl < my_level { break; }
+                    if vl == my_level { sibs.push(vi); }
+                }
+                sibs
+            };
+            let sib_pos = siblings.iter().position(|&s| s == idx);
+            if let Some(sp) = sib_pos {
+                if sp > 0 {
+                    w.write_all(b" /Prev ")?;
+                    w.write_all(itoa_obj.format(outline_item_ids[siblings[sp - 1]]).as_bytes())?;
+                    w.write_all(b" 0 R")?;
+                }
+                if sp + 1 < siblings.len() {
+                    w.write_all(b" /Next ")?;
+                    w.write_all(itoa_obj.format(outline_item_ids[siblings[sp + 1]]).as_bytes())?;
+                    w.write_all(b" 0 R")?;
+                }
+            }
+
             w.write_all(b" >>\nendobj\n")?;
         }
     }

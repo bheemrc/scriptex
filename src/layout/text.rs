@@ -63,24 +63,38 @@ fn justify_line_with_width(line: &[u8], available_width: f32, avg_width: f32, fo
     (ws_clamped * 50.0).min(i16::MAX as f32) as i16
 }
 
-/// Measure a byte span's pixel width using font glyph widths (ligature-aware, no kerning).
-#[inline(always)]
-fn span_width(bytes: &[u8], start: usize, end: usize, widths: &[u16], scale: f32) -> f32 {
+/// Measure a byte span's pixel width using font glyph widths (ligature-aware).
+/// Note: Kerning is intentionally omitted here for performance — kern adjustments are tiny
+/// (~30-80/1000 em) and don't meaningfully affect line break positions. Kerning is applied
+/// during PDF text rendering for visual quality.
+#[inline]
+fn span_width_font(bytes: &[u8], start: usize, end: usize, widths: &[u16], scale: f32, _font_id: crate::font::FontId) -> f32 {
     let slice = &bytes[start..end];
     let has_f = memchr::memchr(b'f', slice).is_some();
     let mut total: i32 = 0;
+
     if !has_f {
+        // Fast path: no ligatures — simple sum
         for &b in slice {
             total += widths[b as usize] as i32;
         }
     } else {
         let mut i = 0;
         while i < slice.len() {
-            if slice[i] == b'f' && i + 1 < slice.len() {
-                if slice[i + 1] == b'i' { total += widths[crate::font::LIG_FI as usize] as i32; i += 2; continue; }
-                if slice[i + 1] == b'l' { total += widths[crate::font::LIG_FL as usize] as i32; i += 2; continue; }
+            let b = slice[i];
+            if b == b'f' && i + 1 < slice.len() {
+                if slice[i + 1] == b'i' {
+                    total += widths[crate::font::LIG_FI as usize] as i32;
+                    i += 2;
+                    continue;
+                }
+                if slice[i + 1] == b'l' {
+                    total += widths[crate::font::LIG_FL as usize] as i32;
+                    i += 2;
+                    continue;
+                }
             }
-            total += widths[slice[i] as usize] as i32;
+            total += widths[b as usize] as i32;
             i += 1;
         }
     }
@@ -100,7 +114,7 @@ fn find_pixel_break(bytes: &[u8], line_start: usize, char_target: usize, max_wid
     if target >= len {
         let mut end = len;
         while end > line_start && bytes[end - 1] <= b' ' { end -= 1; }
-        let w = span_width(bytes, line_start, end, widths, scale);
+        let w = span_width_font(bytes, line_start, end, widths, scale, font_id);
         return (end, len, w);
     }
 
@@ -112,7 +126,7 @@ fn find_pixel_break(bytes: &[u8], line_start: usize, char_target: usize, max_wid
             None => {
                 let mut end = len;
                 while end > line_start && bytes[end - 1] <= b' ' { end -= 1; }
-                let w = span_width(bytes, line_start, end, widths, scale);
+                let w = span_width_font(bytes, line_start, end, widths, scale, font_id);
                 return (end, len, w);
             }
         }
@@ -126,7 +140,7 @@ fn find_pixel_break(bytes: &[u8], line_start: usize, char_target: usize, max_wid
     }
 
     // Measure actual pixel width
-    let actual_w = span_width(bytes, line_start, line_end, widths, scale);
+    let actual_w = span_width_font(bytes, line_start, line_end, widths, scale, font_id);
 
     if actual_w > max_width + 1.0 {
         // Too wide — binary search backward: measure progressively shorter spans
@@ -139,7 +153,7 @@ fn find_pixel_break(bytes: &[u8], line_start: usize, char_target: usize, max_wid
                     let mut te = try_end;
                     while te > line_start && bytes[te - 1] <= b' ' { te -= 1; }
                     if te > line_start {
-                        let w = span_width(bytes, line_start, te, widths, scale);
+                        let w = span_width_font(bytes, line_start, te, widths, scale, font_id);
                         if w <= max_width + 1.0 {
                             return (te, try_end + 1, w);
                         }
@@ -162,7 +176,7 @@ fn find_pixel_break(bytes: &[u8], line_start: usize, char_target: usize, max_wid
         while scan < len {
             let mut word_end = scan;
             while word_end < len && bytes[word_end] > b' ' { word_end += 1; }
-            let word_w = span_width(bytes, scan, word_end, widths, scale);
+            let word_w = span_width_font(bytes, scan, word_end, widths, scale, font_id);
             let new_w = cur_w + space_w + word_w;
             if new_w > max_width + 1.0 { break; }
             cur_w = new_w;
@@ -317,7 +331,7 @@ pub(super) fn layout_text_content(text: &str, state: &mut LayoutState) -> Result
                             let max_prefix = (max_prefix_px / avg_width).max(0.0) as usize;
                             if let Some(bp) = crate::hyphenate::best_break(next_word, max_prefix) {
                                 // Compute actual width of hyphenated line
-                                let prefix_w = span_width(bytes, ws_skip, ws_skip + bp, widths, scale);
+                                let prefix_w = span_width_font(bytes, ws_skip, ws_skip + bp, widths, scale, font_id);
                                 let hyph_line_w = line_w + space_w + prefix_w + hyphen_w;
 
                                 let hyph_off = (state.all_text.len() - state.current_page_text_start as usize) as u32;

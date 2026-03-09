@@ -1645,6 +1645,19 @@ const fn kern_left_bitmap(table: &[KernPair]) -> [u8; 32] {
     bits
 }
 
+/// Return the left-side kern bitmap for a font (for fast rejection in hot loops).
+/// Returns `None` for fonts with no kerning data.
+#[inline]
+pub fn kern_bitmap(font: FontId) -> Option<&'static [u8; 32]> {
+    match font {
+        FontId::TimesRoman | FontId::TimesItalic | FontId::TimesBold | FontId::TimesBoldItalic
+            => Some(&TIMES_KERN_LEFT),
+        FontId::Helvetica | FontId::HelveticaBold | FontId::HelveticaOblique | FontId::HelveticaBoldOblique
+            => Some(&HELVETICA_KERN_LEFT),
+        _ => None,
+    }
+}
+
 /// Look up the kerning adjustment for a character pair (in 1/1000 em).
 /// Returns 0 for pairs with no kerning data.
 #[inline]
