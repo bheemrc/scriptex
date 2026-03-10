@@ -2,7 +2,7 @@
 
 A high-performance LaTeX-to-PDF compiler written in Rust. Compiles a 50,000-section document (~100 MB, ~36,000 pages) in under 3 seconds — roughly **50x faster** than pdflatex.
 
-Built by [ScripOra](https://github.com/bheemrc) to power real-time LaTeX preview in academic writing tools.
+Built by [ScriptOra](https://github.com/bheemrc) to power real-time LaTeX preview in academic writing tools.
 
 ## Benchmarks
 
@@ -38,7 +38,7 @@ ScripTeX exists to make LaTeX compilation fast enough for real-time use:
 - **WebAssembly support** — runs in the browser, no server round-trip needed
 - **No external dependencies** — TikZ, PGFPlots, and SVG are rendered natively in Rust
 
-This is the compilation engine behind [ScripOra](https://github.com/bheemrc), an academic AI editor for paper creation from LaTeX — similar to Overleaf, but with AI-assisted writing and instant compilation.
+This is the compilation engine behind [ScriptOra](https://github.com/bheemrc), an academic AI editor for paper creation from LaTeX — similar to Overleaf, but with AI-assisted writing and instant compilation.
 
 ## How it's fast
 
@@ -257,7 +257,7 @@ ScripTeX compiles to WebAssembly for browser-based LaTeX compilation with zero s
 # Output: pkg/sonicspeedlatex.js + .wasm (~2.7 MB)
 ```
 
-The WASM build powers ScripOra's in-browser preview — compile LaTeX on the client, no round-trip to a server.
+The WASM build powers ScriptOra's in-browser preview — compile LaTeX on the client, no round-trip to a server.
 
 ## Contributing
 
@@ -274,4 +274,4 @@ Dual-licensed under [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE), at your 
 
 ---
 
-*ScripTeX is developed by [ScripOra](https://github.com/bheemrc) — an AI-powered academic editor for LaTeX paper creation.*
+*ScripTeX is developed by [ScriptOra](https://github.com/bheemrc) — an AI-powered academic editor for LaTeX paper creation.*
