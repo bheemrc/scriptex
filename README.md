@@ -38,7 +38,7 @@ ScripTeX exists to make LaTeX compilation fast enough for real-time use:
 - **WebAssembly support** — runs in the browser, no server round-trip needed
 - **No external dependencies** — TikZ, PGFPlots, and SVG are rendered natively in Rust
 
-This is the compilation engine behind [ScriptOra](https://github.com/bheemrc), an academic AI editor for paper creation from LaTeX — similar to Overleaf, but with AI-assisted writing and instant compilation.
+This is the compilation engine behind [ScriptOra](https://github.com/bheemrc) — an academic AI editor for paper creation, similar to Overleaf but with AI-assisted writing and instant compilation.
 
 ## How it's fast
 
@@ -274,4 +274,4 @@ Dual-licensed under [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE), at your 
 
 ---
 
-*ScripTeX is developed by [ScriptOra](https://github.com/bheemrc) — an AI-powered academic editor for LaTeX paper creation.*
+*ScripTeX is developed by [ScriptOra](https://github.com/bheemrc) — an AI-powered academic writing platform.*
