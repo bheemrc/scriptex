@@ -1619,6 +1619,44 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
+name = "scriptex"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "biblatex",
+ "bstr",
+ "clap",
+ "console_error_panic_hook",
+ "crossbeam",
+ "env_logger",
+ "flate2",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "image",
+ "itoa",
+ "js-sys",
+ "log",
+ "lopdf 0.34.0",
+ "memchr",
+ "memmap2",
+ "mimalloc",
+ "miniz_oxide",
+ "owned_ttf_parser 0.25.1",
+ "parking_lot",
+ "printpdf",
+ "rayon",
+ "rusttype",
+ "sha2",
+ "subsetter",
+ "syntect",
+ "thiserror",
+ "unicode-linebreak",
+ "unicode-segmentation",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1707,44 +1745,6 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
-
-[[package]]
-name = "sonicspeedlatex"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "anyhow",
- "biblatex",
- "bstr",
- "clap",
- "console_error_panic_hook",
- "crossbeam",
- "env_logger",
- "flate2",
- "getrandom 0.2.17",
- "getrandom 0.3.4",
- "image",
- "itoa",
- "js-sys",
- "log",
- "lopdf 0.34.0",
- "memchr",
- "memmap2",
- "mimalloc",
- "miniz_oxide",
- "owned_ttf_parser 0.25.1",
- "parking_lot",
- "printpdf",
- "rayon",
- "rusttype",
- "sha2",
- "subsetter",
- "syntect",
- "thiserror",
- "unicode-linebreak",
- "unicode-segmentation",
- "wasm-bindgen",
-]
 
 [[package]]
 name = "stable_deref_trait"

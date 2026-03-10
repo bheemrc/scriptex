@@ -3,7 +3,7 @@
 ///
 /// Approach:
 /// 1. Parser captures raw tikzpicture source text
-/// 2. At layout time, check cache (~/.cache/sonicspeedlatex/{sha256}.pdf)
+/// 2. At layout time, check cache (~/.cache/scriptex/{sha256}.pdf)
 /// 3. If not cached: write minimal .tex wrapper -> shell-out pdflatex -> get PDF
 /// 4. Parse single-page PDF -> extract content -> embed as Form XObject
 /// 5. Fallback: render placeholder box if pdflatex unavailable
@@ -26,7 +26,7 @@ pub struct TikzResult {
 /// Cache directory for rendered TikZ pictures
 fn cache_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(home).join(".cache").join("sonicspeedlatex")
+    PathBuf::from(home).join(".cache").join("scriptex")
 }
 
 /// Compute SHA-256 hash of TikZ source for caching
@@ -91,7 +91,7 @@ pub fn render_tikz(tikz_source: &str, preamble_packages: &[String]) -> TikzResul
     }
 
     // Create temporary directory
-    let tmp_dir = std::env::temp_dir().join(format!("soniclatex_tikz_{}", std::process::id()));
+    let tmp_dir = std::env::temp_dir().join(format!("scriptex_tikz_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&tmp_dir);
 
     // Write .tex wrapper

@@ -1,20 +1,20 @@
 [package]
-name = "sonicspeedlatex"
+name = "scriptex"
 version = "0.1.0"
 edition = "2021"
 description = "Blazing fast LaTeX to PDF compiler - 1000x faster than pdflatex"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/bheemrc/sonicspeedlatex"
+repository = "https://github.com/bheemrc/scriptex"
 keywords = ["latex", "pdf", "compiler", "typesetting", "fast"]
 categories = ["command-line-utilities", "text-processing"]
 
 [lib]
-name = "sonicspeedlatex"
+name = "scriptex"
 path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
-name = "soniclatex"
+name = "scriptex"
 path = "src/main.rs"
 required-features = ["cli"]
 

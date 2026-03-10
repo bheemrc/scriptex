@@ -1,4 +1,4 @@
-//! SonicSpeedLaTeX — blazing fast LaTeX to PDF compiler
+//! ScripTeX — blazing fast LaTeX to PDF compiler by ScriptOra
 //!
 //! Library entry point for both native CLI and WASM targets.
 //! Supports single-file compilation via `compile_latex_core()` and

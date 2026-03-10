@@ -6,11 +6,11 @@ use std::time::Instant;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use sonicspeedlatex::parser::Parser;
-use sonicspeedlatex::{lexer, layout, pdf, macro_expand, bibliography};
+use scriptex::parser::Parser;
+use scriptex::{lexer, layout, pdf, macro_expand, bibliography};
 
 #[derive(ClapParser, Debug)]
-#[command(name = "soniclatex", about = "Blazing fast LaTeX to PDF compiler")]
+#[command(name = "scriptex", about = "Blazing fast LaTeX to PDF compiler")]
 struct Args {
     /// Input LaTeX file
     input: PathBuf,
@@ -135,11 +135,11 @@ fn main() -> Result<()> {
 /// Scans for \bibliography{} commands, loads the referenced .bib files,
 /// collects citations from the AST, and appends a reference section.
 fn resolve_bibliography_from_dir(
-    doc: &mut sonicspeedlatex::document::Document,
+    doc: &mut scriptex::document::Document,
     source: &str,
     base_dir: &std::path::Path,
 ) -> (bool, std::collections::HashMap<String, (String, String)>) {
-    use sonicspeedlatex::document::{Node, EnvironmentData};
+    use scriptex::document::{Node, EnvironmentData};
 
     // Find \bibliography{filename} commands in source
     let mut bib_filenames = Vec::new();
@@ -252,8 +252,8 @@ fn resolve_bibliography_from_dir(
 }
 
 /// Recursively collect citation keys from AST nodes
-fn collect_citation_keys_recursive(nodes: &[sonicspeedlatex::document::Node], keys: &mut Vec<String>) {
-    use sonicspeedlatex::document::Node;
+fn collect_citation_keys_recursive(nodes: &[scriptex::document::Node], keys: &mut Vec<String>) {
+    use scriptex::document::Node;
     for node in nodes {
         match node {
             Node::Citation(key, _, _) => {

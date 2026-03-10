@@ -58,28 +58,28 @@ This is the compilation engine behind [ScriptOra](https://github.com/bheemrc), a
 ### From source
 
 ```bash
-git clone https://github.com/bheemrc/sonicspeedlatex.git
-cd sonicspeedlatex
+git clone https://github.com/bheemrc/scriptex.git
+cd scriptex
 cargo build --release
 ```
 
-The binary is at `target/release/soniclatex`.
+The binary is at `target/release/scriptex`.
 
 ### Pre-built binaries
 
-See [Releases](https://github.com/bheemrc/sonicspeedlatex/releases) for Linux x86_64 binaries.
+See [Releases](https://github.com/bheemrc/scriptex/releases) for Linux x86_64 binaries.
 
 ## Usage
 
 ```bash
 # Compile a LaTeX document
-soniclatex input.tex -o output.pdf
+scriptex input.tex -o output.pdf
 
 # Multi-threaded (default: auto-detect cores)
-soniclatex paper.tex -o paper.pdf -j 8
+scriptex paper.tex -o paper.pdf -j 8
 
 # Verbose mode
-soniclatex paper.tex -o paper.pdf --verbose
+scriptex paper.tex -o paper.pdf --verbose
 ```
 
 ## Feature Coverage
@@ -254,7 +254,7 @@ ScripTeX compiles to WebAssembly for browser-based LaTeX compilation with zero s
 
 ```bash
 ./scripts/build-wasm.sh
-# Output: pkg/sonicspeedlatex.js + .wasm (~2.7 MB)
+# Output: pkg/scriptex.js + .wasm (~2.7 MB)
 ```
 
 The WASM build powers ScriptOra's in-browser preview — compile LaTeX on the client, no round-trip to a server.

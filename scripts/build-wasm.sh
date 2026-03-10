@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Build SonicSpeedLaTeX as a WASM module for browser use
+# Build ScripTeX as a WASM module for browser use
 cd "$(dirname "$0")/.."
 
 echo "Building WASM module..."
@@ -16,6 +16,6 @@ wasm-pack build \
     --features wasm
 
 echo "WASM build complete:"
-echo "  Size: $(du -h pkg/sonicspeedlatex_bg.wasm | cut -f1)"
+echo "  Size: $(du -h pkg/scriptex_bg.wasm | cut -f1)"
 echo "  Files:"
 ls -la pkg/

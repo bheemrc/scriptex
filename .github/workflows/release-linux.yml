@@ -27,10 +27,10 @@ jobs:
 
       - name: Rename binary
         run: |
-          cp target/x86_64-unknown-linux-gnu/release/soniclatex soniclatex-linux-x86_64
-          chmod +x soniclatex-linux-x86_64
+          cp target/x86_64-unknown-linux-gnu/release/scriptex scriptex-linux-x86_64
+          chmod +x scriptex-linux-x86_64
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: soniclatex-linux-x86_64
+          files: scriptex-linux-x86_64
