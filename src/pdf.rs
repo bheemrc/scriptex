@@ -502,7 +502,7 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
     next_obj += 1;
     if info_id as usize > offsets.len() { offsets.resize(info_id as usize, 0); }
     begin_obj!(info_id);
-    w.write_all(b"<< /Producer (SonicSpeedLaTeX 0.1)")?;
+    w.write_all(b"<< /Producer (ScripTeX 0.1)")?;
     if let Some(title) = &doc.preamble.title {
         let clean = clean_metadata_text(title);
         w.write_all(b" /Title (")?;
@@ -527,7 +527,7 @@ fn write_pdf_streaming<W: Write>(writer: W, layout: &LayoutResult, doc: &Documen
         w.write_all(escape_pdf_string(&clean).as_bytes())?;
         w.write_all(b")")?;
     }
-    w.write_all(b" /Creator (SonicSpeedLaTeX)")?;
+    w.write_all(b" /Creator (ScripTeX)")?;
     // Add creation date in PDF date format: D:YYYYMMDDHHmmSS
     {
         use std::time::SystemTime;

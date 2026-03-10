@@ -5,8 +5,8 @@
 \usepackage{amsmath}
 \usepackage{graphicx}
 
-\title{SonicSpeed LaTeX: A Blazing Fast Compiler}
-\author{The SonicSpeed Team}
+\title{ScripTeX: A Blazing Fast LaTeX Compiler}
+\author{ScriptOra}
 \date{February 2026}
 
 \begin{document}
@@ -14,14 +14,14 @@
 \maketitle
 
 \begin{abstract}
-This document demonstrates the capabilities of SonicSpeedLaTeX, a next-generation LaTeX compiler built in Rust for maximum performance. Our compiler achieves compilation speeds orders of magnitude faster than traditional TeX implementations by using direct PDF generation, parallel processing, and zero-copy parsing techniques.
+This document demonstrates the capabilities of ScripTeX, a next-generation LaTeX compiler built in Rust for maximum performance. Our compiler achieves compilation speeds orders of magnitude faster than traditional TeX implementations by using direct PDF generation, parallel processing, and zero-copy parsing techniques.
 \end{abstract}
 
 \tableofcontents
 
 \section{Introduction}
 
-LaTeX has been the gold standard for scientific and technical document preparation for decades. However, the traditional TeX engine, while powerful, was designed in an era of limited computing resources and single-threaded execution. SonicSpeedLaTeX reimagines the compilation pipeline for modern hardware.
+LaTeX has been the gold standard for scientific and technical document preparation for decades. However, the traditional TeX engine, while powerful, was designed in an era of limited computing resources and single-threaded execution. ScripTeX reimagines the compilation pipeline for modern hardware.
 
 The key innovations of our approach include:
 \begin{itemize}
@@ -47,7 +47,7 @@ Our compiler follows a streamlined four-stage pipeline:
 
 \subsection{Performance Characteristics}
 
-The performance of SonicSpeedLaTeX is characterized by the following equation:
+The performance of ScripTeX is characterized by the following equation:
 
 $$T_{total} = T_{lex} + T_{parse} + T_{layout} + T_{pdf}$$
 
@@ -59,7 +59,7 @@ T_{lex} = O(n), \quad T_{parse} = O(n), \quad T_{layout} = O(n \log n), \quad T_
 
 \section{Mathematical Typesetting}
 
-SonicSpeedLaTeX supports comprehensive mathematical notation. Here are some examples:
+ScripTeX supports comprehensive mathematical notation. Here are some examples:
 
 \subsection{Basic Equations}
 
@@ -96,14 +96,14 @@ Compiler & 1 page & 100 pages & 1000 pages \\
 pdfLaTeX & 0.5s & 5.2s & 52s \\
 XeLaTeX & 0.8s & 8.1s & 81s \\
 LuaLaTeX & 0.6s & 6.3s & 63s \\
-SonicSpeed & 0.01s & 0.1s & 1.0s \\
+ScripTeX & 0.01s & 0.1s & 1.0s \\
 \hline
 \end{tabular}
 \end{table}
 
 \section{Text Formatting}
 
-SonicSpeedLaTeX supports all standard text formatting:
+ScripTeX supports all standard text formatting:
 
 \begin{itemize}
 \item \textbf{Bold text} for emphasis
@@ -142,7 +142,7 @@ For more details on our performance benchmarks, see Table~\ref{tab:comparison}. 
 
 \section{Conclusion}
 
-SonicSpeedLaTeX represents a paradigm shift in LaTeX compilation. By leveraging modern hardware capabilities and algorithmic innovations, we achieve compilation speeds that are 50-100x faster than traditional implementations while maintaining full compatibility with standard LaTeX documents.
+ScripTeX represents a paradigm shift in LaTeX compilation. By leveraging modern hardware capabilities and algorithmic innovations, we achieve compilation speeds that are 50-100x faster than traditional implementations while maintaining full compatibility with standard LaTeX documents.
 
 The future development roadmap includes:
 \begin{enumerate}
@@ -157,6 +157,6 @@ The future development roadmap includes:
 
 \noindent\rule{\textwidth}{0.4pt}
 
-\footnote{This document was compiled using SonicSpeedLaTeX v0.1.}
+\footnote{This document was compiled using ScripTeX v0.1.}
 
 \end{document}

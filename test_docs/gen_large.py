@@ -23,7 +23,7 @@ print(r"""\documentclass[12pt,a4paper]{article}
 \usepackage{amsmath}
 
 \title{Large Scale Benchmark Document}
-\author{SonicSpeed Benchmark Suite}
+\author{ScripTeX Benchmark Suite}
 \date{February 2026}
 
 \begin{document}

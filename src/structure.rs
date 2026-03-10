@@ -902,13 +902,22 @@ See Equation~\eqref{eq:main}.
     }
 
     #[test]
-    fn test_structure_icml_paper() {
-        let path = std::path::Path::new("test_docs/icml2026_paper/main.tex");
-        if !path.exists() {
-            return; // Skip if test doc not available
-        }
-        let source = std::fs::read_to_string(path).unwrap();
-        let json = crate::compile_latex_structure(&source).unwrap();
+    fn test_structure_two_column_paper() {
+        let source = r#"\documentclass{article}
+\begin{document}
+\title{Test Paper}
+\maketitle
+\section{Introduction}
+\label{sec:intro}
+Hello world.
+\begin{equation}
+E = mc^2
+\label{eq:einstein}
+\end{equation}
+\section{Methods}
+See Section~\ref{sec:intro}.
+\end{document}"#;
+        let json = crate::compile_latex_structure(source).unwrap();
 
         // Should produce valid JSON with document structure
         assert!(json.starts_with('{'));
